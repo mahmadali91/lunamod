@@ -13,6 +13,7 @@ export default function SettingsPage() {
   const [nu, setNu] = useState({ login: '', name: '', password: '', role: 'seller' });
   const users = useLoad(isAdmin ? '/users' : null);
   const cats = useLoad('/categories');
+  const health = useLoad('/health');
 
   useEffect(() => { setS({ storeName: settings.storeName, currency: settings.currency }); }, [settings.storeName, settings.currency]);
 
@@ -79,6 +80,12 @@ export default function SettingsPage() {
         </div>
         <Button type="submit" variant="secondary">Сменить пароль</Button>
       </form>
+
+      {health.data && (
+        <p className="text-center text-xs text-slate-400">
+          Версия {String(health.data.version).slice(0, 7)} · Node {health.data.node} · база {health.data.db === 'ok' ? 'подключена' : 'недоступна'}
+        </p>
+      )}
     </div>
   );
 }
