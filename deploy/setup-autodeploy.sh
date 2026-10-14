@@ -34,7 +34,7 @@ add_key "$SSH_DIR/sklad_local.pub" ''
 add_key "$SSH_DIR/sklad_github.pub" "command=\"$HOME/.sklad-deploy.sh\",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty "
 
 echo "Проверяю вход в Docker-окружение по ключу..."
-if ssh -p 222 -i "$SSH_DIR/sklad_local" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR localhost 'test -f ~/'"$DOMAIN"'/sklad.env && echo OK'; then
+if ssh -n -p 222 -i "$SSH_DIR/sklad_local" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR localhost 'test -f ~/'"$DOMAIN"'/sklad.env && echo OK'; then
   echo "Ключ работает."
 else
   echo "ВНИМАНИЕ: вход по ключу не сработал. Пришлите этот вывод разработчику."
