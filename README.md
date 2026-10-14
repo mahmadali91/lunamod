@@ -23,7 +23,7 @@ Node.js 20+ · Express · Prisma (SQLite / PostgreSQL / MySQL) · React · Vite 
 ```bash
 npm run install:all
 cp server/.env.example server/.env        # и поменяйте JWT_SECRET
-cd server && npx prisma migrate deploy && npm run seed   # создаёт admin / admin123
+cd server && npx prisma migrate deploy && npm run seed   # создаёт admin и печатает пароль
 npm run demo                              # (необязательно) демо-данные
 cd .. && npm run build && npm start       # http://localhost:3000
 ```

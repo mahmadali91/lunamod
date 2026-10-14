@@ -90,7 +90,7 @@ npm ci --omit=dev --no-audit --no-fund
 
 step "5/7 База данных"
 npx prisma migrate deploy
-ADMIN_PASSWORD="$ADMIN_PASSWORD" node prisma/seed.js
+ADMIN_PASSWORD="$ADMIN_PASSWORD" node prisma/seed.js   # создаёт admin только при первой установке
 
 step "6/7 Веб-сервер (Passenger + статика)"
 mkdir -p "$UPLOADS"
