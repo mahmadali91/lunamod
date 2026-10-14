@@ -6,7 +6,7 @@ const prisma = require('../db');
 const { ah, HttpError, generateEan13, detectBarcodeType, changeStock, num, int, str, like } = require('../util');
 
 const r = express.Router();
-const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
+const { UPLOAD_DIR } = require('../paths');
 const upload = multer({
   storage: multer.diskStorage({
     destination: UPLOAD_DIR,

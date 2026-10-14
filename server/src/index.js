@@ -1,5 +1,5 @@
-require('dotenv').config();
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
@@ -11,7 +11,19 @@ const { stock, receipts } = require('./routes/stock');
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
-app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads'), { maxAge: '7d' }));
+const { UPLOAD_DIR } = require('./paths');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d' }));
+
+// Проверка работоспособности (без авторизации)
+app.get('/api/health', async (req, res) => {
+  try {
+    await require('./db').$queryRaw`SELECT 1`;
+    res.json({ ok: true, db: 'ok', node: process.version });
+  } catch (e) {
+    res.status(500).json({ ok: false, db: 'error' });
+  }
+});
 
 app.use('/api/auth', auth);
 app.use('/api', requireAuth);
@@ -29,7 +41,7 @@ app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
 // Собранный фронтенд
-const dist = path.join(__dirname, '..', '..', 'client', 'dist');
+const dist = process.env.CLIENT_DIST || path.join(__dirname, '..', '..', 'client', 'dist');
 if (fs.existsSync(dist)) {
   app.use(express.static(dist));
   app.get('*', (req, res) => res.sendFile(path.join(dist, 'index.html')));

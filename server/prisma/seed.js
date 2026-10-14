@@ -1,11 +1,13 @@
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const bcrypt = require('bcryptjs');
 const prisma = require('../src/db');
 const { generateEan13, changeStock, nextNumber } = require('../src/util');
 
 async function main() {
   if (!(await prisma.user.findUnique({ where: { login: 'admin' } }))) {
-    await prisma.user.create({ data: { login: 'admin', name: 'Администратор', role: 'admin', password: await bcrypt.hash('admin123', 10) } });
-    console.log('Создан пользователь admin / admin123');
+    const password = process.env.ADMIN_PASSWORD || 'admin123';
+    await prisma.user.create({ data: { login: 'admin', name: 'Администратор', role: 'admin', password: await bcrypt.hash(password, 10) } });
+    console.log(`Создан пользователь admin / ${password}`);
   }
   if (process.argv.includes('--demo') && (await prisma.product.count()) === 0) {
     const [w1, w2] = await Promise.all([
