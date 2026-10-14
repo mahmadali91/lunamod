@@ -46,19 +46,18 @@ echo "node $(node -v), npm $(npm -v)"
 
 step "2/7 Код из GitHub"
 if command -v git >/dev/null 2>&1; then
-  if [ -d "$APP/.git" ]; then
-    git -C "$APP" fetch --depth 1 origin "$BRANCH"
-    git -C "$APP" reset --hard "origin/$BRANCH"
-  else
-    rm -rf "$APP"
-    git clone --depth 1 -b "$BRANCH" "$REPO" "$APP"
-  fi
+  [ -d "$APP/.git" ] || { rm -rf "$APP"; git clone --depth 1 -b "$BRANCH" "$REPO" "$APP"; }
+  # COMMIT — точная версия (передаёт автодеплой), иначе последняя в ветке
+  git -C "$APP" fetch --depth 1 origin "${COMMIT:-$BRANCH}"
+  git -C "$APP" reset --hard FETCH_HEAD
+  git -C "$APP" rev-parse HEAD > "$APP/server/VERSION"
 else
   rm -rf "$APP.new" && mkdir -p "$APP.new"
-  curl -fsSL "$REPO/archive/refs/heads/$BRANCH.tar.gz" | tar xz -C "$APP.new" --strip-components 1
+  curl -fsSL "$REPO/archive/${COMMIT:-refs/heads/$BRANCH}.tar.gz" | tar xz -C "$APP.new" --strip-components 1
+  echo "${COMMIT:-$BRANCH}" > "$APP.new/server/VERSION"
   rm -rf "$APP" && mv "$APP.new" "$APP"
 fi
-echo "Версия: $(cat "$APP/VERSION" 2>/dev/null || git -C "$APP" log -1 --format=%h 2>/dev/null || echo '?')"
+echo "Версия: $(cat "$APP/server/VERSION")"
 
 step "3/7 Зависимости сервера"
 cd "$APP/server"

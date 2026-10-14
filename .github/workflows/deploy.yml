@@ -1,0 +1,110 @@
+name: Проверка и деплой
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Деплои идут строго по очереди
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SITE_URL: https://botmi.ru
+  BEGET_HOST: zip4.beget.com
+  BEGET_USER: mahmadgv
+
+jobs:
+  test:
+    name: Тесты и сборка
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: sklad_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    env:
+      DATABASE_URL: mysql://root:root@127.0.0.1:3306/sklad_test
+      ADMIN_PASSWORD: ci-test-password
+      JWT_SECRET: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
+
+      - name: Зависимости сервера
+        working-directory: server
+        run: npm ci
+
+      - name: Миграции базы данных
+        working-directory: server
+        run: npx prisma migrate deploy
+
+      - name: Автотесты API
+        working-directory: server
+        run: npm test
+
+      - name: Сборка фронтенда
+        working-directory: client
+        run: npm ci && npm run build
+
+      - name: Собранный фронтенд в репозитории актуален
+        run: |
+          if [ -n "$(git status --porcelain client/dist)" ]; then
+            git status --short client/dist
+            echo "::error::Папка client/dist устарела: выполните 'npm --prefix client run build' и закоммитьте результат."
+            exit 1
+          fi
+
+  deploy:
+    name: Деплой на Beget
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.BEGET_SSH_KEY != '' }}
+    steps:
+      - name: Ключ не настроен — деплой пропущен
+        if: env.HAS_KEY != 'true'
+        run: echo "::warning::Секрет BEGET_SSH_KEY не задан. Запустите deploy/setup-autodeploy.sh на хостинге (см. README)."
+
+      - name: Обновление сайта на хостинге
+        if: env.HAS_KEY == 'true'
+        env:
+          KEY: ${{ secrets.BEGET_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/beget && chmod 600 ~/.ssh/beget
+          ssh-keyscan -H "$BEGET_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # Ключ на хостинге ограничен: он может только запустить обновление до этой версии
+          ssh -i ~/.ssh/beget -o BatchMode=yes -o ServerAliveInterval=30 "$BEGET_USER@$BEGET_HOST" "$GITHUB_SHA" 2>&1 | tee deploy.log
+          grep -q "Готово" deploy.log || { echo "::error::Скрипт деплоя завершился с ошибкой"; exit 1; }
+
+      - name: Проверка сайта после деплоя
+        if: env.HAS_KEY == 'true'
+        run: |
+          for i in $(seq 1 24); do
+            H=$(curl -fsS "$SITE_URL/api/health" || true)
+            echo "$H"
+            if echo "$H" | grep -q "\"version\":\"$GITHUB_SHA\"" && echo "$H" | grep -q '"db":"ok"'; then
+              curl -fsS "$SITE_URL/" | grep -q "<title>" || { echo "::error::Главная страница не отдаётся"; exit 1; }
+              curl -fsS -o /dev/null "$SITE_URL/products" || { echo "::error::Страницы приложения не открываются"; exit 1; }
+              echo "Сайт работает, версия $GITHUB_SHA"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::После деплоя сайт не ответил новой версией за 2 минуты"
+          exit 1

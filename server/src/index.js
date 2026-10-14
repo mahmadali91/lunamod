@@ -16,10 +16,14 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d' }));
 
 // Проверка работоспособности (без авторизации)
+// VERSION записывает скрипт деплоя (хэш коммита)
+let VERSION = 'dev';
+try { VERSION = fs.readFileSync(path.join(__dirname, '..', 'VERSION'), 'utf8').trim(); } catch { /* локальный запуск */ }
+
 app.get('/api/health', async (req, res) => {
   try {
     await require('./db').$queryRaw`SELECT 1`;
-    res.json({ ok: true, db: 'ok', node: process.version });
+    res.json({ ok: true, db: 'ok', version: VERSION, node: process.version });
   } catch (e) {
     res.status(500).json({ ok: false, db: 'error' });
   }

@@ -9,7 +9,8 @@
     "seed": "node prisma/seed.js",
     "demo": "node prisma/seed.js --demo",
     "migrate": "prisma migrate deploy",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test": "node --test test/api.test.js"
   },
   "keywords": [],
   "author": "",
