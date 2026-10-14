@@ -3,6 +3,7 @@
 # Запускать в Docker-окружении хостинга (после `ssh localhost -p 222`):
 #   curl -fsSL https://raw.githubusercontent.com/mahmadali91/sklad/main/deploy/beget.sh | bash
 # Повторный запуск = обновление до последней версии из GitHub (данные и фото сохраняются).
+# Ввести данные базы заново: ... | RESET=1 bash
 set -euo pipefail
 
 DOMAIN="${DOMAIN:-botmi.ru}"
@@ -59,34 +60,53 @@ else
 fi
 echo "Версия: $(cat "$APP/VERSION" 2>/dev/null || git -C "$APP" log -1 --format=%h 2>/dev/null || echo '?')"
 
-step "3/7 Настройки (.env)"
+step "3/7 Зависимости сервера"
+cd "$APP/server"
+npm ci --omit=dev --no-audit --no-fund --loglevel=error
+
+# Проверка подключения к MySQL
+db_ok() { printf 'SELECT 1;' | npx prisma db execute --url "$1" --stdin >/dev/null 2>&1; }
+make_url() { local p; p=$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$3"); printf 'mysql://%s:%s@localhost:3306/%s' "$2" "$p" "$1"; }
+
+step "4/7 Настройки и подключение к базе"
 ADMIN_PASSWORD=""
-if [ ! -f "$ENV_FILE" ]; then
-  echo "Нужна база MySQL. Создайте её в панели Beget → «MySQL», если ещё нет."
-  DB_NAME=$(ask "Имя базы данных (например, ${USER}_sklad): ")
-  DB_USER=$(ask "Пользователь БД [Enter = $DB_NAME]: "); DB_USER=${DB_USER:-$DB_NAME}
-  DB_PASS=$(asks "Пароль БД (не отображается): ")
-  [ -n "$DB_NAME" ] && [ -n "$DB_PASS" ] || fail "Имя базы и пароль обязательны"
-  ENC_PASS=$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$DB_PASS")
+if [ "${RESET:-0}" = 1 ] && [ -f "$ENV_FILE" ]; then
+  mv "$ENV_FILE" "$ENV_FILE.old.$(date +%Y%m%d%H%M%S)"
+  echo "RESET=1: настройки базы будут введены заново"
+fi
+if [ -f "$ENV_FILE" ]; then
+  echo "Использую существующий $ENV_FILE"
+  URL=$(sed -n 's/^DATABASE_URL="\(.*\)"$/\1/p' "$ENV_FILE")
+  db_ok "$URL" || fail "Не удаётся подключиться к базе с сохранёнными настройками. Запустите заново с RESET=1:
+  curl -fsSL https://raw.githubusercontent.com/mahmadali91/sklad/main/deploy/beget.sh | RESET=1 bash"
+else
+  echo "Нужна база MySQL из панели Beget → «MySQL». Пользователь БД на Beget совпадает с именем базы."
+  URL=""
+  for try in 1 2 3; do
+    DB_NAME="${DB_NAME:-$(ask "Имя базы данных (например, ${USER:-логин}_sklad): ")}"
+    DB_PASS="${DB_PASS:-$(asks "Пароль базы данных (при вводе не отображается): ")}"
+    DB_USER="${DB_USER:-$DB_NAME}"
+    if [ -n "$DB_NAME" ] && [ -n "$DB_PASS" ] && db_ok "$(make_url "$DB_NAME" "$DB_USER" "$DB_PASS")"; then
+      URL=$(make_url "$DB_NAME" "$DB_USER" "$DB_PASS"); echo "Подключение к базе $DB_NAME: OK"; break
+    fi
+    echo "Не удалось подключиться к базе «$DB_NAME» (попытка $try из 3). Проверьте имя и пароль в панели → MySQL."
+    unset DB_NAME DB_PASS DB_USER
+    [ -t 0 ] || [ -r /dev/tty ] || break
+  done
+  [ -n "$URL" ] || fail "Нет подключения к базе. Настройки не сохранены — просто запустите команду ещё раз."
   JWT=$(node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("hex"))')
   ADMIN_PASSWORD=$(node -e 'process.stdout.write(require("crypto").randomBytes(6).toString("base64url"))')
   umask 077
   cat > "$ENV_FILE" <<ENV
-DATABASE_URL="mysql://$DB_USER:$ENC_PASS@localhost:3306/$DB_NAME"
+DATABASE_URL="$URL"
 JWT_SECRET="$JWT"
 UPLOAD_DIR="$UPLOADS"
 NODE_ENV=production
 ENV
   umask 022
   echo "Сохранено в $ENV_FILE"
-else
-  echo "Использую существующий $ENV_FILE"
 fi
 ln -sfn "$ENV_FILE" "$APP/server/.env"
-
-step "4/7 Зависимости сервера"
-cd "$APP/server"
-npm ci --omit=dev --no-audit --no-fund
 
 step "5/7 База данных"
 npx prisma migrate deploy
