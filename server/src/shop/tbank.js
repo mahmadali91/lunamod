@@ -62,6 +62,15 @@ async function getState(s, paymentId) {
   return call('GetState', body);
 }
 
+/** QR / ссылка на оплату через СБП для созданного платежа (DataType PAYLOAD — ссылка вида https://qr.nspk.ru/...) */
+async function getQr(s, paymentId) {
+  const body = { TerminalKey: s.tbankTerminalKey, PaymentId: String(paymentId), DataType: 'PAYLOAD' };
+  body.Token = token(body, s.tbankPassword);
+  const r = await call('GetQr', body);
+  if (!r.Success || !r.Data) throw Object.assign(new Error(`СБП: ${r.Message || 'не удалось получить QR'}${r.Details ? ' — ' + r.Details : ''}. Проверьте, что СБП подключена в личном кабинете Т-Бизнеса`), { status: 502 });
+  return r.Data;
+}
+
 /** Отмена / полный возврат платежа */
 async function cancelPayment(s, paymentId) {
   const body = { TerminalKey: s.tbankTerminalKey, PaymentId: String(paymentId) };
@@ -76,4 +85,4 @@ function verifyNotification(s, body) {
   return Boolean(body && body.Token && body.TerminalKey === s.tbankTerminalKey && token(body, s.tbankPassword) === body.Token);
 }
 
-module.exports = { initPayment, getState, cancelPayment, verifyNotification, token };
+module.exports = { initPayment, getState, getQr, cancelPayment, verifyNotification, token };

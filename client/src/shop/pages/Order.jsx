@@ -3,6 +3,7 @@ import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Clock, XCircle, CreditCard, Loader2, Store, Truck } from 'lucide-react';
 import { shopApi } from '../api';
 import { useShop } from '../store';
+import SbpPay from '../SbpPay';
 
 export const STATUS = {
   new: ['Принят', 'bg-indigo-100 text-indigo-800'], confirmed: ['Подтверждён', 'bg-sky-100 text-sky-800'], ready: ['Собран / в пути', 'bg-amber-100 text-amber-800'],
@@ -35,11 +36,14 @@ export default function Order() {
   };
   const testPay = async () => { setBusy(true); try { setO(await shopApi(`/orders/${o.id}/test-pay`, { method: 'POST' })); setParams({}); notify('Оплата прошла (тест)'); } finally { setBusy(false); } };
   const cancel = async () => { if (!confirm('Отменить заказ?')) return; try { setO(await shopApi(`/orders/${o.id}/cancel`, { method: 'POST' })); } catch (e) { notify(e.message, 'error'); } };
-  const needPay = o.paymentMethod === 'tbank' && ['unpaid', 'pending', 'failed'].includes(o.paymentStatus) && o.status !== 'cancelled';
+  const needPay = ['tbank', 'sbp'].includes(o.paymentMethod) && ['unpaid', 'pending', 'failed'].includes(o.paymentStatus) && o.status !== 'cancelled';
+  const sbpQr = o.paymentMethod === 'sbp' && needPay && o.paymentStatus === 'pending' && o.paymentUrl;
 
   return (
     <div className="mx-auto max-w-3xl px-4 pt-8">
-      {params.get('testpay') && needPay && config.testMode ? (
+      {sbpQr ? (
+        <SbpPay order={o} money={money} onCheck={load} test={config.testMode && o.paymentUrl.includes('/TEST')} onTestPay={testPay} />
+      ) : params.get('testpay') && needPay && config.testMode ? (
         <div className="mb-6 rounded-3xl border-2 border-dashed border-amber-300 bg-amber-50 p-6 text-center">
           <CreditCard className="mx-auto text-amber-600" size={36} />
           <h2 className="mt-2 text-xl font-bold">Тестовая оплата</h2>
@@ -64,7 +68,7 @@ export default function Order() {
         </div>
         <div className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
           <div className="flex gap-2">{o.delivery === 'pickup' ? <Store size={18} /> : <Truck size={18} />}<div>{o.deliveryName || 'Доставка'}{o.address ? `: ${o.address}` : o.delivery === 'pickup' && config.pickupAddress ? `: ${config.pickupAddress}` : ''}{(() => { try { const d = JSON.parse(o.deliveryInfo || '{}').days; return d ? ` (${d})` : ''; } catch { return ''; } })()}</div></div>
-          <div className="flex gap-2"><CreditCard size={18} /><div>{o.paymentMethod === 'tbank' ? 'Онлайн, Т-Банк' : 'При получении'} — {PAY[o.paymentStatus]}</div></div>
+          <div className="flex gap-2"><CreditCard size={18} /><div>{{ tbank: 'Онлайн, Т-Банк', sbp: 'СБП' }[o.paymentMethod] || 'При получении'} — {PAY[o.paymentStatus]}</div></div>
         </div>
         <div className="mt-5 divide-y divide-slate-100">
           {o.items.map((i) => (

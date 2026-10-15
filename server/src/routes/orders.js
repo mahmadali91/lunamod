@@ -49,19 +49,20 @@ r.post('/:id(\\d+)/status', ah(async (req, res) => {
       const number = await nextNumber(tx, 'sale_seq', 'S-');
       const sale = await tx.sale.create({ data: {
         number, warehouseId: warehouse.id, channelId: channel.id, counterpartyId: cp.id, total: o.total, discount: 0,
-        paymentMethod: o.paymentMethod === 'tbank' ? 'tbank' : 'cash', paidAmount: o.total, note: `Заказ ${o.number}`,
+        paymentMethod: ['tbank', 'sbp'].includes(o.paymentMethod) ? o.paymentMethod : 'cash', paidAmount: o.total, note: `Заказ ${o.number}`,
       } });
       for (const i of o.items) {
         const p = await tx.product.findUnique({ where: { id: i.productId } });
-        await tx.saleItem.create({ data: { saleId: sale.id, productId: i.productId, quantity: i.quantity, price: i.price, costPrice: p?.costPrice || 0 } });
-        await changeStock(tx, { productId: i.productId, warehouseId: warehouse.id, quantity: -i.quantity, type: 'SALE', note: `${number} (заказ ${o.number})`, saleId: sale.id });
+        const it = await tx.saleItem.create({ data: { saleId: sale.id, productId: i.productId, quantity: i.quantity, price: i.price, costPrice: p?.costPrice || 0 } });
+        const mv = await changeStock(tx, { productId: i.productId, warehouseId: warehouse.id, quantity: -i.quantity, type: 'SALE', note: `${number} (заказ ${o.number})`, saleId: sale.id, saleItemId: it.id });
+        await tx.saleItem.update({ where: { id: it.id }, data: { costPrice: mv.cost } });
       }
       if (o.deliveryPrice > 0) { /* доставка входит в сумму продажи как услуга без товара */ }
       await tx.order.update({ where: { id }, data: { status: 'completed', saleId: sale.id, paymentStatus: o.paymentMethod === 'cash' ? 'paid' : o.paymentStatus, paidAt: o.paidAt || new Date() } });
     });
   } else if (status === 'cancelled') {
     let refund = null;
-    if (o.paymentMethod === 'tbank' && o.paymentStatus === 'paid' && o.paymentId && tbankReady(s)) {
+    if (['tbank', 'sbp'].includes(o.paymentMethod) && o.paymentStatus === 'paid' && o.paymentId && tbankReady(s)) {
       if (!req.body.refund) throw new HttpError(400, 'Заказ оплачен онлайн. Подтвердите возврат денег покупателю.');
       await tbank.cancelPayment(s, o.paymentId);
       refund = 'refunded';

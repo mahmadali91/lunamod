@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom';
 import { FolderTree, Pencil, Plus, Trash2, Search, ArrowRight } from 'lucide-react';
 import { api } from '../api';
 import { Button, Empty, Field, Modal, PageHeader, Spinner, Thumb, fmtNum, useLoad, useToast } from '../ui';
+import SizeCharts from '../components/SizeCharts';
 
 export default function Categories() {
   const { data, reload } = useLoad('/categories');
+  const { data: charts } = useLoad('/size-charts');
   const [edit, setEdit] = useState(null); // { id?, name }
   const [q, setQ] = useState('');
   const [saving, setSaving] = useState(false);
@@ -15,9 +17,10 @@ export default function Categories() {
     e.preventDefault();
     setSaving(true);
     try {
-      if (edit.id) await api('/categories/' + edit.id, { method: 'PUT', body: { name: edit.name } });
-      else await api('/categories', { method: 'POST', body: { name: edit.name } });
-      toast(edit.id ? 'Категория переименована' : 'Категория добавлена'); setEdit(null); reload();
+      const body = { name: edit.name, sizeChartId: edit.sizeChartId || null };
+      if (edit.id) await api('/categories/' + edit.id, { method: 'PUT', body });
+      else await api('/categories', { method: 'POST', body });
+      toast(edit.id ? 'Категория сохранена' : 'Категория добавлена'); setEdit(null); reload();
     } catch (err) { toast(err.message, 'error'); } finally { setSaving(false); }
   };
   const remove = async (c) => {
@@ -57,7 +60,7 @@ export default function Categories() {
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <Link to={`/products?category=${c.id}`} title="Открыть товары" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-indigo-600"><ArrowRight size={16} /></Link>
-                  <button onClick={() => setEdit({ id: c.id, name: c.name })} title="Переименовать" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-indigo-600"><Pencil size={16} /></button>
+                  <button onClick={() => setEdit({ id: c.id, name: c.name, sizeChartId: c.sizeChartId })} title="Изменить" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-indigo-600"><Pencil size={16} /></button>
                   <button onClick={() => remove(c)} title="Удалить" className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 size={16} /></button>
                 </div>
               </div>
@@ -65,10 +68,12 @@ export default function Categories() {
           </div>
         )}
       </div>
-      <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? 'Переименовать категорию' : 'Новая категория'}
+      <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? 'Категория' : 'Новая категория'}
         footer={<><Button variant="secondary" onClick={() => setEdit(null)}>Отмена</Button><Button form="cat-form" type="submit" loading={saving}>Сохранить</Button></>}>
-        {edit && <form id="cat-form" onSubmit={save}><Field label="Название"><input className="input" autoFocus required value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field></form>}
+        {edit && <form id="cat-form" onSubmit={save} className="space-y-4"><Field label="Название"><input className="input" autoFocus required value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
+          <Field label="Таблица размеров для товаров категории"><select className="input" value={edit.sizeChartId || ''} onChange={(e) => setEdit({ ...edit, sizeChartId: e.target.value ? Number(e.target.value) : null })}><option value="">— нет —</option>{(charts || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field></form>}
       </Modal>
+      <SizeCharts />
     </div>
   );
 }

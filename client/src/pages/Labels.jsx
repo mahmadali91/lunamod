@@ -7,23 +7,31 @@ import ProductPicker from '../components/ProductPicker';
 import { BarcodeSvg, Button, Field, PageHeader, Thumb, useMoney, useSettings, useToast } from '../ui';
 
 const LS = 'label_options';
+// карточка с размерами → этикетка на каждый вариант
+const expand = (p) => p.variants.map((v) => ({ ...v, parent: { name: p.name, sku: p.sku }, attributes: p.attributes, oldPrice: v.oldPrice ?? p.oldPrice, images: (p.images || []).filter((i) => !i.color || i.color === v.color) }));
+
 const defaults = { template: 'price', w: 58, h: 40, showStore: true, showSku: true, showAttrs: true, showOld: true };
 
 /** Одна этикетка в реальных миллиметрах */
 function Label({ p, o, money, storeName }) {
   const barcode = p.barcodes?.[0]?.code;
+  // у варианта: название карточки + цвет и размер отдельной строкой (размер — крупно)
+  const name = p.parent ? p.parent.name : p.name;
+  const sku = p.sku || p.parent?.sku;
+  const variant = p.parent && (p.color || p.size) ? <>{p.color}{p.color && p.size ? ' · ' : ''}{p.size && <b style={{ fontSize: '1.25em' }}>{p.size}</b>}</> : null;
   const attrs = (p.attributes || []).slice(0, 3).map((a) => a.value).join(' · ');
   const box = { width: `${o.w}mm`, height: `${o.h}mm`, padding: '1.5mm 2mm', boxSizing: 'border-box', overflow: 'hidden', background: '#fff', color: '#000', fontFamily: 'Arial, Helvetica, sans-serif', display: 'flex', flexDirection: 'column' };
 
   if (o.template === 'barcode') {
     return (
       <div style={box}>
-        <div style={{ fontSize: '7.5pt', fontWeight: 700, lineHeight: 1.15, maxHeight: '2.3em', overflow: 'hidden' }}>{p.name}</div>
+        <div style={{ fontSize: '7.5pt', fontWeight: 700, lineHeight: 1.15, maxHeight: '2.3em', overflow: 'hidden' }}>{name}</div>
+        {variant && <div style={{ fontSize: '8pt', lineHeight: 1.2 }}>{variant}</div>}
         {o.showAttrs && attrs && <div style={{ fontSize: '6.5pt', lineHeight: 1.2 }}>{attrs}</div>}
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
           {barcode && <BarcodeSvg value={barcode} height={60} width={2} fontSize={16} className="label-barcode" />}
         </div>
-        {o.showSku && p.sku && <div style={{ fontSize: '7pt', textAlign: 'center', fontWeight: 700 }}>Арт. {p.sku}</div>}
+        {o.showSku && sku && <div style={{ fontSize: '7pt', textAlign: 'center', fontWeight: 700 }}>Арт. {sku}</div>}
       </div>
     );
   }
@@ -32,7 +40,8 @@ function Label({ p, o, money, storeName }) {
   return (
     <div style={box}>
       {o.showStore && storeName && <div style={{ fontSize: '6pt', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '0.2mm solid #000', paddingBottom: '0.5mm', marginBottom: '0.8mm' }}>{storeName}</div>}
-      <div style={{ fontSize: '9.5pt', fontWeight: 700, lineHeight: 1.15, maxHeight: '2.3em', overflow: 'hidden' }}>{p.name}</div>
+      <div style={{ fontSize: '9.5pt', fontWeight: 700, lineHeight: 1.15, maxHeight: '2.3em', overflow: 'hidden' }}>{name}</div>
+      {variant && <div style={{ fontSize: '8pt', lineHeight: 1.2 }}>{variant}</div>}
       {o.showAttrs && attrs && <div style={{ fontSize: '6.5pt', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{attrs}</div>}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '2mm', marginTop: 'auto' }}>
         <span style={{ fontSize: hasOld ? '17pt' : '20pt', fontWeight: 800, lineHeight: 1, whiteSpace: 'nowrap' }}>{money(p.price)}</span>
@@ -40,7 +49,7 @@ function Label({ p, o, money, storeName }) {
       </div>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '1mm', marginTop: '0.8mm' }}>
         <div style={{ height: '13mm', display: 'flex', minWidth: 0 }}>{barcode && <BarcodeSvg value={barcode} height={40} width={1.5} fontSize={13} className="label-barcode" />}</div>
-        {o.showSku && p.sku && <div style={{ fontSize: '6pt', textAlign: 'right', lineHeight: 1.1, maxWidth: '16mm', overflow: 'hidden' }}>арт.<br /><b>{p.sku}</b></div>}
+        {o.showSku && sku && <div style={{ fontSize: '6pt', textAlign: 'right', lineHeight: 1.1, maxWidth: '16mm', overflow: 'hidden' }}>арт.<br /><b>{sku}</b></div>}
       </div>
     </div>
   );
@@ -62,12 +71,12 @@ export default function Labels() {
     const qty = (params.get('qty') || '').split(',');
     if (!ids.length) return;
     Promise.all(ids.map((id) => api('/products/' + id).catch(() => null))).then((list) => {
-      setItems(list.map((p, i) => p && { product: p, qty: Number(qty[i]) || 1 }).filter(Boolean));
+      setItems(list.flatMap((p, i) => (!p ? [] : p.hasVariants ? expand(p).map((v) => ({ product: v, qty: 1 })) : [{ product: p, qty: Number(qty[i]) || 1 }])));
     });
   }, [params]);
 
   const add = async (p) => {
-    const full = p.attributes ? p : await api('/products/' + p.id);
+    const full = p.attributes && (!p.parentId || p.parent?.name) ? p : await api('/products/' + p.id);
     setItems((s) => (s.some((x) => x.product.id === p.id) ? s.map((x) => (x.product.id === p.id ? { ...x, qty: x.qty + 1 } : x)) : [...s, { product: full, qty: 1 }]));
   };
 

@@ -161,7 +161,7 @@ export default function Stock() {
   const { data, reload, loading } = useLoad('/stock' + qs({ q: debounced }));
 
   const rows = (data?.rows || []).filter((r) => !onlyLow || r.total <= r.minStock);
-  const totals = rows.reduce((a, r) => ({ qty: a.qty + r.total, cost: a.cost + r.total * r.costPrice, retail: a.retail + r.total * r.price }), { qty: 0, cost: 0, retail: 0 });
+  const totals = rows.reduce((a, r) => ({ qty: a.qty + r.total, cost: a.cost + (r.stockCost ?? r.total * r.costPrice), retail: a.retail + r.total * r.price }), { qty: 0, cost: 0, retail: 0 });
 
   const changes = edit ? Object.entries(edit).filter(([k, v]) => {
     const [pid, wid] = k.split(':').map(Number);
@@ -191,6 +191,8 @@ export default function Stock() {
     { title: 'ID', value: (r) => r.id, width: 7 },
     { title: 'Товар', value: (r) => r.name, width: 42 },
     { title: 'Артикул', value: (r) => r.sku, width: 16 },
+    { title: 'Цвет', value: (r) => r.color, width: 12 },
+    { title: 'Размер', value: (r) => r.size, width: 9 },
     { title: 'Штрихкод', value: (r) => r.barcode, width: 16 },
     ...data.warehouses.map((w) => ({ title: w.name, value: (r) => r.byWh[w.id] || 0, width: Math.max(12, w.name.length + 2) })),
     { title: 'Всего на складах', value: (r) => r.total, width: 16 },
@@ -244,7 +246,7 @@ export default function Stock() {
                 {rows.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-50/70">
                     <td className="td py-2"><Thumb src={r.image} size={44} /></td>
-                    <td className="td"><Link to={`/products/${r.id}`} className="font-medium hover:text-indigo-600">{r.name}</Link><div className="font-mono text-xs text-slate-400">{r.barcode}</div></td>
+                    <td className="td"><Link to={`/products/${r.parentId || r.id}`} className="font-medium hover:text-indigo-600">{r.parentId ? r.name.split(" · ")[0] : r.name}</Link>{r.parentId && <div className="text-xs font-semibold text-indigo-700">{[r.color, r.size].filter(Boolean).join(" · ")}</div>}<div className="font-mono text-xs text-slate-400">{r.sku ? r.sku + " · " : ""}{r.barcode}</div></td>
                     <td className="td font-mono text-xs text-slate-600">{r.sku || '—'}</td>
                     {data.warehouses.map((w) => {
                       const v = r.byWh[w.id] || 0;

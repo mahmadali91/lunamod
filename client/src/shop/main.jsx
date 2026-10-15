@@ -13,6 +13,7 @@ import Account from './pages/Account';
 import Order from './pages/Order';
 import About from './pages/About';
 import Legal from './pages/Legal';
+import Favorites from './pages/Favorites';
 
 // Старые адреса программы учёта (до переноса на /admin) — перенаправляем
 const ADMIN_PATHS = ['login', 'pos', 'sales', 'orders', 'consignment', 'stats', 'products', 'categories', 'stock', 'receipts', 'labels', 'warehouses', 'channels', 'counterparties', 'settings', 'shop-settings'];
@@ -33,6 +34,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route index element={<Catalog />} />
             <Route path="catalog" element={<Catalog />} />
             <Route path="product/:id" element={<Product />} />
+            <Route path="favorites" element={<Favorites />} />
             <Route path="cart" element={<Cart />} />
             <Route path="checkout" element={<Checkout />} />
             <Route path="account" element={<Account />} />
@@ -48,3 +50,5 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 );
 
 applyTheme();
+// PWA: офлайн-страница и установка на телефон (service worker также принимает пуш-уведомления)
+if ('serviceWorker' in navigator && location.protocol === 'https:') window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));

@@ -81,9 +81,11 @@ r.post('/', ah(async (req, res) => {
     for (const i of items) {
       const p = await tx.product.findUnique({ where: { id: Number(i.productId) } });
       if (!p) throw new HttpError(400, 'Товар не найден');
-      await tx.saleItem.create({ data: { saleId: sale.id, productId: p.id, quantity: num(i.quantity), price: num(i.price), costPrice: p.costPrice } });
-      // Продавать можно и при нулевом остатке — остаток уходит в минус
-      await changeStock(tx, { productId: p.id, warehouseId: sale.warehouseId, quantity: -num(i.quantity), type: 'SALE', note: number, saleId: sale.id });
+      if (p.hasVariants) throw new HttpError(400, `У «${p.name}» есть размеры/цвета — выберите конкретный вариант`);
+      const it = await tx.saleItem.create({ data: { saleId: sale.id, productId: p.id, quantity: num(i.quantity), price: num(i.price), costPrice: p.costPrice } });
+      // Продавать можно и при нулевом остатке — остаток уходит в минус. Себестоимость — по списанным партиям (FIFO)
+      const mv = await changeStock(tx, { productId: p.id, warehouseId: sale.warehouseId, quantity: -num(i.quantity), type: 'SALE', note: number, saleId: sale.id, saleItemId: it.id });
+      await tx.saleItem.update({ where: { id: it.id }, data: { costPrice: mv.cost } });
     }
     return sale;
   });
@@ -133,7 +135,7 @@ r.post('/:id/return-items', ah(async (req, res) => {
       if (!it) throw new HttpError(400, 'Позиция не найдена');
       if (q > it.quantity - it.returned) throw new HttpError(400, `Нельзя вернуть больше, чем продано (${it.quantity - it.returned})`);
       await tx.saleItem.update({ where: { id: it.id }, data: { returned: it.returned + q } });
-      await changeStock(tx, { productId: it.productId, warehouseId: s.warehouseId, quantity: q, type: 'RETURN', note: `Возврат ${s.number}`, saleId: s.id });
+      await changeStock(tx, { productId: it.productId, warehouseId: s.warehouseId, quantity: q, type: 'RETURN', note: `Возврат ${s.number}`, saleId: s.id, saleItemId: it.id });
       any = true;
     }
     if (!any) throw new HttpError(400, 'Укажите количество для возврата');
@@ -155,7 +157,7 @@ r.post('/:id/return', ah(async (req, res) => {
       const q = i.quantity - i.returned;
       if (q <= 0) continue;
       await tx.saleItem.update({ where: { id: i.id }, data: { returned: i.quantity } });
-      await changeStock(tx, { productId: i.productId, warehouseId: s.warehouseId, quantity: q, type: 'RETURN', note: `Возврат ${s.number}`, saleId: s.id });
+      await changeStock(tx, { productId: i.productId, warehouseId: s.warehouseId, quantity: q, type: 'RETURN', note: `Возврат ${s.number}`, saleId: s.id, saleItemId: i.id });
     }
     await tx.sale.update({ where: { id }, data: { status: 'returned' } });
   });

@@ -43,8 +43,8 @@ export default function Products() {
     setExporting(true);
     try {
       const list = await api('/products/export' + qs({ categoryId }));
-      const attrs = [...new Set(list.flatMap((p) => p.attributes.map((a) => a.name)))];
-      const order = ['Размер', 'Цвет', 'Материал', 'Бренд'];
+      const attrs = [...new Set(list.flatMap((p) => p.attributes.map((a) => a.name)))].filter((a) => !['Размер', 'Цвет'].includes(a));
+      const order = ['Материал', 'Бренд'];
       attrs.sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
       await downloadXlsx(`tovary-${today()}.xlsx`, [
         { title: 'ID', value: (p) => p.id, width: 7 },
@@ -58,6 +58,8 @@ export default function Products() {
         { title: 'Закупочная цена', value: (p) => p.costPrice, width: 15 },
         { title: 'Ед. изм.', value: (p) => p.unit, width: 9 },
         { title: 'Мин. остаток', value: (p) => p.minStock, width: 12 },
+        { title: 'Цвет', value: (p) => p.color, width: 14 },
+        { title: 'Размер', value: (p) => p.size, width: 10 },
         ...attrs.map((a) => ({ title: a, value: (p) => p.attributes.find((x) => x.name === a)?.value, width: 16 })),
         { title: 'Описание', value: (p) => p.description, width: 40 },
         { title: 'Всего на складах', value: (p) => p.totalStock, width: 16 },
@@ -66,7 +68,7 @@ export default function Products() {
   };
 
   const openCode = async (code) => {
-    try { const p = await api('/products/lookup/' + encodeURIComponent(code)); navigate('/products/' + p.id); } catch { setQ(code); }
+    try { const p = await api('/products/lookup/' + encodeURIComponent(code)); navigate('/products/' + (p.parentId || p.id)); } catch { setQ(code); }
   };
   const onKeyDown = (e) => { if (e.key === 'Enter' && q.trim()) openCode(q.trim()); };
 
@@ -117,6 +119,7 @@ export default function Products() {
                   <div className="p-3">
                     <div className="line-clamp-2 min-h-[2.5rem] text-sm font-medium text-slate-900">{p.name}</div>
                     <div className="mt-0.5 truncate font-mono text-xs text-slate-400">{p.sku || p.barcodes[0]?.code}</div>
+                    {p.hasVariants && <VariantChips p={p} />}
                     <div className="mt-2 flex items-end justify-between gap-2">
                       <div>
                         <div className="font-bold">{money(p.price)}</div>
@@ -158,11 +161,12 @@ export default function Products() {
                         <Link to={`/products/${p.id}`} className="min-w-0">
                           <div className="font-medium text-slate-900 hover:text-indigo-600">{p.name}</div>
                           {p.category && <div className="text-xs text-slate-500">{p.category.name}</div>}
+                          {p.hasVariants && <VariantChips p={p} />}
                         </Link>
                       </div>
                     </td>
                     <td className="td font-mono text-xs text-slate-600">{p.sku || '—'}</td>
-                    <td className="td font-mono text-xs text-slate-600">{p.barcodes[0]?.code}</td>
+                    <td className="td font-mono text-xs text-slate-600">{p.hasVariants ? <span className="font-sans text-slate-500">{p.variants.length} штрихкод.</span> : p.barcodes[0]?.code}</td>
                     <td className="td text-right font-semibold">{money(p.price)}</td>
                     <td className="td text-right">
                       <Badge color={p.totalStock <= 0 ? 'red' : p.totalStock <= p.minStock ? 'amber' : 'green'}>{fmtNum(p.totalStock)} {p.unit}</Badge>
@@ -192,6 +196,19 @@ export default function Products() {
       {zoom && <Lightbox images={zoom.images} title={zoom.title} onClose={() => setZoom(null)} />}
       <ImportProducts open={importOpen} onClose={() => setImportOpen(false)} onDone={reload} />
       {archived && <p className="mt-3 flex items-center gap-1 text-xs text-slate-500"><Archive size={12} /> Показаны архивные товары (удалённые, по которым были документы)</p>}
+    </div>
+  );
+}
+
+// Размеры карточки: зачёркнут — нет в наличии
+function VariantChips({ p }) {
+  const sizes = {};
+  p.variants.forEach((v) => { const k = v.size || v.color; const q = v.stocks.reduce((a, x) => a + x.quantity, 0); sizes[k] = (sizes[k] || 0) + q; });
+  const colors = new Set(p.variants.map((v) => v.color).filter(Boolean)).size;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1">
+      {Object.entries(sizes).slice(0, 8).map(([k, q]) => <span key={k} className={`rounded border px-1 text-[10px] ${q > 0 ? 'border-slate-300 text-slate-600' : 'border-slate-200 text-slate-300 line-through'}`}>{k}</span>)}
+      {colors > 1 && <span className="text-[10px] text-slate-400">{colors} цв.</span>}
     </div>
   );
 }

@@ -6,20 +6,25 @@ const r = express.Router();
 
 // Остатки: товары × склады
 r.get('/', ah(async (req, res) => {
-  const where = { active: true };
+  // на складе лежат простые товары и варианты (не карточки с размерами)
+  const where = { active: true, hasVariants: false };
   if (req.query.q) {
     const s = String(req.query.q).trim();
-    where.OR = [{ name: like(s) }, { sku: like(s) }, { barcodes: { some: { code: like(s) } } }];
+    where.OR = [{ name: like(s) }, { sku: like(s) }, { barcodes: { some: { code: like(s) } } }, { parent: { sku: like(s) } }];
   }
   const [products, warehouses] = await Promise.all([
-    prisma.product.findMany({ where, include: { stocks: true, barcodes: { where: { isPrimary: true } }, images: { take: 1, orderBy: { sort: 'asc' } } }, orderBy: { name: 'asc' } }),
+    prisma.product.findMany({ where, include: { stocks: true, barcodes: { where: { isPrimary: true } }, images: { take: 1, orderBy: { sort: 'asc' } },
+      parent: { select: { sku: true, images: { orderBy: { sort: 'asc' }, select: { path: true, color: true } } } } }, orderBy: [{ name: 'asc' }, { sort: 'asc' }] }),
     prisma.warehouse.findMany({ where: { active: true }, orderBy: { id: 'asc' } }),
   ]);
+  // себестоимость остатка — по фактическим партиям
+  const cost = Object.fromEntries((await prisma.$queryRaw`SELECT productId, SUM(remaining * costPrice) AS v FROM Batch WHERE remaining > 0 GROUP BY productId`).map((x) => [x.productId, Number(x.v)]));
   const rows = products.map((p) => {
     const byWh = {};
     p.stocks.forEach((s) => { byWh[s.warehouseId] = s.quantity; });
     const total = p.stocks.reduce((a, s) => a + s.quantity, 0);
-    return { id: p.id, name: p.name, image: p.images[0]?.path || null, sku: p.sku, unit: p.unit, price: p.price, costPrice: p.costPrice, minStock: p.minStock, barcode: p.barcodes[0]?.code, byWh, total };
+    const img = p.images[0]?.path || p.parent?.images.find((i) => i.color && i.color === p.color)?.path || p.parent?.images[0]?.path || null;
+    return { id: p.id, parentId: p.parentId, color: p.color, size: p.size, name: p.name, image: img, sku: p.sku || p.parent?.sku || null, unit: p.unit, price: p.price, costPrice: p.costPrice, stockCost: cost[p.id] || 0, minStock: p.minStock, barcode: p.barcodes[0]?.code, byWh, total };
   });
   res.json({ warehouses, rows });
 }));
@@ -36,6 +41,7 @@ r.post('/adjust', ah(async (req, res) => {
       if (diff !== 0) await changeStock(tx, { productId, warehouseId: Number(warehouseId), quantity: diff, type: 'ADJUST', note: str(note) || 'Корректировка' });
     }
   });
+  require('../jobs').run(true);
   res.json({ ok: true });
 }));
 
@@ -52,6 +58,7 @@ r.post('/bulk', ah(async (req, res) => {
       if (diff !== 0) { await changeStock(tx, { productId, warehouseId, quantity: diff, type: 'ADJUST', note: str(req.body.note) || 'Редактирование остатков' }); changed++; }
     }
   }, { timeout: 60000 });
+  require('../jobs').run(true);
   res.json({ ok: true, changed });
 }));
 
@@ -63,8 +70,9 @@ r.post('/transfer', ah(async (req, res) => {
     for (const it of req.body.items || []) {
       const q = num(it.quantity);
       if (q <= 0) continue;
-      await changeStock(tx, { productId: Number(it.productId), warehouseId: from, quantity: -q, type: 'TRANSFER_OUT', note: str(req.body.note), allowNegative: false });
-      await changeStock(tx, { productId: Number(it.productId), warehouseId: to, quantity: q, type: 'TRANSFER_IN', note: str(req.body.note) });
+      // партии переезжают на другой склад со своей себестоимостью и поставщиком
+      const out = await changeStock(tx, { productId: Number(it.productId), warehouseId: from, quantity: -q, type: 'TRANSFER_OUT', note: str(req.body.note), allowNegative: false });
+      await changeStock(tx, { productId: Number(it.productId), warehouseId: to, quantity: q, type: 'TRANSFER_IN', note: str(req.body.note), lots: out.lots });
     }
   });
   res.json({ ok: true });
@@ -102,11 +110,15 @@ receipts.post('/', ah(async (req, res) => {
     const rc = await tx.receipt.create({ data: { number, warehouseId: Number(b.warehouseId), counterpartyId: int(b.counterpartyId), note: str(b.note), total, date: b.date ? new Date(b.date) : new Date() } });
     for (const i of items) {
       await tx.receiptItem.create({ data: { receiptId: rc.id, productId: Number(i.productId), quantity: num(i.quantity), costPrice: num(i.costPrice) } });
-      await changeStock(tx, { productId: Number(i.productId), warehouseId: rc.warehouseId, quantity: num(i.quantity), type: 'RECEIPT', note: number, receiptId: rc.id });
-      if (b.updateCost && num(i.costPrice) > 0) await tx.product.update({ where: { id: Number(i.productId) }, data: { costPrice: num(i.costPrice) } });
+      const p = await tx.product.findUnique({ where: { id: Number(i.productId) }, select: { name: true, hasVariants: true } });
+      if (!p || p.hasVariants) throw new HttpError(400, `У «${p?.name || 'товара'}» есть размеры/цвета — выберите конкретный вариант`);
+      // каждая строка прихода — отдельная партия со своей закупочной ценой и поставщиком
+      await changeStock(tx, { productId: Number(i.productId), warehouseId: rc.warehouseId, quantity: num(i.quantity), type: 'RECEIPT', note: number, receiptId: rc.id, cost: num(i.costPrice), supplierId: rc.counterpartyId, date: rc.date });
+      if (b.updateCost !== false && num(i.costPrice) > 0) await tx.product.update({ where: { id: Number(i.productId) }, data: { costPrice: num(i.costPrice) } });
     }
     return rc;
   });
+  require('../jobs').run(true); // товар пришёл — сообщить ждущим покупателям
   res.status(201).json(rc);
 }));
 
@@ -116,7 +128,7 @@ receipts.delete('/:id', ah(async (req, res) => {
     const rc = await tx.receipt.findUnique({ where: { id }, include: { items: true } });
     if (!rc) throw new HttpError(404, 'Документ не найден');
     for (const i of rc.items) {
-      await changeStock(tx, { productId: i.productId, warehouseId: rc.warehouseId, quantity: -i.quantity, type: 'ADJUST', note: `Отмена прихода ${rc.number}` });
+      await changeStock(tx, { productId: i.productId, warehouseId: rc.warehouseId, quantity: -i.quantity, type: 'ADJUST', note: `Отмена прихода ${rc.number}`, preferReceiptId: rc.id });
     }
     await tx.receipt.delete({ where: { id } });
   });

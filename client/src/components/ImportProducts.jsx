@@ -9,7 +9,7 @@ export const COLUMNS = [
   ['Название', 'name', 'Футболка базовая'], ['Артикул', 'sku', 'TS-001'], ['Штрихкод', 'barcode', ''], ['Категория', 'category', 'Футболки, майки, поло, топы'],
   ['Цена', 'price', 1490], ['Старая цена', 'oldPrice', ''], ['Закупочная цена', 'costPrice', 650], ['Ед. изм.', 'unit', 'шт'],
   ['Мин. остаток', 'minStock', 5], ['Количество', 'quantity', 20],
-  ['Размер', 'attr:Размер', 'M'], ['Цвет', 'attr:Цвет', 'Белый'], ['Материал', 'attr:Материал', 'Хлопок 100%'], ['Бренд', 'attr:Бренд', ''],
+  ['Цвет', 'color', 'Белый'], ['Размер', 'size', 'M'], ['Материал', 'attr:Материал', 'Хлопок 100%'], ['Бренд', 'attr:Бренд', ''],
   ['Описание', 'description', ''],
 ];
 const ALIASES = { 'id': 'id', 'наименование': 'name', 'товар': 'name', 'название товара': 'name', 'артикул': 'sku', 'код': 'sku', 'штрих-код': 'barcode', 'штрихкод': 'barcode', 'баркод': 'barcode', 'ean': 'barcode',
@@ -63,7 +63,9 @@ export default function ImportProducts({ open, onClose, onDone }) {
     const data = [
       COLUMNS.map(([title]) => ({ value: title, fontWeight: 'bold' })),
       COLUMNS.map(([, , ex]) => ({ value: ex === '' ? null : ex })),
-      COLUMNS.map(([, k]) => ({ value: { name: 'Юбка миди', sku: 'SK-002', category: 'Юбки', price: 3490, costPrice: 1500, unit: 'шт', minStock: 3, quantity: 8, 'attr:Размер': 'S', 'attr:Цвет': 'Чёрный' }[k] ?? null })),
+      COLUMNS.map(([, k]) => ({ value: { name: 'Юбка миди', sku: 'SK-002', category: 'Юбки', price: 3490, costPrice: 1500, unit: 'шт', minStock: 3, quantity: 8, size: 'S', color: 'Чёрный' }[k] ?? null })),
+      // тот же артикул с другим размером — второй вариант той же карточки
+      COLUMNS.map(([, k]) => ({ value: { name: 'Юбка миди', sku: 'SK-002', category: 'Юбки', price: 3490, costPrice: 1500, unit: 'шт', quantity: 5, size: 'M', color: 'Чёрный' }[k] ?? null })),
     ];
     await writeXlsxFile(data, { columns: COLUMNS.map(([t]) => ({ width: Math.max(12, t.length + 4) })) }).toFile('shablon-tovary.xlsx');
   };
@@ -118,7 +120,7 @@ export default function ImportProducts({ open, onClose, onDone }) {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-slate-200 p-4">
               <div className="mb-1 font-medium">1. Скачайте шаблон</div>
-              <p className="mb-3 text-sm text-slate-500">Заполните его в Excel. Обязательна только колонка «Название». Лишние колонки станут характеристиками товара.</p>
+              <p className="mb-3 text-sm text-slate-500">Заполните его в Excel. Обязательна только колонка «Название». Размеры и цвета — отдельными строками с одним артикулом: они станут вариантами одной карточки, у каждого свой штрихкод. Лишние колонки станут характеристиками.</p>
               <Button variant="secondary" size="sm" icon={Download} onClick={downloadTemplate}>Шаблон .xlsx</Button>
             </div>
             <label className="cursor-pointer rounded-xl border-2 border-dashed border-slate-300 p-4 hover:border-indigo-400 hover:bg-indigo-50/30">

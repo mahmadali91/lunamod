@@ -34,6 +34,8 @@ const DEFAULTS = {
   socialTelegram: '', socialVk: '', socialMax: '', socialInstagram: '', socialWhatsapp: '',
   seoDescription: '', yandexVerification: '', googleVerification: '',
   metrikaId: '', metrikaWebvisor: '1', metrikaEcommerce: '1',
+  // СБП (через эквайринг Т-Банка), напоминания покупателям, отзывы
+  sbpEnabled: '0', cartReminders: '1', remindSms: '0', reviewsEnabled: '1',
 };
 const SECRET = ['tbankPassword', 'smsruApiId', 'cdekClientSecret', 'tgBotToken', 'maxBotToken'];
 

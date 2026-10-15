@@ -19,7 +19,7 @@ function period(q) {
 async function lines({ from, to }, extraWhere = {}) {
   const sales = await prisma.sale.findMany({
     where: { date: { gte: from, lte: to }, status: 'completed', ...extraWhere },
-    include: { items: { include: { product: { select: { id: true, name: true, sku: true, categoryId: true, category: { select: { name: true } }, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } } } }, channel: true, counterparty: true, warehouse: true },
+    include: { items: { include: { product: { select: { id: true, name: true, sku: true, categoryId: true, category: { select: { name: true } }, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, parent: { select: { id: true, name: true, sku: true, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } } } } } }, channel: true, counterparty: true, warehouse: true },
   });
   const out = [];
   for (const s of sales) {
@@ -39,7 +39,9 @@ async function lines({ from, to }, extraWhere = {}) {
 const GROUPS = {
   channel: (l) => [l.sale.channelId || 0, l.sale.channel?.name || 'Без канала', l.sale.channel?.color],
   category: (l) => [l.item.product.categoryId || 0, l.item.product.category?.name || 'Без категории'],
-  product: (l) => [l.item.productId, l.item.product.name, null, { sku: l.item.product.sku, image: l.item.product.images[0]?.path }],
+  // товары — по карточке (артикулу): все размеры и цвета вместе; variant — каждый размер/цвет отдельно
+  product: (l) => { const p = l.item.product, m = p.parent || p; return [m.id, m.name, null, { sku: m.sku, image: (m.images[0] || p.images[0])?.path }]; },
+  variant: (l) => { const p = l.item.product; return [p.id, p.name, null, { sku: p.sku || p.parent?.sku, image: (p.images[0] || p.parent?.images[0])?.path }]; },
   counterparty: (l) => [l.sale.counterpartyId || 0, l.sale.counterparty?.name || 'Розничные покупатели'],
   warehouse: (l) => [l.sale.warehouseId, l.sale.warehouse.name],
   payment: (l) => [l.sale.paymentMethod, { cash: 'Наличные', card: 'Карта', transfer: 'Перевод', consignment: 'Реализация', tbank: 'Т-Банк онлайн' }[l.sale.paymentMethod] || l.sale.paymentMethod],
@@ -127,7 +129,7 @@ r.get('/abc', ah(async (req, res) => {
   // Товары без продаж за период — тоже в C (если анализ по товарам)
   if (by === 'product') {
     const idle = await prisma.product.findMany({
-      where: { active: true, id: { notIn: [...map.keys()] }, ...(req.query.categoryId ? { categoryId: Number(req.query.categoryId) } : {}) },
+      where: { active: true, parentId: null, id: { notIn: [...map.keys()] }, ...(req.query.categoryId ? { categoryId: Number(req.query.categoryId) } : {}) },
       select: { id: true, name: true, sku: true, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } } },
     });
     idle.forEach((x) => map.set(x.id, { id: x.id, name: x.name, sku: x.sku, image: x.images[0]?.path, revenue: 0, profit: 0, qty: 0 }));

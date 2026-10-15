@@ -274,6 +274,10 @@ async function generateDemo({ perCategory = 5, days = 365 } = {}) {
   }
   const stockRows = [...stock.entries()].map(([k, quantity]) => { const [productId, warehouseId] = k.split(':').map(Number); return { productId, warehouseId, quantity }; });
   for (const part of chunks(stockRows)) await prisma.stock.createMany({ data: part });
+  // остатки демо-товаров — партиями по закупочной цене (для себестоимости и стоимости склада)
+  const costOf = Object.fromEntries(products.map((p) => [p.id, p.costPrice]));
+  const batchRows = stockRows.filter((r) => r.quantity > 0).map((r) => ({ productId: r.productId, warehouseId: r.warehouseId, quantity: r.quantity, remaining: r.quantity, costPrice: costOf[r.productId] || 0, note: 'Демо-данные' }));
+  for (const part of chunks(batchRows)) await prisma.batch.createMany({ data: part });
   for (const [key, value] of [['sale_seq', saleSeq], ['receipt_seq', rcSeq]]) {
     await prisma.setting.upsert({ where: { key }, update: { value: String(value) }, create: { key, value: String(value) } });
   }

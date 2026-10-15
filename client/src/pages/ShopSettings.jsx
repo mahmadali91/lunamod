@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Save, ExternalLink, Search as SearchIcon, BarChart3, Share2, Send, History, CheckCircle2, XCircle, AlertTriangle, CreditCard, MessageSquare, Truck, Store, ShieldCheck, FileText, Bell, MessagesSquare, Plus, Trash2, RotateCcw, ChevronDown } from 'lucide-react';
+import { Megaphone, Rss, Save, ExternalLink, Search as SearchIcon, BarChart3, Share2, Send, History, CheckCircle2, XCircle, AlertTriangle, CreditCard, MessageSquare, Truck, Store, ShieldCheck, FileText, Bell, MessagesSquare, Plus, Trash2, RotateCcw, ChevronDown } from 'lucide-react';
 import PushToggle from '../components/PushToggle';
 import { api } from '../api';
 import { Button, Field, PageHeader, RefSelect, Spinner, useToast } from '../ui';
@@ -124,8 +124,10 @@ export default function ShopSettings() {
 
       <Section icon={CreditCard} title="Оплата" hint="Покупатель выбирает способ оплаты при оформлении заказа.">
         <Check v={s.cashEnabled} set={f('cashEnabled')} label="Наличными / картой при получении" />
-        <Check v={s.tbankEnabled} set={f('tbankEnabled')} label="Онлайн через Т-Банк (карта, СБП, T-Pay)" />
-        {s.tbankEnabled === '1' && (
+        <Check v={s.tbankEnabled} set={f('tbankEnabled')} label="Онлайн-оплата картой через Т-Банк (карта, T-Pay)" />
+        <Check v={s.sbpEnabled} set={f('sbpEnabled')} label="СБП — отдельной кнопкой: QR-код и переход в приложение банка (через тот же терминал Т-Банка)" />
+        {s.sbpEnabled === '1' && <p className="-mt-2 ml-6 text-xs text-slate-500">СБП должна быть подключена к терминалу в Т-Бизнесе (Интернет-эквайринг → Терминал → Способы оплаты → СБП). Комиссия за СБП обычно ниже, чем за карты. Ключи терминала — те же, что ниже.</p>}
+        {(s.tbankEnabled === '1' || s.sbpEnabled === '1') && (
           <div className="space-y-4 rounded-xl bg-slate-50 p-4">
             <p className="text-xs text-slate-600">Ключи — в личном кабинете Т-Бизнес → Интернет-эквайринг → Магазины → Терминалы. Для проверки можно сначала указать тестовый терминал (с окончанием DEMO). В настройках терминала включите уведомления по HTTP — адрес задаётся автоматически: <code className="rounded bg-white px-1">{(s.siteUrl || '').replace(/\/$/, '')}/api/shop/tbank/notify</code></p>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -171,6 +173,22 @@ export default function ShopSettings() {
           </div>
         </div>
         <p className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-900"><AlertTriangle size={14} className="mt-0.5 shrink-0" /> Обработка персональных данных требует уведомить Роскомнадзор (pd.rkn.gov.ru) до начала обработки, если вы ещё не подавали уведомление.</p>
+      </Section>
+
+      <Section icon={Megaphone} title="Покупатели: напоминания и отзывы">
+        <Check v={s.cartReminders} set={f('cartReminders')} label="Напоминать о брошенной корзине (пуш через 2 часа и через сутки)" />
+        <Check v={s.remindSms} set={f('remindSms')} label="Дублировать по SMS: «снова в наличии» и напоминание через сутки (только с SMS.ru, платно)" />
+        <p className="text-xs text-slate-500">«Сообщить о поступлении»: покупатель подписывается на нужный размер, которого нет. Когда товар придёт (приход, корректировка остатков) — получит пуш-уведомление{s.remindSms === '1' ? ' и SMS' : ''}.</p>
+        <Check v={s.reviewsEnabled} set={f('reviewsEnabled')} label="Отзывы покупателей с фото и оценкой посадки (публикуются после проверки в разделе «Отзывы»)" />
+      </Section>
+
+      <Section icon={Rss} title="Товарный фид (YML)" hint="Каталог для Яндекс Товаров / Маркета, VK и Яндекс Директа. Каждый размер и цвет — отдельное предложение, обновляется автоматически.">
+        <div className="flex flex-wrap items-center gap-2">
+          <code className="rounded-lg bg-slate-100 px-3 py-2 text-sm">{(s.siteUrl || location.origin).replace(/\/$/, '')}/feed.yml</code>
+          <Button size="sm" variant="secondary" onClick={() => { navigator.clipboard?.writeText((s.siteUrl || location.origin).replace(/\/$/, '') + '/feed.yml'); toast('Ссылка скопирована'); }}>Копировать</Button>
+          <a href="/feed.yml" target="_blank" rel="noreferrer"><Button size="sm" variant="ghost" icon={ExternalLink}>Открыть</Button></a>
+        </div>
+        <p className="text-xs text-slate-500">Яндекс: <a className="text-indigo-600 underline" href="https://partner.market.yandex.ru" target="_blank" rel="noreferrer">Яндекс Товары</a> → Товары → Загрузить по ссылке. VK: Реклама → Каталоги товаров → Фид. Укажите бренды и описания товаров — это повышает показы.</p>
       </Section>
 
       <Section icon={MessagesSquare} title="Чат на сайте">

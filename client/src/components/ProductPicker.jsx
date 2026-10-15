@@ -29,7 +29,7 @@ export default function ProductPicker({ onPick, autoFocus, placeholder = 'Ска
     if (!q.trim()) { setList([]); setShowPopular(false); setOpen(false); return; }
     setShowPopular(false);
     const t = setTimeout(() => {
-      api('/products' + qs({ q: q.trim(), limit: 10, warehouseId })).then((d) => { setList(d.items); setActive(0); setOpen(true); }).catch(() => {});
+      api('/products' + qs({ q: q.trim(), limit: 10, warehouseId, sellable: 1 })).then((d) => { setList(d.items); setActive(0); setOpen(true); }).catch(() => {});
     }, 200);
     return () => clearTimeout(t);
   }, [q, warehouseId]);
@@ -38,7 +38,7 @@ export default function ProductPicker({ onPick, autoFocus, placeholder = 'Ска
 
   // Код с камеры: ищем точное совпадение, иначе показываем результаты поиска
   const onScan = async (code) => {
-    try { pick(await api('/products/lookup/' + encodeURIComponent(code))); }
+    try { pick(await api('/products/lookup/' + encodeURIComponent(code) + '?sellable=1')); }
     catch { setQ(code); toast(`Товар «${code}» не найден`, 'error'); }
   };
 
@@ -50,7 +50,7 @@ export default function ProductPicker({ onPick, autoFocus, placeholder = 'Ска
       e.preventDefault();
       const code = q.trim();
       if (!code) { if (open && list[active]) pick(list[active]); return; }
-      try { pick(await api('/products/lookup/' + encodeURIComponent(code))); }
+      try { pick(await api('/products/lookup/' + encodeURIComponent(code) + '?sellable=1')); }
       catch {
         if (open && list[active]) pick(list[active]);
         else toast(`Товар «${code}» не найден`, 'error');

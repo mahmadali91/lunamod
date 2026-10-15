@@ -32,9 +32,20 @@ model Warehouse {
 }
 
 model Category {
-  id       Int       @id @default(autoincrement())
-  name     String    @unique
-  products Product[]
+  id          Int        @id @default(autoincrement())
+  name        String     @unique
+  sizeChartId Int? // таблица размеров по умолчанию для товаров категории
+  sizeChart   SizeChart? @relation(fields: [sizeChartId], references: [id], onDelete: SetNull)
+  products    Product[]
+}
+
+// Таблица размеров: data = JSON { head: ['Размер','Грудь','Талия'], rows: [['S','84','66'], ...], note }
+model SizeChart {
+  id         Int        @id @default(autoincrement())
+  name       String
+  data       String     @db.Text
+  categories Category[]
+  products   Product[]
 }
 
 model Product {
@@ -52,8 +63,28 @@ model Product {
   category    Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   active      Boolean            @default(true)
   showInShop  Boolean            @default(true) // показывать в интернет-магазине
+  // Варианты «как на WB»: карточка (артикул, фото, описание) + дочерние товары по цвету и размеру,
+  // у каждого свой штрихкод и остаток. Продаются и хранятся на складе только варианты.
+  parentId    Int?
+  parent      Product?           @relation("Variants", fields: [parentId], references: [id], onDelete: Cascade)
+  variants    Product[]          @relation("Variants")
+  hasVariants Boolean            @default(false)
+  color       String?
+  size        String?
+  sort        Int                @default(0) // порядок варианта
+  brand       String?
+  slug        String? // короткий адрес в магазине: /product/12-plate-leto
+  modelInfo   String? // параметры модели на фото: «Рост 175, размер S»
+  sizeChartId Int?
+  sizeChart   SizeChart?         @relation(fields: [sizeChartId], references: [id], onDelete: SetNull)
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
+  batches     Batch[]
+  favorites   Favorite[]
+  waitlist    StockSubscription[]
+  reviews     Review[]
+  looks       ProductLink[]      @relation("LookOwner")
+  inLooks     ProductLink[]      @relation("LookItem")
   barcodes    Barcode[]
   images      ProductImage[]
   attributes  ProductAttribute[]
@@ -62,6 +93,8 @@ model Product {
   saleItems   SaleItem[]
   receiptItems ReceiptItem[]
   orderItems  OrderItem[]
+
+  @@index([parentId])
 }
 
 model Barcode {
@@ -77,6 +110,8 @@ model Barcode {
 model ProductImage {
   id        Int     @id @default(autoincrement())
   path      String
+  kind      String  @default("image") // image | video
+  color     String? // фото конкретного цвета (для карточки с вариантами)
   sort      Int     @default(0)
   productId Int
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -235,8 +270,14 @@ model Customer {
   createdAt DateTime @default(now())
   lastLogin DateTime?
   consentAt DateTime? // согласие на обработку персональных данных
+  cart          String?   @db.Text // корзина (для напоминания о брошенной корзине)
+  cartUpdatedAt DateTime?
+  cartReminded  Int       @default(0) // 0 — не напоминали, 1 — через 2 ч, 2 — через сутки
   orders    Order[]
   chats     Conversation[]
+  favorites Favorite[]
+  waitlist  StockSubscription[]
+  reviews   Review[]
 }
 
 model SmsCode {
@@ -339,4 +380,96 @@ model PushSubscription {
   createdAt  DateTime @default(now())
 
   @@unique([endpoint(length: 500)])
+}
+
+// ---------- Партии: у каждого поступления своя себестоимость ----------
+// Остаток партии уменьшается при продаже (FIFO — сначала старые партии); себестоимость продажи
+// считается по фактическим партиям. Поставщик и дата — для истории закупок одного артикула.
+model Batch {
+  id          Int        @id @default(autoincrement())
+  productId   Int
+  warehouseId Int
+  quantity    Float // пришло
+  remaining   Float // осталось
+  costPrice   Float      @default(0)
+  date        DateTime   @default(now())
+  supplierId  Int? // контрагент-поставщик
+  receiptId   Int?
+  note        String?    @db.Text
+  createdAt   DateTime   @default(now())
+  product     Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  uses        BatchUse[]
+
+  @@index([productId, warehouseId, remaining])
+}
+
+// Сколько и из какой партии списано (продажа, перемещение) — чтобы при возврате вернуть в ту же партию
+model BatchUse {
+  id         Int      @id @default(autoincrement())
+  batchId    Int
+  saleItemId Int?
+  quantity   Float
+  returned   Float    @default(0)
+  costPrice  Float
+  createdAt  DateTime @default(now())
+  batch      Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([saleItemId])
+}
+
+// ---------- Витрина: избранное, ожидание поступления, отзывы, образы ----------
+model Favorite {
+  id         Int      @id @default(autoincrement())
+  customerId Int
+  productId  Int
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, productId])
+}
+
+// «Сообщить о поступлении» нужного варианта
+model StockSubscription {
+  id         Int       @id @default(autoincrement())
+  customerId Int
+  productId  Int
+  createdAt  DateTime  @default(now())
+  notifiedAt DateTime?
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  product    Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, productId])
+}
+
+// status: pending | published | rejected; fit: small | ok | large
+model Review {
+  id         Int      @id @default(autoincrement())
+  productId  Int // карточка товара
+  customerId Int
+  rating     Int
+  fit        String?
+  size       String? // какой размер брал
+  text       String?  @db.Text
+  photos     String?  @db.Text // JSON ["/uploads/reviews/..."]
+  purchased  Boolean  @default(false) // покупал этот товар
+  status     String   @default("pending")
+  reply      String?  @db.Text
+  createdAt  DateTime @default(now())
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([productId, status])
+}
+
+// «Собрать образ»: товары, которые показываются вместе с этим
+model ProductLink {
+  id        Int     @id @default(autoincrement())
+  productId Int
+  linkedId  Int
+  sort      Int     @default(0)
+  product   Product @relation("LookOwner", fields: [productId], references: [id], onDelete: Cascade)
+  linked    Product @relation("LookItem", fields: [linkedId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, linkedId])
 }

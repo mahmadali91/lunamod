@@ -13,9 +13,9 @@ r.get('/', ah(async (req, res) => {
   const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
 
   const [sales, prevSales, products, channels, recent, counts] = await Promise.all([
-    prisma.sale.findMany({ where: { date: { gte: from }, status: 'completed' }, include: { items: { include: { product: { include: { images: { take: 1 } } } } }, channel: true } }),
+    prisma.sale.findMany({ where: { date: { gte: from }, status: 'completed' }, include: { items: { include: { product: { include: { images: { take: 1, orderBy: { sort: 'asc' } }, parent: { select: { images: { take: 1, orderBy: { sort: 'asc' } } } } } } } }, channel: true } }),
     prisma.sale.findMany({ where: { date: { gte: prevFrom, lt: from }, status: 'completed' }, select: { total: true } }),
-    prisma.product.findMany({ where: { active: true }, include: { stocks: true, images: { take: 1 } } }),
+    prisma.product.findMany({ where: { active: true, hasVariants: false }, include: { stocks: true, images: { take: 1, orderBy: { sort: 'asc' } }, parent: { select: { images: { take: 1, orderBy: { sort: 'asc' } } } } } }),
     prisma.salesChannel.findMany(),
     prisma.sale.findMany({ take: 8, orderBy: { id: 'desc' }, include: { channel: true, counterparty: true } }),
     Promise.all([prisma.counterparty.count(), prisma.warehouse.count({ where: { active: true } })]),
@@ -49,7 +49,7 @@ r.get('/', ah(async (req, res) => {
   // Топ товаров
   const top = {};
   sales.forEach((s) => s.items.forEach((i) => {
-    top[i.productId] = top[i.productId] || { id: i.productId, name: i.product.name, image: i.product.images[0]?.path, quantity: 0, revenue: 0 };
+    top[i.productId] = top[i.productId] || { id: i.productId, name: i.product.name, image: (i.product.images[0] || i.product.parent?.images[0])?.path, quantity: 0, revenue: 0 };
     const q = i.quantity - i.returned;
     top[i.productId].quantity += q; top[i.productId].revenue += q * i.price;
   }));
@@ -58,16 +58,19 @@ r.get('/', ah(async (req, res) => {
   const low = [];
   products.forEach((p) => {
     const q = p.stocks.reduce((a, s) => a + s.quantity, 0);
-    stockValue += q * p.costPrice; stockRetail += q * p.price;
-    if (q <= p.minStock) low.push({ id: p.id, name: p.name, sku: p.sku, quantity: q, minStock: p.minStock, image: p.images[0]?.path });
+    stockRetail += q * p.price;
+    if (q <= p.minStock) low.push({ id: p.parentId || p.id, name: p.name, sku: p.sku, quantity: q, minStock: p.minStock, image: (p.images[0] || p.parent?.images[0])?.path });
   });
+  // стоимость склада по себестоимости — по фактическим партиям
+  const [bv] = await prisma.$queryRaw`SELECT COALESCE(SUM(b.remaining * b.costPrice), 0) AS v FROM Batch b JOIN Product p ON p.id = b.productId WHERE p.active = 1`;
+  stockValue = Number(bv.v) || 0;
 
   res.json({
     days, hourly: days === 1,
     kpi: {
       revenue, prevRevenue, profit: revenue - cost, salesCount: sales.length, avgCheck: sales.length ? revenue / sales.length : 0,
       todayRevenue: today.reduce((s, x) => s + x.total, 0), todayCount: today.length,
-      productsCount: products.length, consignmentDebt, consignmentOpen: consign.filter((s) => s.total - s.paidAmount > 0.009).length, stockValue, stockRetail, counterparties: counts[0], warehouses: counts[1],
+      productsCount: products.filter((p) => !p.parentId).length + new Set(products.filter((p) => p.parentId).map((p) => p.parentId)).size, consignmentDebt, consignmentOpen: consign.filter((s) => s.total - s.paidAmount > 0.009).length, stockValue, stockRetail, counterparties: counts[0], warehouses: counts[1],
     },
     chart: Object.values(byDay),
     byChannel: Object.values(byChannel).sort((a, b) => b.revenue - a.revenue),

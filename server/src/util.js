@@ -40,7 +40,17 @@ function detectBarcodeType(code) {
 }
 
 // Изменение остатка + запись движения. Работает внутри транзакции.
-async function changeStock(tx, { productId, warehouseId, quantity, type, note, saleId, receiptId, allowNegative = true }) {
+/**
+ * Единственное место, где меняется остаток. Вместе с остатком ведутся партии (у каждой своя себестоимость):
+ *  - приход (quantity > 0): новая партия по цене cost (по умолчанию — закупочная цена товара);
+ *    lots — партии, перемещённые с другого склада (сохраняют цену, дату и поставщика);
+ *    возврат продажи (saleItemId) — товар возвращается в те же партии, из которых был продан;
+ *  - расход (quantity < 0): списание FIFO — сначала самые старые партии (preferReceiptId — сначала партии этого прихода).
+ * Если остатка нет (продажа «в минус»), недостающее считается по цене последней партии; когда придёт новая
+ * партия, из неё сначала погашается этот минус.
+ * Возвращает { stock, cost — средняя себестоимость единицы при расходе, lots — какие партии списаны }.
+ */
+async function changeStock(tx, { productId, warehouseId, quantity, type, note, saleId, receiptId, allowNegative = true, cost, supplierId, saleItemId, lots, date, preferReceiptId }) {
   const stock = await tx.stock.upsert({
     where: { productId_warehouseId: { productId, warehouseId } },
     update: { quantity: { increment: quantity } },
@@ -51,7 +61,67 @@ async function changeStock(tx, { productId, warehouseId, quantity, type, note, s
     throw new HttpError(400, `Недостаточно остатка: «${p?.name}» (не хватает ${-stock.quantity})`);
   }
   await tx.stockMovement.create({ data: { productId, warehouseId, quantity, type, note, saleId, receiptId } });
-  return stock;
+  const r2 = (v) => Math.round(v * 1e4) / 1e4;
+  const result = { stock, cost: 0, lots: [] };
+
+  if (quantity > 0) {
+    // минус на складе (продавали без остатка) гасится первыми поступившими единицами
+    const before = stock.quantity - quantity;
+    let skip = before < 0 ? Math.min(quantity, -before) : 0;
+    let left = quantity;
+    const put = async (q, data) => {
+      const keep = Math.min(skip, q); skip -= keep;
+      await tx.batch.create({ data: { productId, warehouseId, quantity: q, remaining: r2(q - keep), ...data } });
+    };
+    if (saleItemId) {
+      // возврат: в те партии, из которых продали (последние списания — первыми)
+      const uses = await tx.batchUse.findMany({ where: { saleItemId }, include: { batch: true }, orderBy: { id: 'desc' } });
+      for (const u of uses) {
+        if (left <= 0) break;
+        const q = Math.min(left, u.quantity - u.returned);
+        if (q <= 0) continue;
+        await tx.batchUse.update({ where: { id: u.id }, data: { returned: r2(u.returned + q) } });
+        const keep = Math.min(skip, q); skip -= keep;
+        if (u.batch.warehouseId === warehouseId) await tx.batch.update({ where: { id: u.batchId }, data: { remaining: { increment: q - keep } } });
+        else await tx.batch.create({ data: { productId, warehouseId, quantity: q, remaining: q - keep, costPrice: u.costPrice, date: u.batch.date, supplierId: u.batch.supplierId, note: 'Возврат' } });
+        left = r2(left - q);
+      }
+      if (left > 0) {
+        const it = await tx.saleItem.findUnique({ where: { id: saleItemId } });
+        await put(left, { costPrice: it?.costPrice || 0, note: 'Возврат' });
+      }
+    } else if (lots?.length) {
+      for (const l of lots) await put(l.quantity, { costPrice: l.costPrice, date: l.date, supplierId: l.supplierId, receiptId: l.receiptId, note: l.note });
+    } else {
+      let c = cost;
+      if (c === undefined || c === null) c = (await tx.product.findUnique({ where: { id: productId }, select: { costPrice: true } }))?.costPrice || 0;
+      await put(quantity, { costPrice: Number(c) || 0, date: date || new Date(), supplierId: supplierId || null, receiptId: receiptId || null, note: note || null });
+    }
+    return result;
+  }
+
+  if (quantity < 0) {
+    let need = -quantity, sum = 0;
+    const batches = await tx.batch.findMany({ where: { productId, warehouseId, remaining: { gt: 0 } }, orderBy: [{ date: 'asc' }, { id: 'asc' }] });
+    if (preferReceiptId) batches.sort((a, b) => (b.receiptId === preferReceiptId) - (a.receiptId === preferReceiptId));
+    for (const bt of batches) {
+      if (need <= 1e-9) break;
+      const q = Math.min(need, bt.remaining);
+      await tx.batch.update({ where: { id: bt.id }, data: { remaining: r2(bt.remaining - q) } });
+      if (saleItemId) await tx.batchUse.create({ data: { batchId: bt.id, saleItemId, quantity: q, costPrice: bt.costPrice } });
+      result.lots.push({ quantity: q, costPrice: bt.costPrice, date: bt.date, supplierId: bt.supplierId, receiptId: bt.receiptId, note: bt.note });
+      sum += q * bt.costPrice; need = r2(need - q);
+    }
+    if (need > 0) {
+      // продажа без остатка: себестоимость — по последней партии товара или по закупочной цене
+      const last = await tx.batch.findFirst({ where: { productId }, orderBy: [{ date: 'desc' }, { id: 'desc' }] });
+      const c = last ? last.costPrice : (await tx.product.findUnique({ where: { id: productId }, select: { costPrice: true } }))?.costPrice || 0;
+      sum += need * c;
+      result.lots.push({ quantity: need, costPrice: c, date: new Date(), note: 'Без партии (остаток был в минусе)' });
+    }
+    result.cost = Math.round((sum / -quantity) * 100) / 100;
+  }
+  return result;
 }
 
 async function nextNumber(tx, key, prefix) {

@@ -40,6 +40,7 @@ app.use('/api/warehouses', refs.warehouses);
 app.use('/api/channels', refs.channels);
 app.use('/api/counterparties', refs.counterparties);
 app.use('/api/categories', refs.categories);
+app.use('/api/size-charts', refs.sizeCharts);
 app.use('/api/products', require('./routes/products'));
 app.use('/api/stock', stock);
 app.use('/api/receipts', receipts);
@@ -48,6 +49,7 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/stats', require('./routes/stats'));
 app.use('/api/orders', require('./routes/orders'));
+app.use('/api/reviews', require('./routes/reviews'));
 app.use('/api/chats', require('./routes/chats').chats);
 app.use('/api/push', require('./routes/chats').push);
 app.use('/api/dashboard', require('./routes/dashboard'));
@@ -58,6 +60,8 @@ const dist = process.env.CLIENT_DIST || path.join(__dirname, '..', '..', 'client
 const seo = require('./seo');
 app.get('/robots.txt', (req, res, next) => seo.robots(req, res).catch(next));
 app.get('/sitemap.xml', (req, res, next) => seo.sitemap(req, res).catch(next));
+app.get('/manifest.webmanifest', (req, res, next) => seo.manifest(req, res).catch(next));
+app.get(['/feed.yml', '/feed.xml'], (req, res, next) => seo.feed(req, res).catch(next));
 if (fs.existsSync(dist)) {
   // Страница магазина собирается как shop.html (не index.html), чтобы веб-сервер хостинга не отдавал её
   // напрямую: каждую страницу витрины формирует сервер — с заголовками и разметкой для поисковиков
@@ -74,6 +78,8 @@ app.use((err, req, res, next) => {
   if (!err.status) console.error(err);
   res.status(err.status || 500).json({ error: err.status ? err.message : 'Внутренняя ошибка сервера' });
 });
+
+require('./jobs').start();
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Сервер запущен: http://localhost:${PORT}`));

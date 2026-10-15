@@ -22,11 +22,11 @@ export default function Cart() {
         <div className="divide-y divide-slate-100 lg:col-span-2">
           {cart.items.map((i) => (
             <div key={i.id} className="flex gap-4 py-4">
-              <Link to={`/product/${i.id}`} className="h-28 w-21 shrink-0 overflow-hidden rounded-xl bg-slate-100" style={{ width: 84 }}>
+              <Link to={i.url || `/product/${i.id}`} className="h-28 w-21 shrink-0 overflow-hidden rounded-xl bg-slate-100" style={{ width: 84 }}>
                 {i.image ? <img src={i.image} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-300"><ImageOff /></div>}
               </Link>
               <div className="flex flex-1 flex-col">
-                <Link to={`/product/${i.id}`} className="text-sm font-medium">{i.name}</Link>
+                <Link to={i.url || `/product/${i.id}`} className="text-sm font-medium">{i.name}</Link>
                 <div className="mt-1 text-sm text-slate-500">{money(i.price)}</div>
                 <div className="mt-auto flex items-center justify-between pt-2">
                   <div className="flex items-center rounded-full border border-slate-300">

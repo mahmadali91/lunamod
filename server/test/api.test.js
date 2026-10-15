@@ -415,6 +415,82 @@ test('чат: только для вошедших, фото, голосовые
   assert.ok((await ok('/push/key')).key.length > 40, 'ключ VAPID создан');
 });
 
+test('варианты товара (размер/цвет) и партии с себестоимостью (FIFO)', async () => {
+  const card = await ok('/products', { method: 'POST', body: { name: 'Платье Вар ' + U, sku: 'VAR-' + D, price: 3000, costPrice: 100,
+    variantWarehouseId: w1.id,
+    variants: [{ color: 'Красный', size: 'S', quantity: 3 }, { color: 'Красный', size: 'M' }, { color: 'Чёрный', size: 'S', price: 3200 }, { color: 'Чёрный', size: 'M', barcode: '29' + D.slice(-10) }] } });
+  assert.equal(card.hasVariants, true);
+  assert.equal(card.variants.length, 4);
+  const rs = card.variants.find((v) => v.color === 'Красный' && v.size === 'S');
+  assert.equal(rs.name, 'Платье Вар ' + U + ' · Красный · S', 'название варианта');
+  assert.equal(card.variants.find((v) => v.color === 'Чёрный' && v.size === 'S').price, 3200);
+  assert.equal(card.variants.find((v) => v.size === 'M' && v.color === 'Чёрный').barcodes[0].code, '29' + D.slice(-10), 'свой штрихкод');
+  assert.ok(card.variants.every((v) => v.barcodes.length === 1), 'у каждого варианта свой штрихкод');
+  assert.equal(new Set(card.variants.map((v) => v.barcodes[0].code)).size, 4);
+  // списки: карточка — в «Товарах», варианты — в кассе и на складе
+  assert.ok((await ok('/products?q=' + encodeURIComponent('Платье Вар ' + U))).items.every((p) => p.id === card.id));
+  const sell = (await ok('/products?sellable=1&q=VAR-' + D)).items;
+  assert.equal(sell.length, 4, 'поиск по артикулу карточки находит варианты'); assert.ok(sell.every((p) => p.sku === 'VAR-' + D));
+  assert.equal((await api('/products/lookup/VAR-' + D + '?sellable=1')).status, 409, 'по артикулу нужно выбрать размер');
+  assert.equal((await ok('/products/lookup/' + rs.barcodes[0].code)).id, rs.id);
+  assert.equal((await api('/sales', { method: 'POST', body: { warehouseId: w1.id, items: [{ productId: card.id, quantity: 1, price: 1 }] } })).status, 400, 'карточку целиком продать нельзя');
+  const stockRows = (await ok('/stock?q=VAR-' + D)).rows;
+  assert.equal(stockRows.length, 4); assert.equal(stockRows.find((r) => r.id === rs.id).total, 3);
+
+  // партии: остаток 3 по 100 ₽ + приход 5 по 150 ₽ от поставщика
+  await ok('/receipts', { method: 'POST', body: { warehouseId: w1.id, counterpartyId: cp.id, items: [{ productId: rs.id, quantity: 5, costPrice: 150 }] } });
+  // продажа 7: FIFO — 3 × 100 + 4 × 150 = 900 → 128,57 за штуку
+  const sale = await ok('/sales', { method: 'POST', body: { warehouseId: w1.id, items: [{ productId: rs.id, quantity: 7, price: 3000 }] } });
+  assert.equal(sale.items[0].costPrice, 128.57);
+  let d = await ok('/products/' + card.id);
+  assert.equal(d.batches.filter((b) => b.productId === rs.id).reduce((a, b) => a + b.remaining, 0), 1);
+  assert.equal(d.avgCost, 150, 'остался 1 шт из партии по 150');
+  assert.ok(d.batches.some((b) => b.supplier === cp.name && b.costPrice === 150), 'поставщик партии');
+  // возврат 2 шт — в те партии, из которых продали (последние — первыми): обе из партии по 150
+  await ok(`/sales/${sale.id}/return-items`, { method: 'POST', body: { items: [{ saleItemId: sale.items[0].id, quantity: 2 }] } });
+  d = await ok('/products/' + card.id);
+  assert.equal(d.batches.find((b) => b.productId === rs.id && b.costPrice === 150).remaining, 3);
+  assert.equal(d.batches.find((b) => b.productId === rs.id && b.costPrice === 100).remaining, 0);
+  // перемещение 2 шт на другой склад — партия переезжает со своей ценой
+  await ok('/stock/transfer', { method: 'POST', body: { fromWarehouseId: w1.id, toWarehouseId: w2.id, items: [{ productId: rs.id, quantity: 2 }] } });
+  d = await ok('/products/' + card.id);
+  const moved = d.batches.find((b) => b.productId === rs.id && b.warehouseId === w2.id);
+  assert.equal(moved.remaining, 2); assert.equal(moved.costPrice, 150); assert.equal(moved.supplierId, cp.id);
+  // продажа в минус: себестоимость по последней партии, следующий приход сначала гасит минус
+  const neg = await ok('/sales', { method: 'POST', body: { warehouseId: w1.id, items: [{ productId: rs.id, quantity: 3, price: 3000 }] } });
+  assert.equal(neg.items[0].costPrice, 150);
+  await ok('/receipts', { method: 'POST', body: { warehouseId: w1.id, items: [{ productId: rs.id, quantity: 4, costPrice: 170 }] } });
+  d = await ok('/products/' + card.id);
+  assert.equal(d.batches.find((b) => b.productId === rs.id && b.costPrice === 170).remaining, 2, 'из 4 шт две закрыли минус');
+  assert.equal((await ok('/stock?q=VAR-' + D)).rows.find((r) => r.id === rs.id).byWh[w1.id], 2);
+
+  // изменение карточки: новое название у всех вариантов, удаление пустого варианта
+  const keep = d.variants.filter((v) => !(v.color === 'Красный' && v.size === 'M')).map((v) => ({ id: v.id, color: v.color, size: v.size, barcode: v.barcodes[0].code, price: v.price }));
+  const upd = await ok('/products/' + card.id, { method: 'PUT', body: { ...d, name: 'Платье Лето ' + U, variants: keep } });
+  assert.equal(upd.variants.length, 3);
+  assert.ok(upd.variants.every((v) => v.name.startsWith('Платье Лето ' + U + ' · ')));
+  // нельзя добавить размеры товару, у которого есть остаток без размера
+  const simple = await ok('/products', { method: 'POST', body: { name: 'Простой ' + U, price: 10, initialStock: [{ warehouseId: w1.id, quantity: 2 }] } });
+  assert.equal((await api('/products/' + simple.id, { method: 'PUT', body: { ...simple, variants: [{ size: 'S' }] } })).status, 400);
+});
+
+test('импорт из Excel: строки с одним артикулом и разными размерами — одна карточка', async () => {
+  const sku = 'IMPV-' + D;
+  const r = await ok('/products/import', { method: 'POST', body: { warehouseId: w1.id, rows: [
+    { name: 'Юбка импорт ' + U, sku, price: 2000, costPrice: 900, color: 'Синий', size: 'S', quantity: 4 },
+    { name: 'Юбка импорт ' + U, sku, price: 2000, costPrice: 900, color: 'Синий', size: 'M', quantity: 6 },
+  ] } });
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors));
+  const card = (await ok('/products?q=' + sku)).items;
+  assert.equal(card.length, 1); assert.equal(card[0].hasVariants, true); assert.equal(card[0].totalStock, 10);
+  const full = await ok('/products/' + card[0].id);
+  assert.deepEqual(full.variants.map((v) => v.size).sort(), ['M', 'S']);
+  assert.equal(full.avgCost, 900);
+  // повторный импорт обновляет, а не дублирует
+  await ok('/products/import', { method: 'POST', body: { warehouseId: w1.id, rows: [{ sku, color: 'Синий', size: 'S', quantity: 5 }] } });
+  assert.equal((await ok('/products/' + card[0].id)).variants.length, 2);
+});
+
 test('SEO: страницы магазина, robots.txt, sitemap.xml, Метрика и соцсети', async () => {
   await ok('/orders/settings', { method: 'PUT', body: { metrikaId: '12345678', yandexVerification: 'abc123', socialTelegram: '@botmi_shop', socialWhatsapp: '8 900 111-22-33', socialInstagram: 'javascript:alert(1)' } });
   const p = await ok('/products', { method: 'POST', body: { name: 'SEO <платье> ' + U, price: 1990, description: 'Лёгкое летнее платье', showInShop: true, initialStock: [{ warehouseId: w1.id, quantity: 3 }] } });
@@ -422,7 +498,10 @@ test('SEO: страницы магазина, robots.txt, sitemap.xml, Метр�
   assert.equal(page.status, 200);
   const html = await page.text();
   assert.match(html, /<title>SEO &lt;платье&gt; .+ — купить за 1[\s\u00a0]990 ₽/, 'заголовок экранирован');
-  assert.match(html, new RegExp(`<link rel="canonical" href="https?://[^"]+/product/${p.id}"`));
+  assert.match(html, new RegExp(`<link rel="canonical" href="https?://[^"]+/product/${p.id}-seo-plate-`), 'адрес со словами из названия');
+  // старая ссылка /product/ID — постоянный редирект на новый адрес
+  const old = await fetch(BASE + '/product/' + p.id, { redirect: 'manual' });
+  assert.equal(old.status, 301); assert.match(old.headers.get('location'), new RegExp(`/product/${p.id}-seo-plate-`));
   assert.match(html, /"@type":"Product"/); assert.match(html, /"availability":"https:\/\/schema.org\/InStock"/);
   assert.match(html, /<meta property="og:title"/);
   assert.match(html, /<meta name="yandex-verification" content="abc123"/);
@@ -439,13 +518,90 @@ test('SEO: страницы магазина, robots.txt, sitemap.xml, Метр�
   const robots = await fetch(BASE + '/robots.txt').then((x) => x.text());
   assert.match(robots, /Disallow: \/admin/); assert.match(robots, /Sitemap: https?:\/\/.+\/sitemap\.xml/);
   const sm = await fetch(BASE + '/sitemap.xml').then((x) => x.text());
-  assert.match(sm, new RegExp(`/product/${p.id}</loc>`));
+  assert.match(sm, new RegExp(`/product/${p.id}-seo-plate-[a-z0-9-]+</loc>`));
   // соцсети в настройках витрины: только http(s), WhatsApp из номера
   const cfg = (await shop('/config')).data;
   assert.deepEqual(cfg.socials, { telegram: 'https://t.me/botmi_shop', whatsapp: 'https://wa.me/79001112233' });
   assert.deepEqual(cfg.metrika, { id: 12345678, ecommerce: true });
   await ok('/orders/settings', { method: 'PUT', body: { metrikaId: '', yandexVerification: '', socialTelegram: '', socialWhatsapp: '', socialInstagram: '' } });
   assert.ok(!/mc\.yandex/.test(await fetch(BASE + '/').then((x) => x.text())));
+});
+
+test('витрина: варианты, фильтры, избранное, ожидание поступления, отзывы, СБП, корзина, фид', async () => {
+  await ok('/orders/settings', { method: 'PUT', body: { sbpEnabled: '1', tbankEnabled: '1', smsMode: 'test', showOutOfStock: '0', warehouseId: '', reviewsEnabled: '1' } });
+  const card = await ok('/products', { method: 'POST', body: { name: 'Футболка Витрина ' + U, sku: 'SHOPV-' + D, price: 1500, costPrice: 500, brand: 'Бренд' + U, variantWarehouseId: w1.id,
+    variants: [{ color: 'Белый', size: 'S', quantity: 2 }, { color: 'Белый', size: 'M' }, { color: 'Чёрный', size: 'M', price: 1700, quantity: 1 }] } });
+  const vS = card.variants.find((v) => v.size === 'S'), vM = card.variants.find((v) => v.color === 'Белый' && v.size === 'M');
+  // каталог: одна карточка, цена «от», размеры
+  const list = (await shop('/products?q=SHOPV-' + D)).data.items;
+  assert.equal(list.length, 1);
+  assert.equal(list[0].price, 1500); assert.equal(list[0].priceFrom, true); assert.deepEqual(list[0].sizes, ['S', 'M']);
+  assert.match(list[0].url, new RegExp(`^/product/${card.id}-futbolka-vitrina-`));
+  // фильтры и фасеты
+  assert.equal((await shop(`/products?q=SHOPV-${D}&sizes=XL`)).data.total, 0);
+  assert.equal((await shop(`/products?q=SHOPV-${D}&colors=${encodeURIComponent('Чёрный')}`)).data.total, 1);
+  assert.equal((await shop(`/products?brands=${encodeURIComponent('Бренд' + U)}`)).data.total, 1);
+  assert.equal((await shop(`/products?q=SHOPV-${D}&min=1600`)).data.total, 1, 'фильтр по цене — по цене вариантов');
+  assert.equal((await shop(`/products?q=SHOPV-${D}&max=1400`)).data.total, 0);
+  const fc = (await shop('/facets?q=SHOPV-' + D)).data;
+  assert.deepEqual(fc.sizes.map((x) => x.v), ['S', 'M']); assert.equal(fc.brands[0].v, 'Бренд' + U);
+  // карточка: варианты с наличием
+  const pd = (await shop('/products/' + card.id)).data;
+  assert.equal(pd.variants.find((v) => v.id === vM.id).inStock, false);
+  assert.deepEqual((await shop('/products/' + vS.id)).data, { redirect: `/product/${card.id}` }, 'ссылка на вариант ведёт на карточку');
+
+  const login = async (n) => {
+    const ph = '79' + String(Number(D.slice(-9)) + n).padStart(9, '0').slice(-9);
+    const rc = await shop('/auth/request-code', { method: 'POST', body: { phone: ph } });
+    return (await shop('/auth/verify', { method: 'POST', body: { phone: rc.data.phone, code: rc.data.testCode, name: 'Ирина Петрова', consent: true } })).data.token;
+  };
+  const t = await login(11);
+  // избранное: объединение браузерного списка с аккаунтом
+  assert.deepEqual((await shop('/favorites/sync', { method: 'POST', token: t, body: { ids: [card.id, vS.id, 99999999] } })).data.ids, [card.id], 'только карточки');
+  await shop('/favorites/' + card.id, { method: 'DELETE', token: t });
+  assert.deepEqual((await shop('/favorites', { token: t })).data.ids, []);
+  // карточку целиком в заказ положить нельзя — только вариант
+  assert.equal((await shop('/orders', { method: 'POST', token: t, body: { items: [{ productId: card.id, quantity: 1 }], delivery: 'pickup', agree: true } })).status, 400);
+  // сообщить о поступлении: размер M закончился → подписка → приход → уведомление отправлено
+  await shop('/waitlist/' + vM.id, { method: 'POST', token: t });
+  assert.deepEqual((await shop('/waitlist', { token: t })).data, [vM.id]);
+  await ok('/receipts', { method: 'POST', body: { warehouseId: w1.id, items: [{ productId: vM.id, quantity: 3, costPrice: 520 }] } });
+  let waited;
+  for (let i = 0; i < 20; i++) { waited = (await shop('/waitlist', { token: t })).data; if (!waited.length) break; await new Promise((r) => setTimeout(r, 150)); }
+  assert.deepEqual(waited, [], 'подписка отработала после прихода');
+  // корзина сохраняется для напоминания; заказ её очищает
+  assert.equal((await shop('/cart', { method: 'POST', token: t, body: { items: [{ productId: vS.id, quantity: 1 }] } })).status, 200);
+  // заказ с оплатой через СБП (тестовый режим без ключей банка → тестовый QR)
+  const o = await shop('/orders', { method: 'POST', token: t, body: { items: [{ productId: vS.id, quantity: 1 }], paymentMethod: 'sbp', delivery: 'pickup', agree: true } });
+  assert.equal(o.status, 201, JSON.stringify(o.data));
+  assert.equal(o.data.paymentUrl, `/order/${o.data.order.id}?sbp=1`);
+  const od = (await shop('/orders/' + o.data.order.id, { token: t })).data;
+  assert.equal(od.paymentMethod, 'sbp'); assert.match(od.paymentUrl, /^https:\/\/qr\.nspk\.ru\//);
+  assert.equal(od.items[0].product.id, card.id, 'в заказе ссылка на карточку');
+  assert.equal((await shop(`/orders/${od.id}/test-pay`, { method: 'POST', token: t })).data.paymentStatus, 'paid');
+  // отзыв: оценка обязательна, один на товар, публикуется после проверки
+  const rv = (body) => { const fd = new FormData(); Object.entries(body).forEach(([k, v]) => fd.append(k, v)); return fetch(`${BASE}/api/shop/products/${card.id}/reviews`, { method: 'POST', headers: { Authorization: 'Bearer ' + t }, body: fd }); };
+  assert.equal((await rv({ text: 'без оценки' })).status, 400);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const fd = new FormData(); fd.append('rating', '4'); fd.append('fit', 'small'); fd.append('size', 'S'); fd.append('text', 'Хорошая, но маломерит'); fd.append('photos', new Blob([png], { type: 'image/png' }), 'a.png');
+  const created = await fetch(`${BASE}/api/shop/products/${card.id}/reviews`, { method: 'POST', headers: { Authorization: 'Bearer ' + t }, body: fd });
+  assert.equal(created.status, 201);
+  assert.equal((await rv({ rating: 5 })).status, 400, 'второй отзыв нельзя');
+  assert.equal((await shop('/products/' + card.id)).data.reviews.count, 0, 'до проверки не виден');
+  const pending = (await ok('/reviews?status=pending')).items.find((x) => x.productId === card.id);
+  assert.ok(pending.photos[0].startsWith('/uploads/reviews/'));
+  await ok('/reviews/' + pending.id, { method: 'PUT', body: { status: 'published', reply: 'Спасибо!' } });
+  const pub = (await shop('/products/' + card.id)).data.reviews;
+  assert.equal(pub.count, 1); assert.equal(pub.avg, 4); assert.equal(pub.fit.small, 1);
+  assert.equal(pub.items[0].name, 'Ирина П.', 'имя сокращается'); assert.equal(pub.items[0].reply, 'Спасибо!');
+  assert.match(await fetch(BASE + list[0].url).then((x) => x.text()), /"aggregateRating"/);
+  // YML-фид: каждый размер — предложение с group_id
+  const yml = await fetch(BASE + '/feed.yml').then((x) => x.text());
+  assert.match(yml, new RegExp(`<offer id="${vS.id}" group_id="${card.id}" available="(true|false)">`));
+  assert.match(yml, /<param name="Размер" unit="RU">M<\/param>/);
+  const mf = await fetch(BASE + '/manifest.webmanifest').then((x) => x.json());
+  assert.equal(mf.display, 'standalone'); assert.ok(mf.icons.length >= 2);
+  await ok('/orders/settings', { method: 'PUT', body: { sbpEnabled: '0', tbankEnabled: '0', showOutOfStock: '0' } });
 });
 
 test('демо-данные: загрузка и удаление', async () => {

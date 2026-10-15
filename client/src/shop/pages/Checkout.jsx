@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { Banknote, CreditCard, Loader2 } from 'lucide-react';
+import { Banknote, CreditCard, Loader2, QrCode } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import DeliveryPicker from '../DeliveryPicker';
 import { shopApi, fmtPhone } from '../api';
@@ -19,7 +19,7 @@ export default function Checkout() {
   const { config, cart, money, auth, notify } = useShop();
   const navigate = useNavigate();
   const pay = config.payments;
-  const [f, setF] = useState({ name: '', paymentMethod: pay.tbank ? 'tbank' : 'cash', comment: '' });
+  const [f, setF] = useState({ name: '', paymentMethod: pay.sbp ? 'sbp' : pay.tbank ? 'tbank' : 'cash', comment: '' });
   const [dl, setDl] = useState({ ready: false });
   const [agree, setAgree] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -64,7 +64,8 @@ export default function Checkout() {
           <section>
             <h2 className="mb-3 text-lg font-semibold">Оплата</h2>
             <div className="grid gap-3 sm:grid-cols-2">
-              {pay.tbank && <Option active={f.paymentMethod === 'tbank'} onClick={() => setF({ ...f, paymentMethod: 'tbank' })} icon={CreditCard} title="Онлайн через Т-Банк" sub="картой, СБП или T-Pay" />}
+              {pay.sbp && <Option active={f.paymentMethod === 'sbp'} onClick={() => setF({ ...f, paymentMethod: 'sbp' })} icon={QrCode} title="СБП" sub="по QR-коду или в приложении банка, без комиссии" />}
+              {pay.tbank && <Option active={f.paymentMethod === 'tbank'} onClick={() => setF({ ...f, paymentMethod: 'tbank' })} icon={CreditCard} title="Онлайн картой" sub="банковская карта или T-Pay (Т-Банк)" />}
               {pay.cash && <Option active={f.paymentMethod === 'cash'} onClick={() => setF({ ...f, paymentMethod: 'cash' })} icon={Banknote} title="При получении" sub="наличными или картой" />}
             </div>
           </section>
@@ -88,7 +89,7 @@ export default function Checkout() {
           </label>
           {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
           <button disabled={busy || !agree || !dl.ready} className="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-slate-900 py-3.5 font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
-            {busy && <Loader2 size={18} className="animate-spin" />}{f.paymentMethod === 'tbank' ? 'Перейти к оплате' : 'Подтвердить заказ'}
+            {busy && <Loader2 size={18} className="animate-spin" />}{f.paymentMethod === 'cash' ? 'Подтвердить заказ' : 'Перейти к оплате'}
           </button>
         </div>
       </div>

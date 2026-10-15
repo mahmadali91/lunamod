@@ -1,30 +1,24 @@
 import { useEffect, useState } from 'react';
-import { Sun, Moon, Monitor } from 'lucide-react';
-import { getTheme, setTheme } from '../theme';
+import { Sun, Moon } from 'lucide-react';
+import { isDark, setTheme } from '../theme';
 
-const OPTS = [['light', Sun, 'Светлая тема'], ['dark', Moon, 'Тёмная тема'], ['system', Monitor, 'Как в системе']];
-
-/** compact — одна кнопка-переключатель (по кругу); иначе — сегментный переключатель из трёх */
+/** Переключатель «день / ночь». compact — круглая кнопка-иконка; иначе — два варианта рядом */
 export default function ThemeToggle({ compact, className = '' }) {
-  const [t, setT] = useState(getTheme);
-  useEffect(() => { const h = (e) => setT(e.detail.theme); window.addEventListener('themechange', h); return () => window.removeEventListener('themechange', h); }, []);
-  const pick = (v) => { setTheme(v); setT(v); };
+  const [dark, setDark] = useState(isDark);
+  useEffect(() => { const h = (e) => setDark(e.detail.dark); window.addEventListener('themechange', h); return () => window.removeEventListener('themechange', h); }, []);
   if (compact) {
-    const i = OPTS.findIndex((o) => o[0] === t);
-    const [, Icon, label] = OPTS[i];
-    const next = OPTS[(i + 1) % OPTS.length];
     return (
-      <button type="button" onClick={() => pick(next[0])} title={`${label}. Нажмите: ${next[2].toLowerCase()}`} aria-label={`Тема: ${label}`} className={`rounded-full p-2 hover:bg-slate-100 ${className}`}>
-        <Icon size={20} />
+      <button type="button" onClick={() => setTheme(dark ? 'light' : 'dark')} title={dark ? 'Включить дневной режим' : 'Включить ночной режим'} aria-label={dark ? 'Дневной режим' : 'Ночной режим'} className={`rounded-full p-2 hover:bg-slate-100 ${className}`}>
+        {dark ? <Sun size={21} /> : <Moon size={21} />}
       </button>
     );
   }
   return (
-    <div role="radiogroup" aria-label="Тема оформления" className={`inline-flex rounded-lg bg-slate-100 p-0.5 ${className}`}>
-      {OPTS.map(([v, Icon, label]) => (
-        <button key={v} type="button" role="radio" aria-checked={t === v} title={label} aria-label={label} onClick={() => pick(v)}
-          className={`flex flex-1 items-center justify-center rounded-md px-2.5 py-1.5 ${t === v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
-          <Icon size={16} />
+    <div role="radiogroup" aria-label="Режим оформления" className={`inline-flex rounded-lg bg-slate-100 p-0.5 ${className}`}>
+      {[[false, Sun, 'Дневной'], [true, Moon, 'Ночной']].map(([v, Icon, label]) => (
+        <button key={label} type="button" role="radio" aria-checked={dark === v} title={label} onClick={() => setTheme(v ? 'dark' : 'light')}
+          className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs ${dark === v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
+          <Icon size={14} /> {label}
         </button>
       ))}
     </div>

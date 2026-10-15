@@ -6,10 +6,13 @@ const Ctx = createContext(null);
 export const useShop = () => useContext(Ctx);
 const CART = 'shop_cart';
 const readCart = () => { try { return JSON.parse(localStorage.getItem(CART) || '[]'); } catch { return []; } };
+const FAV = 'shop_fav';
+const readFav = () => { try { const v = JSON.parse(localStorage.getItem(FAV) || '[]'); return Array.isArray(v) ? v.filter(Number.isInteger) : []; } catch { return []; } };
 
 export function ShopProvider({ children }) {
   const [config, setConfig] = useState(null);
   const [cart, setCart] = useState(readCart);
+  const [favIds, setFavIds] = useState(readFav);
   const [me, setMe] = useState(null);
   const [toast, setToast] = useState(null);
   const [loginOpen, setLoginOpen] = useState(null); // { then: fn } — что сделать после входа
@@ -17,6 +20,18 @@ export function ShopProvider({ children }) {
   useEffect(() => { shopApi('/config').then((c) => { setConfig(c); document.title = c.title; }).catch(() => setConfig({ error: true })); }, []);
   useEffect(() => { if (shopToken.get()) shopApi('/me').then(setMe).catch(() => {}); }, []);
   useEffect(() => { try { localStorage.setItem(CART, JSON.stringify(cart)); } catch { /* ignore */ } }, [cart]);
+  // корзина вошедшего покупателя сохраняется на сервере — чтобы напомнить, если он не оформил заказ
+  useEffect(() => {
+    if (!me) return;
+    const t = setTimeout(() => shopApi('/cart', { method: 'POST', body: { items: cart.map((i) => ({ productId: i.id, quantity: i.quantity })) } }).catch(() => {}), 1500);
+    return () => clearTimeout(t);
+  }, [cart, me?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { try { localStorage.setItem(FAV, JSON.stringify(favIds)); } catch { /* ignore */ } }, [favIds]);
+  // избранное вошедшего покупателя хранится в аккаунте: при входе объединяем с тем, что было в браузере
+  useEffect(() => {
+    if (!me) return;
+    shopApi('/favorites/sync', { method: 'POST', body: { ids: readFav() } }).then((r) => setFavIds(r.ids)).catch(() => {});
+  }, [me?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const notify = useCallback((text, type = 'ok') => { setToast({ text, type, id: Math.random() }); }, []);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t); }, [toast]);
@@ -35,13 +50,25 @@ export function ShopProvider({ children }) {
         if (next <= (ex?.quantity || 0)) { notify(`Больше нет в наличии: доступно ${p.stock} шт.`, 'error'); return c; }
         notify('Добавлено в корзину');
         ecommerce('add', [{ id: p.id, name: p.name, price: p.price, quantity: next - (ex?.quantity || 0) }]);
-        return ex ? c.map((i) => (i.id === p.id ? { ...i, quantity: next } : i)) : [...c, { id: p.id, name: p.name, price: p.price, image: p.images?.[0], stock: p.stock, quantity: next }];
+        return ex ? c.map((i) => (i.id === p.id ? { ...i, quantity: next } : i)) : [...c, { id: p.id, name: p.name, price: p.price, image: p.images?.[0], stock: p.stock, url: p.url, quantity: next }];
       });
     },
     set(id, q) { setCart((c) => c.map((i) => (i.id === id ? { ...i, quantity: Math.max(1, Math.min(q, config?.allowBackorder ? 999 : i.stock || 999)) } : i))); },
     remove(id) { setCart((c) => c.filter((i) => i.id !== id)); },
     clear() { setCart([]); },
   }), [cart, config, notify]);
+
+  const fav = {
+    ids: favIds,
+    count: favIds.length,
+    has: (id) => favIds.includes(id),
+    toggle(id) {
+      const on = !favIds.includes(id);
+      setFavIds((f) => (on ? [id, ...f.filter((x) => x !== id)] : f.filter((x) => x !== id)));
+      notify(on ? 'Добавлено в избранное' : 'Удалено из избранного');
+      if (me) shopApi('/favorites/' + id, { method: on ? 'POST' : 'DELETE' }).catch(() => {});
+    },
+  };
 
   const auth = {
     me,
@@ -51,5 +78,5 @@ export function ShopProvider({ children }) {
     refresh: () => shopApi('/me').then(setMe),
   };
 
-  return <Ctx.Provider value={{ config, money, cart: cartApi, auth, notify, toast, loginOpen, setLoginOpen }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ config, money, cart: cartApi, fav, auth, notify, toast, loginOpen, setLoginOpen }}>{children}</Ctx.Provider>;
 }

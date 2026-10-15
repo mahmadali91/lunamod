@@ -1,6 +1,6 @@
 const prisma = require('../db');
 const crud = require('./crud');
-const { str, HttpError } = require('../util');
+const { str, int, HttpError } = require('../util');
 
 const bool = (v, d = true) => (v === undefined ? d : Boolean(v));
 
@@ -25,13 +25,28 @@ const counterparties = crud('counterparty', {
 });
 
 const categories = crud('category', {
-  pick: (b) => ({ name: str(b.name) }),
+  pick: (b) => ({ name: str(b.name), ...(b.sizeChartId !== undefined ? { sizeChartId: int(b.sizeChartId) } : {}) }),
   orderBy: { name: 'asc' },
-  // кол-во товаров и фото первого товара — для карточек категорий
+  // кол-во товаров (карточек) и фото первого товара — для карточек категорий
   include: {
-    _count: { select: { products: { where: { active: true } } } },
-    products: { where: { active: true, images: { some: {} } }, take: 1, select: { images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } },
+    _count: { select: { products: { where: { active: true, parentId: null } } } },
+    products: { where: { active: true, parentId: null, images: { some: {} } }, take: 1, select: { images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } },
   },
 });
 
-module.exports = { warehouses, channels, counterparties, categories };
+// Таблицы размеров: data — { head: [...], rows: [[...]], note }
+function chartData(v) {
+  let d = v;
+  if (typeof d === 'string') { try { d = JSON.parse(d); } catch { throw new HttpError(400, 'Неверная таблица размеров'); } }
+  const cell = (x) => String(x ?? '').trim().slice(0, 40);
+  const head = (Array.isArray(d?.head) ? d.head : []).map(cell).slice(0, 12);
+  if (!head.length) throw new HttpError(400, 'Добавьте хотя бы одну колонку');
+  const rows = (Array.isArray(d?.rows) ? d.rows : []).map((r) => head.map((_, i) => cell(r?.[i]))).filter((r) => r.some(Boolean)).slice(0, 40);
+  return JSON.stringify({ head, rows, note: String(d?.note || '').slice(0, 1000) });
+}
+const sizeCharts = crud('sizeChart', {
+  pick: (b) => ({ name: str(b.name), data: chartData(b.data) }),
+  orderBy: { name: 'asc' },
+});
+
+module.exports = { warehouses, channels, counterparties, categories, sizeCharts };

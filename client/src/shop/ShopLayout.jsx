@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { ShoppingBag, User, Search, Menu, X, Phone, MapPin, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ShoppingBag, Heart, User, Search, Menu, X, Phone, MapPin, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useShop } from './store';
 import LoginModal from './Login';
 import ChatWidget from './ChatWidget';
@@ -10,7 +10,7 @@ import ThemeToggle from '../components/ThemeToggle';
 import { useMetrika } from './metrika';
 
 export default function ShopLayout() {
-  const { config, cart, auth, toast, setLoginOpen } = useShop();
+  const { config, cart, fav, auth, toast, setLoginOpen } = useShop();
   const [q, setQ] = useState('');
   const [menu, setMenu] = useState(false);
   const navigate = useNavigate();
@@ -28,31 +28,29 @@ export default function ShopLayout() {
     <div className="flex min-h-screen flex-col bg-white text-slate-900">
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-white focus:p-3">Перейти к содержимому</a>
       {config.testMode && <div className="bg-amber-400 px-4 py-1 text-center text-xs font-medium text-amber-950">Магазин работает в тестовом режиме</div>}
-      {(Object.keys(config.socials || {}).length > 0 || config.phone) && (
-        <div className="hidden border-b border-slate-100 bg-slate-50 sm:block">
-          <div className="mx-auto flex h-10 max-w-7xl items-center gap-4 px-4 text-xs text-slate-500">
-            {config.phone && <a href={`tel:${config.phone.replace(/[^\d+]/g, '')}`} className="flex items-center gap-1.5 hover:text-slate-900"><Phone size={13} />{config.phone}</a>}
-            {config.workHours && <span className="hidden items-center gap-1.5 md:flex"><Clock size={13} />{config.workHours}</span>}
-            <Socials links={config.socials} size={16} className="ml-auto -mr-2" />
-          </div>
-        </div>
-      )}
       <header className="sticky top-0 z-30 border-b border-slate-100 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4">
-          <button className="-ml-1 p-1 md:hidden" onClick={() => setMenu(true)} aria-label="Меню"><Menu /></button>
-          <Link to="/" className="shrink-0 text-xl font-extrabold tracking-tight">{config.title}</Link>
-          <nav className="ml-4 hidden gap-6 text-sm font-medium text-slate-600 md:flex">
+        <div className="mx-auto flex h-16 max-w-7xl items-center gap-2 px-4 sm:gap-4">
+          <button className="-ml-1 shrink-0 p-1 md:hidden" onClick={() => setMenu(true)} aria-label="Меню"><Menu /></button>
+          <Link to="/" className="min-w-0 truncate text-lg font-extrabold tracking-tight sm:text-xl">{config.title}</Link>
+          <nav className="ml-4 hidden shrink-0 gap-5 text-sm font-medium text-slate-600 lg:flex">
+            <NavLink to="/?sort=new" className="hover:text-slate-900">Новинки</NavLink>
+            <NavLink to="/?sort=popular" className="hover:text-slate-900">Хиты</NavLink>
             <NavLink to="/?sale=1" className="hover:text-slate-900">Скидки</NavLink>
             <NavLink to="/about" className={({ isActive }) => (isActive ? 'text-slate-900' : 'hover:text-slate-900')}>Доставка и оплата</NavLink>
           </nav>
           <form onSubmit={search} className="relative ml-auto hidden max-w-xs flex-1 sm:block">
             <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск товаров" className="w-full rounded-full bg-slate-100 py-2 pr-4 pl-9 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-slate-900" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск товаров" aria-label="Поиск товаров" className="w-full rounded-full bg-slate-100 py-2 pr-4 pl-9 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-slate-900" />
           </form>
-          <div className="ml-auto flex items-center gap-1 sm:ml-0">
+          <Socials links={config.socials} size={17} className="hidden shrink-0 md:flex" />
+          <div className="ml-auto flex shrink-0 items-center sm:ml-0">
             <ThemeToggle compact />
+            <Link to="/favorites" className="relative rounded-full p-2 hover:bg-slate-100" aria-label="Избранное">
+              <Heart size={22} />
+              {fav.count > 0 && <span className="absolute -top-0.5 -right-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[11px] font-bold text-white">{fav.count}</span>}
+            </Link>
             <button onClick={() => (auth.me ? navigate('/account') : setLoginOpen({ then: () => navigate('/account') }))} className="flex items-center gap-2 rounded-full p-2 hover:bg-slate-100" aria-label="Профиль">
-              <User size={22} /><span className="hidden text-sm lg:inline">{auth.me ? auth.me.name || 'Профиль' : 'Войти'}</span>
+              <User size={22} /><span className="hidden text-sm xl:inline">{auth.me ? auth.me.name || 'Профиль' : 'Войти'}</span>
             </button>
             <Link to="/cart" className="relative rounded-full p-2 hover:bg-slate-100" aria-label="Корзина">
               <ShoppingBag size={22} />
