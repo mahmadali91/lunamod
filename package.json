@@ -10,5 +10,5 @@
     "dev:server": "npm --prefix server run dev",
     "dev:client": "npm --prefix client run dev"
   },
-  "version": "2.9.2"
+  "version": "2.9.3"
 }

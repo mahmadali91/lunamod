@@ -5,6 +5,8 @@ import { shopApi } from '../api';
 import ProductCard from '../ProductCard';
 import RecentlyViewed from '../RecentlyViewed';
 
+const plural = (n, one, few, many) => { const a = Math.abs(n) % 100, b = a % 10; return a > 10 && a < 20 ? many : b === 1 ? one : b >= 2 && b <= 4 ? few : many; };
+
 const SORTS = [['default', 'Рекомендуемые'], ['new', 'Новинки'], ['popular', 'Популярные'], ['cheap', 'Сначала дешевле'], ['expensive', 'Сначала дороже']];
 const FILTER_KEYS = ['sizes', 'colors', 'brands', 'min', 'max', 'inStock', 'sale'];
 const COLOR_HEX = { чёрный: '#111', черный: '#111', белый: '#fff', серый: '#9ca3af', бежевый: '#e8d8bf', синий: '#2549b6', голубой: '#7fb3ea', красный: '#d42a2a', розовый: '#f4a6c0', зелёный: '#2f8a4b', зеленый: '#2f8a4b', хаки: '#7a7a4b', жёлтый: '#f2cf3a', желтый: '#f2cf3a', коричневый: '#7b4a2a', молочный: '#f6efe3', бордовый: '#7d1e2c', фиолетовый: '#7c4dc4', оранжевый: '#f08a24' };
@@ -28,7 +30,7 @@ function FilterMenu({ label, count, children }) {
   return (
     <div ref={ref} className="relative shrink-0">
       <button onClick={() => setOpen(!open)} aria-expanded={open}
-        className={`flex items-center gap-1 rounded-full border px-3.5 py-2 text-sm transition ${count ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white hover:border-slate-900'}`}>
+        className={`flex items-center gap-1 rounded-full border px-3 py-1.5 text-sm transition sm:px-3.5 sm:py-2 ${count ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white hover:border-slate-900'}`}>
         {label}{count > 0 && <span className="ml-0.5 text-xs opacity-80">· {count}</span>}<ChevronDown size={15} className={`transition ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
@@ -159,20 +161,18 @@ export default function Catalog() {
   );
 
   return (
-    <div className="mx-auto max-w-7xl px-4 pt-8">
-      <div className="mb-4 flex items-end justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
-          {data && <p className="mt-1 text-sm text-slate-500">{data.total} товаров</p>}
+    <div className="mx-auto max-w-7xl px-4 pt-4 sm:pt-6">
+      {/* одна строка: заголовок с количеством · фильтры · сортировка (на телефоне фильтры — второй строкой с прокруткой) */}
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2.5 sm:mb-5">
+        <div className="flex min-w-0 flex-1 items-baseline gap-2 lg:flex-none">
+          <h1 className="truncate text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1>
+          {data && <span className="shrink-0 text-sm whitespace-nowrap text-slate-500">{data.total} {plural(data.total, 'товар', 'товара', 'товаров')}</span>}
         </div>
-        <select value={sort} onChange={(e) => set('sort', e.target.value)} aria-label="Сортировка" className="max-w-[48%] shrink-0 rounded-full border border-slate-300 bg-white px-3 py-2 text-sm outline-none sm:hidden">
+        <select value={sort} onChange={(e) => set('sort', e.target.value)} aria-label="Сортировка" className="max-w-[45%] shrink-0 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm outline-none lg:order-last lg:max-w-none sm:px-3.5 sm:py-2">
           {SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
-      </div>
-      {/* строка фильтров: выпадающие списки + сортировка справа */}
-      <div className="mb-5 flex items-center gap-2">
-        <div className="-mx-4 flex min-w-0 flex-1 items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
-          <button onClick={() => setPanel(true)} className="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3.5 py-2 text-sm lg:hidden">
+        <div className="-mx-4 flex w-[calc(100%+2rem)] min-w-0 items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] lg:mx-0 lg:w-auto lg:flex-1 lg:flex-wrap lg:overflow-visible lg:px-0 lg:pb-0">
+          <button onClick={() => setPanel(true)} className="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm sm:px-3.5 sm:py-2 lg:hidden">
             <SlidersHorizontal size={15} /> Все{active > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-slate-900 px-1 text-xs text-white">{active}</span>}
           </button>
           {facets?.sizes.length > 0 && <FilterMenu label="Размер" count={multi('sizes').length}>
@@ -193,12 +193,9 @@ export default function Catalog() {
           </FilterMenu>}
           {[['inStock', 'В наличии'], ['sale', 'Со скидкой']].map(([k, l]) => (
             <button key={k} onClick={() => set(k, params.get(k) ? '' : '1')} aria-pressed={!!params.get(k)}
-              className={`shrink-0 rounded-full border px-3.5 py-2 text-sm transition ${params.get(k) ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white hover:border-slate-900'}`}>{l}</button>
+              className={`shrink-0 rounded-full border px-3 py-1.5 text-sm transition sm:px-3.5 sm:py-2 ${params.get(k) ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white hover:border-slate-900'}`}>{l}</button>
           ))}
         </div>
-        <select value={sort} onChange={(e) => set('sort', e.target.value)} aria-label="Сортировка" className="hidden shrink-0 rounded-full border border-slate-300 bg-white px-3.5 py-2 text-sm outline-none sm:block">
-          {SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
       </div>
       {(q || active > 0) && (
         <div className="mb-4 flex flex-wrap gap-2">
