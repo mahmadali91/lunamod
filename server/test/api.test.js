@@ -236,7 +236,7 @@ test('статистика: сквозная аналитика, расходы,
   assert.equal(tr.points.length, 1);
   const abc = await ok(`/stats/abc?${range}&by=product&metric=revenue`);
   const shares = abc.rows.reduce((a, r) => a + r.share, 0);
-  assert.ok(Math.abs(shares - 100) < 0.5, 'доли в сумме 100%');
+  assert.ok(Math.abs(shares - 100) <= Math.max(0.5, abc.rows.length * 0.05), 'доли в сумме 100% (с точностью округления до 0,1 у каждой строки)');
   assert.equal(abc.rows[0].abc, 'A', 'лидер всегда в группе A');
   assert.ok(abc.rows.every((r, i) => i === 0 || abc.rows[i - 1].revenue >= r.revenue), 'сортировка по убыванию');
   assert.equal(abc.summary.A.count + abc.summary.B.count + abc.summary.C.count, abc.rows.length);
