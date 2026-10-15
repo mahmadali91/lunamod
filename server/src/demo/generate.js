@@ -48,7 +48,7 @@ async function nextSeq(key) {
  */
 async function generateDemo({ perCategory = 5, days = 365 } = {}) {
   if (await prisma.setting.findUnique({ where: { key: KEY } })) throw Object.assign(new Error('Демо-данные уже загружены'), { status: 400 });
-  const created = { categories: [], products: [], counterparties: [], channels: [], warehouses: [], images: [], sales: null, receipts: null };
+  const created = { categories: [], products: [], groups: [], sizeCharts: [], counterparties: [], channels: [], warehouses: [], images: [], sales: null, receipts: null };
   // Список созданного сохраняется по ходу — даже после сбоя всё можно удалить кнопкой
   const save = async () => {
     const value = JSON.stringify(created);
@@ -99,46 +99,77 @@ async function generateDemo({ perCategory = 5, days = 365 } = {}) {
   const partners = people.filter((p) => /реализац/.test(p.note));
   const regulars = people.filter((p) => /Постоянный/.test(p.note));
 
-  // --- Категории и товары ---
-  const products = [];
+  // --- Размерные таблицы ---
+  const charts = {};
+  for (const [key, name, data] of [
+    ['cloth', 'Женская одежда (демо)', { head: ['Размер', 'RU', 'Обхват груди, см', 'Обхват талии, см', 'Обхват бёдер, см'], rows: [['XS', '40-42', '80-84', '62-66', '88-92'], ['S', '42-44', '84-88', '66-70', '92-96'], ['M', '44-46', '88-92', '70-74', '96-100'], ['L', '46-48', '92-96', '74-78', '100-104'], ['XL', '48-50', '96-100', '78-82', '104-108']], note: 'Измеряйте по самым выступающим точкам. Если параметры между размерами — берите больший.' }],
+    ['jeans', 'Джинсы (демо)', { head: ['Размер (W)', 'RU', 'Обхват талии, см', 'Обхват бёдер, см'], rows: [['26', '42', '66', '92'], ['27', '42-44', '68', '94'], ['28', '44', '71', '96'], ['29', '44-46', '73', '98'], ['30', '46', '76', '101'], ['31', '46-48', '78', '103'], ['32', '48', '81', '106']], note: '' }],
+  ]) {
+    const c = await prisma.sizeChart.create({ data: { name, data: JSON.stringify(data) } });
+    charts[key] = c.id; created.sizeCharts.push(c.id);
+  }
+
+  // --- Категории и товары «как на WB»: модель → карточка на каждый цвет (свой артикул и фото) → размеры со штрихкодами ---
+  const products = []; // то, что продаётся: размеры (или карточка без размеров)
+  const BRANDS = ['Botmi', 'Botmi', 'Botmi Basic', 'Urban Line'];
+  const SIZE_W = { XS: 0.5, S: 1, M: 1.4, L: 1.2, XL: 0.6, 26: 0.5, 27: 0.8, 28: 1.2, 29: 1.3, 30: 1.1, 31: 0.7, 32: 0.5 };
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-  let n = 0;
+  let n = 0, cards = 0;
   for (const cat of CATEGORIES) {
     await setStatus({ state: 'running', step: `Товары: ${cat.name}`, progress: Math.round((n / (CATEGORIES.length * perCategory)) * 40) });
     let category = await prisma.category.findUnique({ where: { name: cat.name } });
     if (!category) { category = await prisma.category.create({ data: { name: cat.name } }); created.categories.push(category.id); }
+    const firstSize = cat.items[0]?.[3];
+    if (!category.sizeChartId && charts[firstSize]) await prisma.category.update({ where: { id: category.id }, data: { sizeChartId: charts[firstSize] } });
     for (const [i, [name, spec, [pMin, pMax], sizeType, colorKeys, material, pattern]] of cat.items.slice(0, perCategory).entries()) {
       n++;
-      const colorKey = colorKeys[0];
-      const [colorName, hex] = COLORS[colorKey];
       const price = price90(rnd(pMin, pMax));
-      const sizes = SIZES[sizeType];
-      const size = sizes.length > 1 ? `${sizes[0]}–${sizes[sizes.length - 1]}` : sizes[0];
+      const costPrice = Math.round(price * rnd(0.42, 0.55));
+      const sizes = sizeType === 'one' ? [] : SIZES[sizeType];
       const onSale = Math.random() < 0.15;
-      const p = await prisma.product.create({ data: {
-        name: `${name}, ${colorName.toLowerCase()}`,
-        sku: `${cat.code}-${String(i + 1).padStart(3, '0')}-${colorKey.slice(0, 3).toUpperCase()}`,
-        description: `${name}. Материал: ${material}. Демо-товар.`,
-        price, oldPrice: onSale ? price90(price * 1.25) : null, costPrice: Math.round(price * rnd(0.42, 0.55)),
-        minStock: irnd(3, 6), categoryId: category.id,
-        attributes: { create: [{ name: 'Размер', value: size }, { name: 'Цвет', value: colorName }, { name: 'Материал', value: material }] },
-      } });
-      await prisma.barcode.create({ data: { productId: p.id, code: await generateEan13(), type: 'EAN13', isPrimary: true, generated: true } });
-      // Иллюстрации: основной цвет + дополнительные расцветки
-      const imgs = [];
-      for (const [k, ck] of colorKeys.slice(0, 3).entries()) {
-        const file = `demo-${p.id}-${k}.svg`;
-        fs.writeFileSync(path.join(UPLOAD_DIR, file), garmentSvg({ ...spec, pattern: spec.pattern || pattern }, COLORS[ck][1]));
-        imgs.push({ productId: p.id, path: '/uploads/' + file, sort: k });
-        created.images.push(file);
+      const brand = pick(BRANDS);
+      const colors = colorKeys.slice(0, 3);
+      const group = colors.length > 1 ? await prisma.productGroup.create({ data: {} }) : null;
+      if (group) created.groups.push(group.id);
+      const modelW = rnd(0.4, 2.2); // популярность модели
+      for (const [k, ck] of colors.entries()) {
+        const [colorName, hex] = COLORS[ck];
+        const cardName = `${name}, ${colorName.toLowerCase()}`;
+        const card = await prisma.product.create({ data: {
+          name: cardName, sku: `${cat.code}-${1000 + i * 10 + k}`, color: colorName, brand, groupId: group?.id || null,
+          description: `${name}. Материал: ${material}. Цвет: ${colorName.toLowerCase()}. Демо-товар.`,
+          price, oldPrice: onSale ? price90(price * 1.25) : null, costPrice, minStock: irnd(2, 4), categoryId: category.id,
+          hasVariants: sizes.length > 0, modelInfo: sizes.length ? `рост ${irnd(168, 176)} см, на модели размер ${sizes[Math.min(1, sizes.length - 1)]}` : null,
+          attributes: { create: [{ name: 'Материал', value: material }, { name: 'Сезон', value: pick(['Всесезон', 'Демисезон', 'Лето', 'Зима']) }] },
+        } });
+        cards++; created.products.push(card.id);
+        // фото карточки — в её цвете
+        const imgs = [];
+        for (const j of [0, 1]) {
+          const file = `demo-${card.id}-${j}.svg`;
+          fs.writeFileSync(path.join(UPLOAD_DIR, file), garmentSvg({ ...spec, pattern: j ? spec.pattern || pattern : spec.pattern }, hex));
+          imgs.push({ productId: card.id, path: '/uploads/' + file, sort: j });
+          created.images.push(file);
+        }
+        await prisma.productImage.createMany({ data: imgs });
+        const colorW = modelW * (k === 0 ? 1.3 : rnd(0.5, 1));
+        const weightBase = colorW * (price < 2500 ? 1.6 : price > 7000 ? 0.5 : 1);
+        if (!sizes.length) {
+          await prisma.barcode.create({ data: { productId: card.id, code: await generateEan13(), type: 'EAN13', isPrimary: true, generated: true } });
+          products.push({ ...card, weight: weightBase });
+          continue;
+        }
+        for (const [si, size] of sizes.entries()) {
+          const v = await prisma.product.create({ data: { name: `${cardName} · ${size}`, parentId: card.id, color: colorName, size, sort: si, brand,
+            price, oldPrice: card.oldPrice, costPrice, minStock: 1, categoryId: category.id } });
+          await prisma.barcode.create({ data: { productId: v.id, code: await generateEan13(), type: 'EAN13', isPrimary: true, generated: true } });
+          created.products.push(v.id);
+          products.push({ ...v, weight: (weightBase * (SIZE_W[size] || 1)) / sizes.length * 2.2 });
+        }
       }
-      await prisma.productImage.createMany({ data: imgs });
-      products.push({ ...p, weight: rnd(0.3, 3) * (price < 2500 ? 1.6 : price > 7000 ? 0.5 : 1) });
-      created.products.push(p.id);
     }
     await save();
   }
-
   // --- Продажи, приходы и реализация за период (в памяти, потом пачками) ---
   await setStatus({ state: 'running', step: 'Продажи за год', progress: 45 });
   let saleId = await maxId('sale'), itemId = await maxId('saleItem'), payId = await maxId('salePayment');
@@ -154,14 +185,32 @@ async function generateDemo({ perCategory = 5, days = 365 } = {}) {
   const avgPerDay = 14; // единиц в день
   const lowAtEnd = new Set(products.filter(() => Math.random() < 0.08).map((p) => p.id));
 
+  // партии в памяти: у каждого прихода своя закупочная цена (поставщик и сезон), продажа списывает FIFO
+  const lots = new Map(); // `${pid}:${wid}` → [{...batch}]
+  const allLots = [];
+  const putLot = (pid, wid, q, cost, date, supplierId, receiptId, note) => {
+    const st0 = st(pid, wid) - q; // остаток до прихода (минус гасится первым)
+    const lot = { productId: pid, warehouseId: wid, quantity: q, remaining: Math.max(0, q - Math.max(0, -st0)), costPrice: cost, date, supplierId, receiptId, note, createdAt: date };
+    allLots.push(lot); const key = `${pid}:${wid}`; lots.set(key, [...(lots.get(key) || []), lot]);
+  };
+  const takeLots = (p, wid, q) => {
+    let need = q, sum = 0;
+    for (const lot of lots.get(`${p.id}:${wid}`) || []) { if (need <= 0) break; const t = Math.min(need, lot.remaining); lot.remaining -= t; need -= t; sum += t * lot.costPrice; }
+    if (need > 0) sum += need * p.costPrice;
+    return Math.round((sum / q) * 100) / 100;
+  };
   const receipt = (date, wid, list, supplier) => {
     rcId++; rcSeq++;
     let total = 0;
+    // закупочная цена меняется от партии к партии: поставщик, сезон, курс
+    const k = (supplier && supplier === suppliers[1] ? 0.93 : 1) * [1.02, 1, 0.98, 0.97, 0.96, 0.98, 1, 1.02, 1.04, 1.06, 1.08, 1.1][date.getMonth()] * rnd(0.97, 1.03);
     for (const { p, q } of list) {
       rcItemId++;
-      rcItems.push({ id: rcItemId, receiptId: rcId, productId: p.id, quantity: q, costPrice: p.costPrice });
+      const cost = Math.round(p.costPrice * k);
+      rcItems.push({ id: rcItemId, receiptId: rcId, productId: p.id, quantity: q, costPrice: cost });
       moves.push({ productId: p.id, warehouseId: wid, quantity: q, type: 'RECEIPT', note: 'П-' + String(rcSeq).padStart(6, '0'), receiptId: rcId, createdAt: date });
-      add(p.id, wid, q); total += q * p.costPrice;
+      add(p.id, wid, q); total += q * cost;
+      putLot(p.id, wid, q, cost, date, supplier?.id || null, rcId, null);
     }
     receipts.push({ id: rcId, number: 'П-' + String(rcSeq).padStart(6, '0'), date, warehouseId: wid, counterpartyId: supplier?.id || null, total, note: 'Демо' });
   };
@@ -174,9 +223,11 @@ async function generateDemo({ perCategory = 5, days = 365 } = {}) {
       for (const p of products) {
         if (lowAtEnd.has(p.id) && monthsLeft < 1) continue;
         const daily = (p.weight / totalW) * avgPerDay * (wid === wMain.id ? 0.75 : 0.35) * 1.4;
-        const target = Math.max(4, Math.ceil(daily * cover));
+        // в магазине держим не все размеры; закупаем партиями «кратно» и с разбросом
+        if (wid !== wMain.id && Math.random() < 0.35) continue;
+        const target = Math.max(wid === wMain.id ? 3 : 1, Math.ceil(daily * cover * rnd(0.6, 1.5)));
         const need = target - st(p.id, wid);
-        if (need > 0) list.push({ p, q: need });
+        if (need > 1 || (need > 0 && st(p.id, wid) <= 0)) list.push({ p, q: need + irnd(0, 3) });
       }
       if (list.length) receipt(date, wid, list, pick(suppliers));
     }
@@ -190,7 +241,7 @@ async function generateDemo({ perCategory = 5, days = 365 } = {}) {
     for (const { p, q } of lines) {
       itemId++;
       const price = consign ? Math.round(p.price * priceK) : p.price;
-      its.push({ id: itemId, saleId, productId: p.id, quantity: q, returned: 0, price, costPrice: p.costPrice });
+      its.push({ id: itemId, saleId, productId: p.id, quantity: q, returned: 0, price, costPrice: takeLots(p, wid, q) });
       subtotal += q * price;
     }
     const discount = !consign && Math.random() < 0.12 ? Math.round(subtotal * pick([0.05, 0.1])) : 0;
@@ -243,6 +294,7 @@ async function generateDemo({ perCategory = 5, days = 365 } = {}) {
         const date = new Date(sale.date.getTime() + irnd(10, 25) * 864e5);
         moves.push({ productId: it.productId, warehouseId: sale.warehouseId, quantity: r, type: 'RETURN', note: 'Возврат ' + sale.number, saleId: sale.id, createdAt: date });
         add(it.productId, sale.warehouseId, r);
+        putLot(it.productId, sale.warehouseId, r, it.costPrice, date, null, null, 'Возврат');
       }
       sale.total = its.reduce((a, i) => a + (i.quantity - i.returned) * i.price, 0);
     }
@@ -274,16 +326,18 @@ async function generateDemo({ perCategory = 5, days = 365 } = {}) {
   }
   const stockRows = [...stock.entries()].map(([k, quantity]) => { const [productId, warehouseId] = k.split(':').map(Number); return { productId, warehouseId, quantity }; });
   for (const part of chunks(stockRows)) await prisma.stock.createMany({ data: part });
-  // остатки демо-товаров — партиями по закупочной цене (для себестоимости и стоимости склада)
-  const costOf = Object.fromEntries(products.map((p) => [p.id, p.costPrice]));
-  const batchRows = stockRows.filter((r) => r.quantity > 0).map((r) => ({ productId: r.productId, warehouseId: r.warehouseId, quantity: r.quantity, remaining: r.quantity, costPrice: costOf[r.productId] || 0, note: 'Демо-данные' }));
-  for (const part of chunks(batchRows)) await prisma.batch.createMany({ data: part });
+  // партии: история закупок по своей цене и остаток каждой партии после продаж (FIFO)
+  for (const part of chunks(allLots)) await prisma.batch.createMany({ data: part });
+  // закупочная цена в карточке — по последней партии
+  const lastCost = {};
+  allLots.forEach((l) => { if (l.receiptId) lastCost[l.productId] = l.costPrice; });
+  for (const [pid, c] of Object.entries(lastCost)) await prisma.product.update({ where: { id: Number(pid) }, data: { costPrice: c } });
   for (const [key, value] of [['sale_seq', saleSeq], ['receipt_seq', rcSeq]]) {
     await prisma.setting.upsert({ where: { key }, update: { value: String(value) }, create: { key, value: String(value) } });
   }
 
   await save();
-  const summary = { products: products.length, categories: CATEGORIES.length, sales: sales.length, consignments: consignments.length, receipts: receipts.length, seconds: Math.round((Date.now() - t0) / 1000) };
+  const summary = { products: cards, models: n, variants: products.length, categories: CATEGORIES.length, sales: sales.length, consignments: consignments.length, receipts: receipts.length, seconds: Math.round((Date.now() - t0) / 1000) };
   await setStatus({ state: 'done', step: 'Готово', progress: 100, summary });
   return summary;
 }
@@ -298,9 +352,13 @@ async function removeDemo() {
   await prisma.sale.deleteMany({ where: { id: inRange(d.sales) } });
   await prisma.receipt.deleteMany({ where: { id: inRange(d.receipts) } });
   let archived = 0;
-  for (const id of d.products) {
+  // сначала размеры, потом карточки
+  const list = await prisma.product.findMany({ where: { id: { in: d.products } }, select: { id: true, parentId: true }, orderBy: { id: 'desc' } });
+  for (const { id } of [...list.filter((x) => x.parentId), ...list.filter((x) => !x.parentId)]) {
     try { await prisma.product.delete({ where: { id } }); } catch { await prisma.product.updateMany({ where: { id }, data: { active: false } }); archived++; }
   }
+  if (d.groups?.length) await prisma.productGroup.deleteMany({ where: { id: { in: d.groups }, products: { none: {} } } });
+  if (d.sizeCharts?.length) await prisma.sizeChart.deleteMany({ where: { id: { in: d.sizeCharts } } });
   for (const f of d.images) fs.unlink(path.join(UPLOAD_DIR, f), () => {});
   for (const id of d.categories) await prisma.category.deleteMany({ where: { id, products: { none: {} } } });
   await prisma.counterparty.deleteMany({ where: { id: { in: d.counterparties } } });

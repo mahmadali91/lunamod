@@ -80,6 +80,7 @@ app.use((err, req, res, next) => {
 });
 
 require('./jobs').start();
+require('./upgrade').runUpgrades();
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Сервер запущен: http://localhost:${PORT}`));

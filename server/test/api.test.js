@@ -415,27 +415,44 @@ test('чат: только для вошедших, фото, голосовые
   assert.ok((await ok('/push/key')).key.length > 40, 'ключ VAPID создан');
 });
 
-test('варианты товара (размер/цвет) и партии с себестоимостью (FIFO)', async () => {
-  const card = await ok('/products', { method: 'POST', body: { name: 'Платье Вар ' + U, sku: 'VAR-' + D, price: 3000, costPrice: 100,
-    variantWarehouseId: w1.id,
-    variants: [{ color: 'Красный', size: 'S', quantity: 3 }, { color: 'Красный', size: 'M' }, { color: 'Чёрный', size: 'S', price: 3200 }, { color: 'Чёрный', size: 'M', barcode: '29' + D.slice(-10) }] } });
-  assert.equal(card.hasVariants, true);
-  assert.equal(card.variants.length, 4);
-  const rs = card.variants.find((v) => v.color === 'Красный' && v.size === 'S');
-  assert.equal(rs.name, 'Платье Вар ' + U + ' · Красный · S', 'название варианта');
-  assert.equal(card.variants.find((v) => v.color === 'Чёрный' && v.size === 'S').price, 3200);
-  assert.equal(card.variants.find((v) => v.size === 'M' && v.color === 'Чёрный').barcodes[0].code, '29' + D.slice(-10), 'свой штрихкод');
-  assert.ok(card.variants.every((v) => v.barcodes.length === 1), 'у каждого варианта свой штрихкод');
-  assert.equal(new Set(card.variants.map((v) => v.barcodes[0].code)).size, 4);
-  // списки: карточка — в «Товарах», варианты — в кассе и на складе
-  assert.ok((await ok('/products?q=' + encodeURIComponent('Платье Вар ' + U))).items.every((p) => p.id === card.id));
+test('карточки «как на WB»: цвет — карточка, размеры внутри, модель из нескольких цветов; партии (FIFO)', async () => {
+  const card = await ok('/products', { method: 'POST', body: { name: 'Платье Вар ' + U, sku: 'VAR-' + D, color: 'Красный', price: 3000, costPrice: 100,
+    variantWarehouseId: w1.id, variants: [{ size: 'S', quantity: 3 }, { size: 'M' }, { size: 'L', price: 3200, barcode: '29' + D.slice(-10) }] } });
+  assert.equal(card.hasVariants, true); assert.equal(card.color, 'Красный');
+  assert.equal(card.variants.length, 3);
+  const rs = card.variants.find((v) => v.size === 'S');
+  assert.equal(rs.name, 'Платье Вар ' + U + ' · Красный · S', 'название размера');
+  assert.equal(rs.color, 'Красный', 'цвет размера = цвет карточки');
+  assert.equal(card.variants.find((v) => v.size === 'L').price, 3200);
+  assert.equal(card.variants.find((v) => v.size === 'L').barcodes[0].code, '29' + D.slice(-10), 'свой штрихкод');
+  assert.equal(new Set(card.variants.map((v) => v.barcodes[0].code)).size, 3, 'у каждого размера свой штрихкод');
+  assert.equal((await api('/products', { method: 'POST', body: { name: 'Дубль ' + U, variants: [{ size: 'S' }, { size: 's' }] } })).status, 400, 'размер дважды');
+  // «Дублировать»: карточка другого цвета той же модели — свой артикул, те же размеры, новые штрихкоды
+  const black = (await api(`/products/${card.id}/duplicate`, { method: 'POST', body: { color: 'Чёрный' } })).data;
+  assert.equal(black.color, 'Чёрный'); assert.equal(black.sku, 'VAR-' + D + '-2'); assert.ok(black.groupId);
+  assert.deepEqual(black.variants.map((v) => v.size), ['S', 'M', 'L']);
+  assert.ok(black.variants.every((v) => v.color === 'Чёрный' && !card.variants.some((c) => c.barcodes[0].code === v.barcodes[0].code)));
+  const full = await ok('/products/' + card.id);
+  assert.deepEqual(full.group.map((g) => g.color), ['Красный', 'Чёрный'], 'модель из двух цветов');
+  // «Из своей карточки»: присоединить отдельную карточку
+  const white = await ok('/products', { method: 'POST', body: { name: 'Платье Вар белое ' + U, sku: 'VARW-' + D, color: 'Белый', price: 3000, variants: [{ size: 'M' }] } });
+  await ok(`/products/${card.id}/group`, { method: 'POST', body: { productId: white.id } });
+  assert.equal((await ok('/products/' + white.id)).group.length, 3);
+  await ok(`/products/${white.id}/group`, { method: 'DELETE' });
+  assert.equal((await ok('/products/' + card.id)).group.length, 2, 'отвязали');
+  // в магазине — выбор цвета ведёт на карточку другого цвета
+  const sp = (await shop('/products/' + card.id)).data;
+  assert.deepEqual(sp.groupCards.map((g) => g.color), ['Красный', 'Чёрный']);
+  assert.match(sp.groupCards[1].url, new RegExp(`^/product/${black.id}-`));
+  // списки: в «Товарах» — карточки, в кассе и на складе — размеры
+  assert.equal((await ok('/products?q=' + encodeURIComponent('Платье Вар ' + U))).items.filter((p) => p.parentId).length, 0);
   const sell = (await ok('/products?sellable=1&q=VAR-' + D)).items;
-  assert.equal(sell.length, 4, 'поиск по артикулу карточки находит варианты'); assert.ok(sell.every((p) => p.sku === 'VAR-' + D));
+  assert.ok(sell.length >= 3, 'поиск по артикулу карточки находит размеры'); assert.ok(sell.every((p) => p.sku.startsWith('VAR-' + D)));
   assert.equal((await api('/products/lookup/VAR-' + D + '?sellable=1')).status, 409, 'по артикулу нужно выбрать размер');
   assert.equal((await ok('/products/lookup/' + rs.barcodes[0].code)).id, rs.id);
   assert.equal((await api('/sales', { method: 'POST', body: { warehouseId: w1.id, items: [{ productId: card.id, quantity: 1, price: 1 }] } })).status, 400, 'карточку целиком продать нельзя');
   const stockRows = (await ok('/stock?q=VAR-' + D)).rows;
-  assert.equal(stockRows.length, 4); assert.equal(stockRows.find((r) => r.id === rs.id).total, 3);
+  assert.equal(stockRows.length, 6); assert.equal(stockRows.find((r) => r.id === rs.id).total, 3);
 
   // партии: остаток 3 по 100 ₽ + приход 5 по 150 ₽ от поставщика
   await ok('/receipts', { method: 'POST', body: { warehouseId: w1.id, counterpartyId: cp.id, items: [{ productId: rs.id, quantity: 5, costPrice: 150 }] } });
@@ -464,14 +481,21 @@ test('варианты товара (размер/цвет) и партии с �
   assert.equal(d.batches.find((b) => b.productId === rs.id && b.costPrice === 170).remaining, 2, 'из 4 шт две закрыли минус');
   assert.equal((await ok('/stock?q=VAR-' + D)).rows.find((r) => r.id === rs.id).byWh[w1.id], 2);
 
-  // изменение карточки: новое название у всех вариантов, удаление пустого варианта
-  const keep = d.variants.filter((v) => !(v.color === 'Красный' && v.size === 'M')).map((v) => ({ id: v.id, color: v.color, size: v.size, barcode: v.barcodes[0].code, price: v.price }));
+  // продажи по размерам в карточке
+  assert.equal(d.salesBySize.find((x) => x.size === 'S').sold, 8, '7 + 3 − 2 возврат');
+  // изменение карточки: новое название у всех размеров, удаление пустого размера
+  const keep = d.variants.filter((v) => v.size !== 'M').map((v) => ({ id: v.id, size: v.size, barcode: v.barcodes[0].code, price: v.price }));
   const upd = await ok('/products/' + card.id, { method: 'PUT', body: { ...d, name: 'Платье Лето ' + U, variants: keep } });
-  assert.equal(upd.variants.length, 3);
-  assert.ok(upd.variants.every((v) => v.name.startsWith('Платье Лето ' + U + ' · ')));
+  assert.equal(upd.variants.length, 2);
+  assert.ok(upd.variants.every((v) => v.name.startsWith('Платье Лето ' + U + ' · Красный · ')));
+  // продажи по размерам и цветам в статистике
+  const bySize = await ok('/stats?groupBy=size');
+  assert.ok(bySize.rows.find((r) => r.name === 'S').qty >= 8);
+  assert.ok((await ok('/stats?groupBy=color')).rows.some((r) => r.name === 'Красный'));
   // нельзя добавить размеры товару, у которого есть остаток без размера
   const simple = await ok('/products', { method: 'POST', body: { name: 'Простой ' + U, price: 10, initialStock: [{ warehouseId: w1.id, quantity: 2 }] } });
   assert.equal((await api('/products/' + simple.id, { method: 'PUT', body: { ...simple, variants: [{ size: 'S' }] } })).status, 400);
+  void white;
 });
 
 test('импорт из Excel: строки с одним артикулом и разными размерами — одна карточка', async () => {
@@ -485,7 +509,13 @@ test('импорт из Excel: строки с одним артикулом и 
   assert.equal(card.length, 1); assert.equal(card[0].hasVariants, true); assert.equal(card[0].totalStock, 10);
   const full = await ok('/products/' + card[0].id);
   assert.deepEqual(full.variants.map((v) => v.size).sort(), ['M', 'S']);
+  assert.equal(full.color, 'Синий');
   assert.equal(full.avgCost, 900);
+  // тот же артикул другого цвета — отдельная карточка той же модели
+  const r2 = await ok('/products/import', { method: 'POST', body: { warehouseId: w1.id, rows: [{ name: 'Юбка импорт ' + U, sku, price: 2000, color: 'Красный', size: 'S', quantity: 1 }] } });
+  assert.equal(r2.errors.length, 0, JSON.stringify(r2.errors));
+  const g = (await ok('/products/' + card[0].id)).group;
+  assert.deepEqual(g.map((x) => x.color), ['Синий', 'Красный']); assert.equal(g[1].sku, sku + '-2');
   // повторный импорт обновляет, а не дублирует
   await ok('/products/import', { method: 'POST', body: { warehouseId: w1.id, rows: [{ sku, color: 'Синий', size: 'S', quantity: 5 }] } });
   assert.equal((await ok('/products/' + card[0].id)).variants.length, 2);
@@ -529,22 +559,23 @@ test('SEO: страницы магазина, robots.txt, sitemap.xml, Метр�
 
 test('витрина: варианты, фильтры, избранное, ожидание поступления, отзывы, СБП, корзина, фид', async () => {
   await ok('/orders/settings', { method: 'PUT', body: { sbpEnabled: '1', tbankEnabled: '1', smsMode: 'test', showOutOfStock: '0', warehouseId: '', reviewsEnabled: '1' } });
-  const card = await ok('/products', { method: 'POST', body: { name: 'Футболка Витрина ' + U, sku: 'SHOPV-' + D, price: 1500, costPrice: 500, brand: 'Бренд' + U, variantWarehouseId: w1.id,
-    variants: [{ color: 'Белый', size: 'S', quantity: 2 }, { color: 'Белый', size: 'M' }, { color: 'Чёрный', size: 'M', price: 1700, quantity: 1 }] } });
-  const vS = card.variants.find((v) => v.size === 'S'), vM = card.variants.find((v) => v.color === 'Белый' && v.size === 'M');
+  const card = await ok('/products', { method: 'POST', body: { name: 'Футболка Витрина ' + U, sku: 'SHOPV-' + D, color: 'Белый', price: 1500, costPrice: 500, brand: 'Бренд' + U, variantWarehouseId: w1.id,
+    variants: [{ size: 'S', quantity: 2 }, { size: 'M' }, { size: 'L', price: 1700, quantity: 1 }] } });
+  const vS = card.variants.find((v) => v.size === 'S'), vM = card.variants.find((v) => v.size === 'M');
   // каталог: одна карточка, цена «от», размеры
   const list = (await shop('/products?q=SHOPV-' + D)).data.items;
   assert.equal(list.length, 1);
-  assert.equal(list[0].price, 1500); assert.equal(list[0].priceFrom, true); assert.deepEqual(list[0].sizes, ['S', 'M']);
+  assert.equal(list[0].price, 1500); assert.equal(list[0].priceFrom, true); assert.deepEqual(list[0].sizes, ['S', 'M', 'L']);
   assert.match(list[0].url, new RegExp(`^/product/${card.id}-futbolka-vitrina-`));
   // фильтры и фасеты
   assert.equal((await shop(`/products?q=SHOPV-${D}&sizes=XL`)).data.total, 0);
-  assert.equal((await shop(`/products?q=SHOPV-${D}&colors=${encodeURIComponent('Чёрный')}`)).data.total, 1);
+  assert.equal((await shop(`/products?q=SHOPV-${D}&colors=${encodeURIComponent('Белый')}`)).data.total, 1);
+  assert.equal((await shop(`/products?q=SHOPV-${D}&colors=${encodeURIComponent('Чёрный')}`)).data.total, 0);
   assert.equal((await shop(`/products?brands=${encodeURIComponent('Бренд' + U)}`)).data.total, 1);
   assert.equal((await shop(`/products?q=SHOPV-${D}&min=1600`)).data.total, 1, 'фильтр по цене — по цене вариантов');
   assert.equal((await shop(`/products?q=SHOPV-${D}&max=1400`)).data.total, 0);
   const fc = (await shop('/facets?q=SHOPV-' + D)).data;
-  assert.deepEqual(fc.sizes.map((x) => x.v), ['S', 'M']); assert.equal(fc.brands[0].v, 'Бренд' + U);
+  assert.deepEqual(fc.sizes.map((x) => x.v), ['S', 'M', 'L']); assert.equal(fc.brands[0].v, 'Бренд' + U); assert.equal(fc.colors[0].v, 'Белый');
   // карточка: варианты с наличием
   const pd = (await shop('/products/' + card.id)).data;
   assert.equal(pd.variants.find((v) => v.id === vM.id).inStock, false);
@@ -611,9 +642,10 @@ test('демо-данные: загрузка и удаление', async () => 
   let st;
   for (let i = 0; i < 100; i++) { st = await ok('/admin/demo'); if (st.state !== 'running') break; await new Promise((r) => setTimeout(r, 200)); }
   assert.equal(st.state, 'done', JSON.stringify(st));
-  assert.equal(st.summary.products, 20, 'по одному товару в каждой из 20 категорий');
+  assert.equal(st.summary.models, 20, 'по одной модели в каждой из 20 категорий');
+  assert.ok(st.summary.products > 20, 'у моделей несколько цветов — несколько карточек');
   assert.ok(st.summary.sales > 20);
-  assert.equal((await ok('/products?limit=1')).total, before + 20);
+  assert.equal((await ok('/products?limit=1')).total, before + st.summary.products);
   const demo = (await ok('/products?q=' + encodeURIComponent('демо') + '&limit=5'));
   assert.equal((await api('/admin/demo', { method: 'POST', body: {} })).status, 400, 'повторно загрузить нельзя');
   const pr = await ok('/products/popular?limit=3');

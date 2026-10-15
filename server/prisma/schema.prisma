@@ -39,6 +39,13 @@ model Category {
   products    Product[]
 }
 
+// Объединённая карточка: модель, в которой каждая расцветка — отдельная карточка товара
+model ProductGroup {
+  id        Int       @id @default(autoincrement())
+  createdAt DateTime  @default(now())
+  products  Product[]
+}
+
 // Таблица размеров: data = JSON { head: ['Размер','Грудь','Талия'], rows: [['S','84','66'], ...], note }
 model SizeChart {
   id         Int        @id @default(autoincrement())
@@ -69,6 +76,9 @@ model Product {
   parent      Product?           @relation("Variants", fields: [parentId], references: [id], onDelete: Cascade)
   variants    Product[]          @relation("Variants")
   hasVariants Boolean            @default(false)
+  // Объединённая карточка «как на WB»: карточки разных цветов одной модели (у каждой свой артикул и фото)
+  groupId     Int?
+  group       ProductGroup?      @relation(fields: [groupId], references: [id], onDelete: SetNull)
   color       String?
   size        String?
   sort        Int                @default(0) // порядок варианта
@@ -95,6 +105,7 @@ model Product {
   orderItems  OrderItem[]
 
   @@index([parentId])
+  @@index([groupId])
 }
 
 model Barcode {

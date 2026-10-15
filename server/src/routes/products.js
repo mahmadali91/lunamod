@@ -37,7 +37,7 @@ function withTotals(p) {
 }
 
 // Название варианта: «Платье Лето · Красный · M» — так он виден везде (касса, продажи, этикетки, отчёты)
-const variantName = (name, color, size) => [name, color, size].filter(Boolean).join(' · ');
+const variantName = (name, color, size) => [name, color && !String(name).toLowerCase().includes(String(color).toLowerCase()) ? color : null, size].filter(Boolean).join(' · ');
 
 // Короткий адрес для магазина: транслит названия
 const TR = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya' };
@@ -65,7 +65,8 @@ r.get('/', ah(async (req, res) => {
       where, skip: (page - 1) * limit, take: limit, orderBy: { id: 'desc' },
       include: { barcodes: { where: { isPrimary: true } }, images: { take: 1, orderBy: { sort: 'asc' } }, category: true, stocks,
         parent: { select: { id: true, name: true, sku: true, images: { take: 1, orderBy: { sort: 'asc' } } } },
-        variants: { where: { active: true }, select: { id: true, color: true, size: true, stocks } } },
+        variants: { where: { active: true }, select: { id: true, color: true, size: true, stocks, barcodes: { where: { isPrimary: true }, select: { code: true } } } },
+        group: { select: { id: true, _count: { select: { products: { where: { active: true } } } } } } },
     }),
     prisma.product.count({ where }),
   ]);
@@ -133,8 +134,16 @@ r.get('/:id', ah(async (req, res) => {
   const sup = Object.fromEntries(suppliers.map((c) => [c.id, c.name]));
   const left = batches.filter((b) => b.remaining > 0);
   const qty = left.reduce((a, b) => a + b.remaining, 0);
+  // карточки той же модели (другие цвета) и продажи по размерам за 90 дней
+  const groupCards = p.groupId ? await prisma.product.findMany({ where: { groupId: p.groupId, active: true }, orderBy: { id: 'asc' },
+    select: { id: true, name: true, sku: true, color: true, hasVariants: true, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, stocks: { select: { quantity: true } }, variants: { where: { active: true }, select: { stocks: { select: { quantity: true } } } } } }) : [];
+  const sold = await prisma.saleItem.groupBy({ by: ['productId'], _sum: { quantity: true, returned: true }, where: { productId: { in: ids }, sale: { status: { not: 'returned' }, date: { gte: new Date(Date.now() - 90 * 864e5) } } } });
+  const soldOf = Object.fromEntries(sold.map((x) => [x.productId, (x._sum.quantity || 0) - (x._sum.returned || 0)]));
   res.json({
     ...withTotals(p), movements,
+    group: groupCards.map((c) => ({ id: c.id, name: c.name, sku: c.sku, color: c.color, image: c.images[0]?.path || null,
+      stock: c.hasVariants ? c.variants.reduce((a, v) => a + v.stocks.reduce((b, x) => b + x.quantity, 0), 0) : c.stocks.reduce((b, x) => b + x.quantity, 0) })),
+    salesBySize: p.hasVariants ? p.variants.map((v) => ({ id: v.id, size: v.size, sold: soldOf[v.id] || 0, stock: v.stocks.reduce((a, x) => a + x.quantity, 0) })) : [],
     batches: batches.map((b) => ({ ...b, warehouse: wh[b.warehouseId], supplier: sup[b.supplierId] || null, variant: [b.product.color, b.product.size].filter(Boolean).join(' · ') || null })),
     // средняя себестоимость остатка по партиям
     avgCost: qty > 0 ? Math.round((left.reduce((a, b) => a + b.remaining * b.costPrice, 0) / qty) * 100) / 100 : null,
@@ -148,7 +157,7 @@ function pickProduct(b) {
     weight: b.weight === '' || b.weight === null || b.weight === undefined ? null : num(b.weight),
     categoryId: int(b.categoryId), active: b.active === undefined ? true : Boolean(b.active),
     showInShop: b.showInShop === undefined ? true : Boolean(b.showInShop),
-    brand: str(b.brand), modelInfo: str(b.modelInfo), sizeChartId: int(b.sizeChartId),
+    brand: str(b.brand), modelInfo: str(b.modelInfo), sizeChartId: int(b.sizeChartId), color: str(b.color),
   };
 }
 
@@ -156,21 +165,23 @@ function pickProduct(b) {
 const SHARED = ['description', 'unit', 'oldPrice', 'minStock', 'weight', 'categoryId', 'active', 'showInShop', 'brand'];
 
 /**
- * Варианты карточки: [{ id?, color, size, barcode, price, costPrice, quantity }] (quantity — начальный остаток нового варианта).
+ * Размеры карточки «как на WB»: [{ id?, size, barcode, price, costPrice, quantity }] (quantity — начальный остаток нового размера).
+ * Цвет — у самой карточки (другой цвет — другая карточка той же модели).
  * Новые создаются, изменённые обновляются, удалённые из списка — удаляются (или в архив, если по ним были движения).
  */
+const sizeRows = (list) => (list || []).map((v, i) => ({ ...v, size: str(v.size), sort: i })).filter((v) => v.size);
 async function saveVariants(tx, parent, list, warehouseId) {
-  const rows = (list || []).map((v, i) => ({ ...v, color: str(v.color), size: str(v.size), sort: i })).filter((v) => v.color || v.size);
+  const rows = sizeRows(list).map((v) => ({ ...v, color: parent.color || null }));
   const seen = new Set();
   for (const v of rows) {
-    const k = `${(v.color || '').toLowerCase()}|${(v.size || '').toLowerCase()}`;
-    if (seen.has(k)) throw new HttpError(400, `Вариант «${[v.color, v.size].filter(Boolean).join(' / ')}» указан дважды`);
+    const k = v.size.toLowerCase();
+    if (seen.has(k)) throw new HttpError(400, `Размер «${v.size}» указан дважды`);
     seen.add(k);
   }
   const existing = await tx.product.findMany({ where: { parentId: parent.id } });
   if (rows.length && !parent.hasVariants) {
     const own = await tx.stock.aggregate({ where: { productId: parent.id }, _sum: { quantity: true } });
-    if (Math.abs(own._sum.quantity || 0) > 1e-9) throw new HttpError(400, `У товара есть остаток (${own._sum.quantity}) без размера. Обнулите его в «Остатках» или оформите на нужный размер, затем добавьте размеры и цвета`);
+    if (Math.abs(own._sum.quantity || 0) > 1e-9) throw new HttpError(400, `У товара есть остаток (${own._sum.quantity}) без размера. Обнулите его в «Остатках» или оформите на нужный размер, затем добавьте размеры`);
   }
   const shared = Object.fromEntries(SHARED.map((k) => [k, parent[k]]));
   const keep = new Set();
@@ -179,7 +190,7 @@ async function saveVariants(tx, parent, list, warehouseId) {
       price: v.price === '' || v.price === undefined || v.price === null ? parent.price : num(v.price),
       costPrice: v.costPrice === '' || v.costPrice === undefined || v.costPrice === null ? parent.costPrice : num(v.costPrice), active: parent.active };
     let child = v.id ? existing.find((e) => e.id === Number(v.id)) : null;
-    if (!child) child = existing.find((e) => (e.color || '') === (v.color || '') && (e.size || '') === (v.size || ''));
+    if (!child) child = existing.find((e) => (e.size || '').toLowerCase() === v.size.toLowerCase());
     if (child) child = await tx.product.update({ where: { id: child.id }, data });
     else child = await tx.product.create({ data: { ...data, parentId: parent.id } });
     keep.add(child.id);
@@ -211,7 +222,7 @@ async function saveVariants(tx, parent, list, warehouseId) {
 async function syncVariants(tx, parent) {
   const kids = await tx.product.findMany({ where: { parentId: parent.id } });
   for (const k of kids) {
-    await tx.product.update({ where: { id: k.id }, data: { ...Object.fromEntries(SHARED.filter((f) => f !== 'active').map((f) => [f, parent[f]])), name: variantName(parent.name, k.color, k.size) } });
+    await tx.product.update({ where: { id: k.id }, data: { ...Object.fromEntries(SHARED.filter((f) => f !== 'active').map((f) => [f, parent[f]])), color: parent.color, name: variantName(parent.name, parent.color, k.size) } });
   }
 }
 
@@ -257,7 +268,7 @@ r.post('/', ah(async (req, res) => {
   const b = req.body;
   const data = pickProduct(b);
   if (!data.name) throw new HttpError(400, 'Укажите название товара');
-  const withVariants = Array.isArray(b.variants) && b.variants.some((v) => str(v.color) || str(v.size));
+  const withVariants = sizeRows(b.variants).length > 0;
   const p = await prisma.$transaction(async (tx) => {
     let p = await tx.product.create({ data });
     p = await tx.product.update({ where: { id: p.id }, data: { slug: slugify(data.name) || null } });
@@ -289,15 +300,16 @@ r.put('/:id', ah(async (req, res) => {
     if (!cur.slug || cur.name !== data.name) data.slug = slugify(data.name) || null;
     const p = await tx.product.update({ where: { id }, data });
     if (Array.isArray(req.body.variants)) {
-      await saveRelations(tx, id, req.body.variants.some((v) => str(v.color) || str(v.size)) ? { ...req.body, barcodes: undefined } : req.body);
+      const sized = sizeRows(req.body.variants).length > 0;
+      await saveRelations(tx, id, sized ? { ...req.body, barcodes: undefined } : req.body);
       await saveVariants(tx, p, req.body.variants, req.body.variantWarehouseId);
-      if (!req.body.variants.some((v) => str(v.color) || str(v.size)) && !(await tx.barcode.count({ where: { productId: id } }))) {
+      if (!sized && !(await tx.barcode.count({ where: { productId: id } }))) {
         await tx.barcode.create({ data: { productId: id, code: await generateEan13(tx), type: 'EAN13', isPrimary: true, generated: true } });
       }
     } else {
       await saveRelations(tx, id, cur.hasVariants ? { ...req.body, barcodes: undefined } : req.body);
-      if (cur.hasVariants) await syncVariants(tx, p);
     }
+    if ((await tx.product.findUnique({ where: { id } })).hasVariants) await syncVariants(tx, await tx.product.findUnique({ where: { id } }));
     await saveLooks(tx, id, req.body.lookIds);
   }, { timeout: 30000 });
   res.json(await prisma.product.findUnique({ where: { id }, include: fullInclude }));
@@ -313,7 +325,7 @@ r.delete('/:id', ah(async (req, res) => {
   }
   const imgs = await prisma.productImage.findMany({ where: { productId: id } });
   await prisma.product.delete({ where: { id } });
-  imgs.forEach((i) => fs.unlink(path.join(UPLOAD_DIR, path.basename(i.path)), () => {}));
+  for (const i of imgs) if (!(await prisma.productImage.count({ where: { path: i.path } }))) fs.unlink(path.join(UPLOAD_DIR, path.basename(i.path)), () => {});
   res.json({ ok: true });
 }));
 
@@ -362,24 +374,49 @@ r.post('/import', ah(async (req, res) => {
         let product;
         const color = str(row.color), size = str(row.size);
         if (color || size) {
-          // строка-вариант: карточка ищется по артикулу (или названию), вариант — по штрихкоду или цвету+размеру
-          let parent = existing?.parentId ? await tx.product.findUnique({ where: { id: existing.parentId } }) : null;
-          if (!parent && sku) parent = await tx.product.findUnique({ where: { sku } });
-          if (!parent && data.name) parent = await tx.product.findFirst({ where: { name: data.name, parentId: null, hasVariants: true } });
-          const pdata = { ...data }; delete pdata.costPrice;
-          if (parent) parent = await tx.product.update({ where: { id: parent.id }, data: { ...pdata, hasVariants: true, active: true } });
+          // «как на WB»: карточка = артикул + цвет (другой цвет — отдельная карточка той же модели), внутри — размеры
+          let card = existing?.parentId ? await tx.product.findUnique({ where: { id: existing.parentId } }) : existing && !existing.hasVariants && !size ? existing : null;
+          if (!card && sku) {
+            const bySku = await tx.product.findUnique({ where: { sku } });
+            if (bySku && !bySku.parentId) {
+              if (!color || !bySku.color || bySku.color.toLowerCase() === color.toLowerCase()) card = bySku;
+              else {
+                card = bySku.groupId ? await tx.product.findFirst({ where: { groupId: bySku.groupId, parentId: null, color } }) : null;
+                if (!card) {
+                  let groupId = bySku.groupId;
+                  if (!groupId) { groupId = (await tx.productGroup.create({ data: {} })).id; await tx.product.update({ where: { id: bySku.id }, data: { groupId } }); }
+                  const keep = ['name', 'description', 'unit', 'price', 'oldPrice', 'costPrice', 'minStock', 'categoryId', 'brand', 'sizeChartId'];
+                  card = await tx.product.create({ data: { ...Object.fromEntries(keep.map((k) => [k, bySku[k]])), ...data, sku: await freeSku(tx, sku), color, groupId, slug: slugify(data.name || bySku.name) } });
+                }
+              }
+            }
+          }
+          if (!card && data.name) card = await tx.product.findFirst({ where: { name: data.name, parentId: null, ...(color ? { color } : {}) } });
+          const pdata = { ...data }; delete pdata.costPrice; if (card && card.sku && card.sku !== sku) delete pdata.sku;
+          if (card) card = await tx.product.update({ where: { id: card.id }, data: { ...pdata, ...(color ? { color } : {}), active: true } });
           else {
             if (!data.name) throw new HttpError(400, 'не указано название');
-            parent = await tx.product.create({ data: { ...data, hasVariants: true, slug: slugify(data.name) } });
+            card = await tx.product.create({ data: { ...data, color, slug: slugify(data.name) } });
           }
-          let child = existing?.parentId === parent.id ? existing : await tx.product.findFirst({ where: { parentId: parent.id, color, size } });
-          const cdata = { name: variantName(parent.name, color, size), color, size, price: data.price ?? child?.price ?? parent.price, costPrice: data.costPrice ?? child?.costPrice ?? parent.costPrice,
-            categoryId: parent.categoryId, unit: parent.unit, oldPrice: parent.oldPrice, showInShop: parent.showInShop, active: true };
-          const wasNew = !child;
-          if (child) product = await tx.product.update({ where: { id: child.id }, data: cdata });
-          else product = await tx.product.create({ data: { ...cdata, parentId: parent.id, sort: await tx.product.count({ where: { parentId: parent.id } }) } });
-          if (wasNew && !barcode) await tx.barcode.create({ data: { productId: product.id, code: await generateEan13(tx), type: 'EAN13', isPrimary: true, generated: true } });
-          existing = wasNew ? null : product;
+          if (size) {
+            if (!card.hasVariants) {
+              const own = await tx.stock.aggregate({ where: { productId: card.id }, _sum: { quantity: true } });
+              if (Math.abs(own._sum.quantity || 0) > 1e-9) throw new HttpError(400, 'у карточки есть остаток без размера — обнулите его перед загрузкой размеров');
+              await tx.barcode.deleteMany({ where: { productId: card.id } });
+              card = await tx.product.update({ where: { id: card.id }, data: { hasVariants: true } });
+            }
+            let child = existing?.parentId === card.id ? existing : await tx.product.findFirst({ where: { parentId: card.id, size } });
+            const cdata = { name: variantName(card.name, card.color, size), color: card.color, size, price: data.price ?? child?.price ?? card.price, costPrice: data.costPrice ?? child?.costPrice ?? card.costPrice,
+              categoryId: card.categoryId, unit: card.unit, oldPrice: card.oldPrice, showInShop: card.showInShop, brand: card.brand, active: true };
+            const wasNew = !child;
+            if (child) product = await tx.product.update({ where: { id: child.id }, data: cdata });
+            else product = await tx.product.create({ data: { ...cdata, parentId: card.id, sort: await tx.product.count({ where: { parentId: card.id } }) } });
+            if (wasNew && !barcode) await tx.barcode.create({ data: { productId: product.id, code: await generateEan13(tx), type: 'EAN13', isPrimary: true, generated: true } });
+            existing = wasNew ? null : product;
+          } else {
+            product = card;
+            existing = existing || (await tx.barcode.count({ where: { productId: card.id } }) ? card : null);
+          }
         } else if (existing) {
           product = await tx.product.update({ where: { id: existing.id }, data: { ...data, active: true } });
         } else {
@@ -427,6 +464,62 @@ r.post('/generate-barcode', ah(async (req, res) => {
   res.json({ code: await prisma.$transaction((tx) => generateEan13(tx)) });
 }));
 
+// ---- Объединённая карточка (модель): карточки разных цветов ----
+const MAX_GROUP = 30;
+async function freeSku(tx, base) {
+  if (!base) return null;
+  for (let i = 2; i < 200; i++) { const sku = `${base}-${i}`; if (!(await tx.product.findUnique({ where: { sku } }))) return sku; }
+  return null;
+}
+
+// «Дублировать»: новая карточка той же модели (другой цвет) — те же поля и размеры, новые штрихкоды, без фото и остатков
+r.post('/:id/duplicate', ah(async (req, res) => {
+  const id = Number(req.params.id);
+  const card = await prisma.$transaction(async (tx) => {
+    const src = await tx.product.findUnique({ where: { id }, include: { attributes: true, variants: { where: { active: true }, orderBy: [{ sort: 'asc' }, { id: 'asc' }] } } });
+    if (!src || src.parentId) throw new HttpError(404, 'Карточка не найдена');
+    let groupId = src.groupId;
+    if (!groupId) { groupId = (await tx.productGroup.create({ data: {} })).id; await tx.product.update({ where: { id }, data: { groupId } }); }
+    if (await tx.product.count({ where: { groupId, active: true } }) >= MAX_GROUP) throw new HttpError(400, `В одной модели не больше ${MAX_GROUP} карточек`);
+    const color = str(req.body.color);
+    const keep = ['name', 'description', 'unit', 'price', 'oldPrice', 'costPrice', 'minStock', 'weight', 'categoryId', 'showInShop', 'brand', 'modelInfo', 'sizeChartId'];
+    const data = { ...Object.fromEntries(keep.map((k) => [k, src[k]])), color, groupId, sku: await freeSku(tx, src.sku) };
+    if (color && src.color && data.name.toLowerCase().includes(src.color.toLowerCase())) data.name = data.name.replace(new RegExp(src.color, 'i'), color.toLowerCase());
+    data.slug = slugify(data.name) || null;
+    const card = await tx.product.create({ data: { ...data, attributes: { create: src.attributes.map((a) => ({ name: a.name, value: a.value })) } } });
+    if (src.hasVariants) await saveVariants(tx, card, src.variants.map((v) => ({ size: v.size, price: v.price, costPrice: v.costPrice })));
+    else await tx.barcode.create({ data: { productId: card.id, code: await generateEan13(tx), type: 'EAN13', isPrimary: true, generated: true } });
+    return card;
+  }, { timeout: 30000 });
+  res.status(201).json(await prisma.product.findUnique({ where: { id: card.id }, include: fullInclude }));
+}));
+
+// «Из своей карточки»: присоединить существующую карточку (или всю её модель) к модели этой карточки
+r.post('/:id/group', ah(async (req, res) => {
+  const id = Number(req.params.id), otherId = Number(req.body.productId);
+  await prisma.$transaction(async (tx) => {
+    const [a, b] = await Promise.all([tx.product.findUnique({ where: { id } }), tx.product.findUnique({ where: { id: otherId } })]);
+    if (!a || !b || a.parentId || b.parentId || a.id === b.id) throw new HttpError(400, 'Выберите другую карточку товара');
+    let groupId = a.groupId;
+    if (!groupId) { groupId = (await tx.productGroup.create({ data: {} })).id; await tx.product.update({ where: { id }, data: { groupId } }); }
+    const moving = b.groupId ? await tx.product.findMany({ where: { groupId: b.groupId }, select: { id: true } }) : [{ id: b.id }];
+    if (await tx.product.count({ where: { groupId, active: true } }) + moving.length > MAX_GROUP) throw new HttpError(400, `В одной модели не больше ${MAX_GROUP} карточек`);
+    await tx.product.updateMany({ where: { id: { in: moving.map((x) => x.id) } }, data: { groupId } });
+    if (b.groupId && b.groupId !== groupId) await tx.productGroup.deleteMany({ where: { id: b.groupId } });
+  });
+  res.json({ ok: true });
+}));
+
+// Отвязать карточку от модели
+r.delete('/:id/group', ah(async (req, res) => {
+  const p = await prisma.product.findUnique({ where: { id: Number(req.params.id) } });
+  if (!p?.groupId) return res.json({ ok: true });
+  await prisma.product.update({ where: { id: p.id }, data: { groupId: null } });
+  const left = await prisma.product.findMany({ where: { groupId: p.groupId }, select: { id: true } });
+  if (left.length <= 1) { await prisma.product.updateMany({ where: { groupId: p.groupId }, data: { groupId: null } }); await prisma.productGroup.delete({ where: { id: p.groupId } }).catch(() => {}); }
+  res.json({ ok: true });
+}));
+
 // Фото
 r.post('/:id/images', upload.array('images', 20), ah(async (req, res) => {
   const productId = Number(req.params.id);
@@ -452,7 +545,7 @@ r.put('/:id/images/:imageId', ah(async (req, res) => {
 
 r.delete('/:id/images/:imageId', ah(async (req, res) => {
   const img = await prisma.productImage.delete({ where: { id: Number(req.params.imageId) } });
-  fs.unlink(path.join(UPLOAD_DIR, path.basename(img.path)), () => {});
+  if (!(await prisma.productImage.count({ where: { path: img.path } }))) fs.unlink(path.join(UPLOAD_DIR, path.basename(img.path)), () => {});
   res.json({ ok: true });
 }));
 

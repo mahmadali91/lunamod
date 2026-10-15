@@ -65,7 +65,8 @@ function publicProduct(p, s, full) {
     images: images.filter((_, i) => (p.images[i].kind || 'image') === 'image'),
     stock, inStock: stock > 0, isNew: Date.now() - new Date(p.createdAt).getTime() < 30 * 864e5,
     hasVariants: p.hasVariants, sizes: [...new Set(vs.filter((v) => v.size).sort((a, b) => sizeRank(a.size) - sizeRank(b.size)).map((v) => v.size))],
-    colors: [...new Set(vs.map((v) => v.color).filter(Boolean))],
+    color: p.color || null,
+    colors: [...new Set([p.color, ...vs.map((v) => v.color), ...(p.group?.products || []).map((g) => g.color)].filter(Boolean))],
     priceFrom: p.hasVariants && new Set(vs.map((v) => v.price)).size > 1,
   };
   if (full) {
@@ -81,6 +82,7 @@ function publicProduct(p, s, full) {
 const cardInclude = (s) => ({
   images: { orderBy: { sort: 'asc' }, take: 6 }, category: true, stocks: true,
   variants: { where: { active: true }, include: { stocks: true } },
+  group: { select: { products: { where: { active: true, showInShop: true }, select: { id: true, color: true } } } },
 });
 
 // Наличие: у простого товара — свой остаток, у карточки с размерами — хотя бы у одного варианта
@@ -96,7 +98,7 @@ const productWhere = async (s, q) => {
   if (q.category) and.push({ categoryId: Number(q.category) });
   if (q.q) { const t = String(q.q).trim(); and.push({ OR: [{ name: like(t) }, { sku: like(t) }, { brand: like(t) }, { barcodes: { some: { code: t } } }, { variants: { some: { barcodes: { some: { code: t } } } } }] }); }
   if (q.sizes) and.push({ variants: { some: { active: true, size: { in: list(q.sizes) } } } });
-  if (q.colors) and.push({ variants: { some: { active: true, color: { in: list(q.colors) } } } });
+  if (q.colors) and.push({ OR: [{ color: { in: list(q.colors) } }, { variants: { some: { active: true, color: { in: list(q.colors) } } } }] });
   if (q.brands) and.push({ brand: { in: list(q.brands) } });
   if (q.ids) and.push({ id: { in: list(q.ids).map(Number).filter(Boolean) } });
   if (q.sale) and.push({ oldPrice: { not: null } });
@@ -153,12 +155,12 @@ r.get('/categories', ah(async (req, res) => {
 r.get('/facets', ah(async (req, res) => {
   const s = await getShopSettings();
   const where = await productWhere(s, { category: req.query.category, q: req.query.q, sale: req.query.sale });
-  const items = await prisma.product.findMany({ where, select: { price: true, brand: true, hasVariants: true, variants: { where: { active: true }, select: { size: true, color: true, price: true } } } });
+  const items = await prisma.product.findMany({ where, select: { price: true, brand: true, color: true, hasVariants: true, variants: { where: { active: true }, select: { size: true, color: true, price: true } } } });
   const prices = items.flatMap((p) => (p.hasVariants ? p.variants.map((v) => v.price) : [p.price])).filter((x) => x > 0);
   const count = (arr) => Object.entries(arr.reduce((m, x) => ((m[x] = (m[x] || 0) + 1), m), {}));
   res.json({
     sizes: count(items.flatMap((p) => [...new Set(p.variants.map((v) => v.size).filter(Boolean))])).sort((a, b) => sizeRank(a[0]) - sizeRank(b[0])).map(([v, n]) => ({ v, n })),
-    colors: count(items.flatMap((p) => [...new Set(p.variants.map((v) => v.color).filter(Boolean))])).sort((a, b) => b[1] - a[1]).map(([v, n]) => ({ v, n })),
+    colors: count(items.flatMap((p) => [...new Set([p.color, ...p.variants.map((v) => v.color)].filter(Boolean))])).sort((a, b) => b[1] - a[1]).map(([v, n]) => ({ v, n })),
     brands: count(items.map((p) => p.brand).filter(Boolean)).sort((a, b) => a[0].localeCompare(b[0])).map(([v, n]) => ({ v, n })),
     price: prices.length ? { min: Math.floor(Math.min(...prices)), max: Math.ceil(Math.max(...prices)) } : null,
   });
@@ -212,8 +214,11 @@ r.get('/products/:id', ah(async (req, res) => {
   ]);
   const also = alsoIds.length ? await prisma.product.findMany({ where: { AND: [base, { id: { in: alsoIds } }] }, include: cardInclude(s) }) : [];
   const chart = p.sizeChart || p.category?.sizeChart;
+  // другие цвета этой модели — отдельные карточки (как на WB)
+  const siblings = p.groupId ? await prisma.product.findMany({ where: { groupId: p.groupId, active: true, showInShop: true }, include: cardInclude(s), orderBy: { id: 'asc' } }) : [];
   res.json({
     ...publicProduct(p, s, true),
+    groupCards: siblings.map((x) => { const c = publicProduct(x, s); return { id: c.id, url: c.url, color: c.color, image: c.images[0] || null, inStock: c.inStock, price: c.price }; }),
     sizeChart: chart ? { name: chart.name, ...JSON.parse(chart.data) } : null,
     related: related.map((x) => publicProduct(x, s)),
     look: p.looks.map((l) => l.linked).filter((x) => x.active && x.showInShop).map((x) => publicProduct(x, s)),

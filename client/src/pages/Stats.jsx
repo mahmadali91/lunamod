@@ -13,7 +13,7 @@ const PRESETS = [
   ['90', 'Квартал', () => [new Date(Date.now() - 89 * 864e5), new Date()]],
   ['365', 'Год', () => [new Date(Date.now() - 364 * 864e5), new Date()]],
 ];
-const GROUPS = [['channel', 'Каналы'], ['category', 'Категории'], ['product', 'Товары'], ['variant', 'Размеры и цвета'], ['counterparty', 'Покупатели'], ['warehouse', 'Склады'], ['payment', 'Способы оплаты']];
+const GROUPS = [['channel', 'Каналы'], ['category', 'Категории'], ['model', 'Модели'], ['product', 'Карточки'], ['size', 'Размеры'], ['color', 'Цвета'], ['variant', 'Размер+цвет'], ['counterparty', 'Покупатели'], ['warehouse', 'Склады'], ['payment', 'Способы оплаты']];
 const ABC_COLORS = { A: '#2a78d6', B: '#7fb0ea', C: '#c7dcf5' }; // одна шкала: A — самый насыщенный
 const compact = (v) => (Math.abs(v) >= 1e6 ? fmtNum(v / 1e6, 1) + ' млн' : Math.abs(v) >= 1e3 ? fmtNum(v / 1e3, 0) + ' тыс' : fmtNum(v, 0));
 
@@ -51,7 +51,7 @@ function Analytics({ range, money }) {
 
   const exportXlsx = () => downloadXlsx(`statistika-${groupBy}-${range.from}_${range.to}.xlsx`, [
     { title: GROUPS.find((g) => g[0] === groupBy)[1], value: (r) => r.name, width: 36 },
-    ...(['product', 'variant'].includes(groupBy) ? [{ title: 'Артикул', value: (r) => r.sku, width: 16 }] : []),
+    ...(['product', 'variant', 'model'].includes(groupBy) ? [{ title: 'Артикул', value: (r) => r.sku, width: 16 }] : []),
     { title: 'Продаж', value: (r) => r.salesCount }, { title: 'Единиц', value: (r) => r.qty },
     { title: 'Выручка', value: (r) => r.revenue, width: 14 }, { title: 'Себестоимость', value: (r) => r.cost, width: 14 },
     { title: 'Валовая прибыль', value: (r) => r.profit, width: 16 }, { title: 'Маржа, %', value: (r) => r.margin },
@@ -123,7 +123,7 @@ function Analytics({ range, money }) {
                   <tr key={r.id} className="hover:bg-slate-50/70">
                     <td className="td">
                       <div className="flex items-center gap-2">
-                        {['product', 'variant'].includes(groupBy) && <Thumb src={r.image} size={32} />}
+                        {['product', 'variant', 'model'].includes(groupBy) && <Thumb src={r.image} size={32} />}
                         {r.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: r.color }} />}
                         <div className="min-w-0"><div className="truncate font-medium">{r.name}</div>{r.sku && <div className="font-mono text-xs text-slate-400">{r.sku}</div>}</div>
                       </div>

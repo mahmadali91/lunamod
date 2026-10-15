@@ -7,7 +7,6 @@ import ProductCard from '../ProductCard';
 import Gallery from '../Gallery';
 import Reviews, { Stars } from '../Reviews';
 import RecentlyViewed, { rememberViewed } from '../RecentlyViewed';
-import { colorHex } from './Catalog';
 import { ecommerce } from '../metrika';
 
 function Shelf({ title, items }) {
@@ -46,7 +45,6 @@ export default function Product() {
   const [p, setP] = useState(null);
   const [err, setErr] = useState('');
   const [qty, setQty] = useState(1);
-  const [color, setColor] = useState(null);
   const [size, setSize] = useState(null);
   const [needSize, setNeedSize] = useState(false);
   const [chart, setChart] = useState(false);
@@ -57,27 +55,22 @@ export default function Product() {
     shopApi('/products/' + parseInt(id, 10)).then((r) => {
       if (r.redirect) { navigate(r.redirect, { replace: true }); return; }
       setP(r); document.title = r.name;
-      // первый цвет, в котором есть что-то в наличии
-      setColor(r.colors.find((c) => r.variants.some((v) => v.color === c && v.inStock)) || r.colors[0] || null);
       rememberViewed(r.id);
       ecommerce('detail', [{ id: r.id, name: r.name, price: r.price, category: r.category?.name }]);
     }).catch((e) => setErr(e.message));
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (auth.me) shopApi('/waitlist').then(setWaiting).catch(() => {}); }, [auth.me?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const media = useMemo(() => {
-    if (!p) return [];
-    const own = p.media.filter((m) => color && m.color === color);
-    return own.length ? [...own, ...p.media.filter((m) => !m.color)] : p.media.filter((m) => !m.color || !color);
-  }, [p, color]);
+  const media = useMemo(() => (p ? p.media : []), [p]);
 
   if (err) return <div className="py-24 text-center"><h1 className="text-2xl font-bold">{err}</h1><Link to="/" className="mt-4 inline-block underline">В каталог</Link></div>;
   if (!p) return <div className="py-24 text-center text-slate-400">Загрузка…</div>;
 
   const hasV = p.hasVariants;
-  const vOf = (c, s) => p.variants.find((v) => (v.color || null) === (c || null) && (v.size || null) === (s || null));
-  const sizes = hasV ? [...new Set(p.variants.filter((v) => !color || v.color === color).map((v) => v.size).filter(Boolean))] : [];
-  const variant = hasV ? (sizes.length ? (size ? vOf(color, size) : null) : vOf(color, null)) : null;
+  // цвет — у карточки; другие цвета модели — соседние карточки (как на WB), внутри карточки — размеры
+  const vOf = (s) => p.variants.find((v) => (v.size || null) === (s || null));
+  const sizes = hasV ? p.variants.map((v) => v.size).filter(Boolean) : [];
+  const variant = hasV ? (sizes.length ? (size ? vOf(size) : null) : p.variants[0]) : null;
   const sellable = hasV ? variant : p;
   const price = variant?.price ?? p.price;
   const oldPrice = variant ? variant.oldPrice : p.oldPrice;
@@ -88,7 +81,7 @@ export default function Product() {
   const add = () => {
     if (hasV && !variant) { setNeedSize(true); return; }
     const img = media.find((m) => m.kind !== 'video')?.path || p.images[0];
-    cart.add({ id: sellable.id, name: [p.name, variant?.color, variant?.size].filter(Boolean).join(' · '), price, images: img ? [img] : [], stock: sellable.stock, url: p.url }, qty);
+    cart.add({ id: sellable.id, name: [p.name, p.color && !p.name.toLowerCase().includes(p.color.toLowerCase()) ? p.color : null, variant?.size].filter(Boolean).join(' · '), price, images: img ? [img] : [], stock: sellable.stock, url: p.url }, qty);
   };
   const wait = () => auth.require(async () => {
     try {
@@ -117,21 +110,19 @@ export default function Product() {
             {oldPrice && <span className="text-lg text-slate-400 line-through">{money(oldPrice)}</span>}
           </div>
 
-          {p.colors.length > 0 && (
+          {(p.color || p.groupCards.length > 1) && (
             <div className="mt-6">
-              <div className="mb-2 text-sm">Цвет: <b>{color}</b></div>
-              <div className="flex flex-wrap gap-2">
-                {p.colors.map((c) => {
-                  const any = p.variants.some((v) => v.color === c && v.inStock);
-                  const hex = colorHex(c);
-                  return (
-                    <button key={c} onClick={() => { setColor(c); setSize(null); }} title={c} aria-pressed={c === color}
-                      className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm ${c === color ? 'border-slate-900 ring-1 ring-slate-900' : 'border-slate-300 hover:border-slate-900'} ${any ? '' : 'opacity-50'}`}>
-                      {hex && <span className="h-4 w-4 rounded-full ring-1 ring-slate-300" style={{ background: hex }} />}{c}
-                    </button>
-                  );
-                })}
-              </div>
+              <div className="mb-2 text-sm">Цвет: <b>{p.color || '—'}</b></div>
+              {p.groupCards.length > 1 && (
+                <div className="flex flex-wrap gap-2">
+                  {p.groupCards.map((g) => (
+                    <Link key={g.id} to={g.url} replace title={g.color || ''} aria-current={g.id === p.id ? 'true' : undefined}
+                      className={`relative h-[72px] w-14 overflow-hidden rounded-xl bg-slate-100 ${g.id === p.id ? 'ring-2 ring-slate-900 ring-offset-2' : 'opacity-80 hover:opacity-100'} ${g.inStock ? '' : 'grayscale'}`}>
+                      {g.image ? <img src={g.image} alt={g.color || ''} className="h-full w-full object-cover" /> : <span className="flex h-full items-center justify-center text-[10px] text-slate-500">{g.color}</span>}
+                    </Link>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {sizes.length > 0 && (
@@ -142,7 +133,7 @@ export default function Product() {
               </div>
               <div className="flex flex-wrap gap-2">
                 {sizes.map((s) => {
-                  const v = vOf(color, s);
+                  const v = vOf(s);
                   return (
                     <button key={s} onClick={() => { setSize(s); setNeedSize(false); setQty(1); }} aria-pressed={s === size} title={v?.inStock ? (v.stock <= 3 ? `Осталось ${v.stock} шт.` : 'В наличии') : 'Нет в наличии — можно подписаться'}
                       className={`relative min-w-[3rem] rounded-xl border px-3 py-2.5 text-sm font-medium ${s === size ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 hover:border-slate-900'} ${v?.inStock ? '' : 'text-slate-400'}`}>

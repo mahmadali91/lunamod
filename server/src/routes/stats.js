@@ -19,7 +19,7 @@ function period(q) {
 async function lines({ from, to }, extraWhere = {}) {
   const sales = await prisma.sale.findMany({
     where: { date: { gte: from, lte: to }, status: 'completed', ...extraWhere },
-    include: { items: { include: { product: { select: { id: true, name: true, sku: true, categoryId: true, category: { select: { name: true } }, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, parent: { select: { id: true, name: true, sku: true, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } } } } } }, channel: true, counterparty: true, warehouse: true },
+    include: { items: { include: { product: { select: { id: true, name: true, sku: true, categoryId: true, category: { select: { name: true } }, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, size: true, color: true, groupId: true, parent: { select: { id: true, name: true, sku: true, color: true, groupId: true, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } } } } } }, channel: true, counterparty: true, warehouse: true },
   });
   const out = [];
   for (const s of sales) {
@@ -41,6 +41,10 @@ const GROUPS = {
   category: (l) => [l.item.product.categoryId || 0, l.item.product.category?.name || 'Без категории'],
   // товары — по карточке (артикулу): все размеры и цвета вместе; variant — каждый размер/цвет отдельно
   product: (l) => { const p = l.item.product, m = p.parent || p; return [m.id, m.name, null, { sku: m.sku, image: (m.images[0] || p.images[0])?.path }]; },
+  // модель (объединённая карточка): все цвета и размеры вместе
+  model: (l) => { const p = l.item.product, m = p.parent || p; return [m.groupId ? 'g' + m.groupId : 'p' + m.id, m.name, null, { sku: m.sku, image: (m.images[0] || p.images[0])?.path }]; },
+  size: (l) => { const z = l.item.product.size; return [z ? z.toUpperCase() : '—', z || 'Без размера']; },
+  color: (l) => { const p = l.item.product; const c = p.color || p.parent?.color; return [c ? c.toLowerCase() : '—', c || 'Без цвета']; },
   variant: (l) => { const p = l.item.product; return [p.id, p.name, null, { sku: p.sku || p.parent?.sku, image: (p.images[0] || p.parent?.images[0])?.path }]; },
   counterparty: (l) => [l.sale.counterpartyId || 0, l.sale.counterparty?.name || 'Розничные покупатели'],
   warehouse: (l) => [l.sale.warehouseId, l.sale.warehouse.name],

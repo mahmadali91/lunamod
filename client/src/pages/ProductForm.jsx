@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Plus, Trash2, Wand2, ImagePlus, Star, Tags, Save, X, History, Layers, Shirt, Search, PlayCircle } from 'lucide-react';
-import { api, fileUrl } from '../api';
+import { ArrowLeft, Plus, Trash2, Wand2, ImagePlus, Star, Tags, Save, X, History, Layers, Shirt, Search, PlayCircle, ExternalLink, Video, Copy, Link2, Unlink, Palette } from 'lucide-react';
+import { api, fileUrl, getToken } from '../api';
 import { Badge, BarcodeSvg, Button, Field, Spinner, fmtDate, fmtNum, useLoad, useToast } from '../ui';
 import { CameraButton } from '../components/CameraScanner';
-import VariantsEditor from '../components/VariantsEditor';
+import VariantsEditor, { COLOR_PRESETS } from '../components/VariantsEditor';
 
-const empty = { name: '', sku: '', description: '', unit: 'шт', price: '', oldPrice: '', costPrice: '', minStock: '', categoryId: null, showInShop: true, barcodes: [], attributes: [], variants: [], brand: '', modelInfo: '', sizeChartId: null, looks: [] };
+const empty = { name: '', sku: '', description: '', unit: 'шт', price: '', oldPrice: '', costPrice: '', minStock: '', categoryId: null, showInShop: true, barcodes: [], attributes: [], variants: [], brand: '', color: '', modelInfo: '', sizeChartId: null, looks: [] };
 const attrPresets = ['Материал', 'Состав', 'Сезон', 'Страна', 'Уход', 'Посадка'];
 const moveTypes = { RECEIPT: ['Приход', 'green'], SALE: ['Продажа', 'indigo'], RETURN: ['Возврат', 'blue'], ADJUST: ['Корректировка', 'amber'], TRANSFER_IN: ['Перемещение +', 'slate'], TRANSFER_OUT: ['Перемещение −', 'slate'] };
 
@@ -32,6 +32,8 @@ export default function ProductForm() {
   const [newCat, setNewCat] = useState(null);
   const [variantsOn, setVariantsOn] = useState(false);
   const [variantWh, setVariantWh] = useState('');
+  const [progress, setProgress] = useState(null); // загрузка видео/фото, %
+  const videoRef = useRef(null);
   const fileRef = useRef(null);
   const { data: categories, reload: reloadCats } = useLoad('/categories');
   const { data: warehouses } = useLoad('/warehouses');
@@ -42,8 +44,8 @@ export default function ProductForm() {
     setForm({
       ...empty, ...p, sku: p.sku || '', description: p.description || '', oldPrice: p.oldPrice ?? '',
       barcodes: p.barcodes.map((b) => b.code), attributes: p.attributes.map((a) => ({ name: a.name, value: a.value })),
-      brand: p.brand || '', modelInfo: p.modelInfo || '',
-      variants: p.variants.map((v) => ({ id: v.id, color: v.color || '', size: v.size || '', barcode: v.barcodes[0]?.code || '', price: v.price, costPrice: v.costPrice, stock: v.stocks.reduce((a, x) => a + x.quantity, 0) })),
+      brand: p.brand || '', color: p.color || '', modelInfo: p.modelInfo || '',
+      variants: p.variants.map((v) => ({ id: v.id, size: v.size || '', barcode: v.barcodes[0]?.code || '', price: v.price, costPrice: v.costPrice, stock: v.stocks.reduce((a, x) => a + x.quantity, 0) })),
       looks: p.looks.map((l) => l.linked),
     });
     setVariantsOn(p.hasVariants);
@@ -77,10 +79,25 @@ export default function ProductForm() {
     } catch (e) { toast(e.message, 'error'); }
   };
 
-  const uploadImages = async (productId, files) => {
+  // загрузка с прогрессом — видео могут быть десятки мегабайт
+  const uploadImages = (productId, files) => new Promise((resolve, reject) => {
     const fd = new FormData();
     files.forEach((f) => fd.append('images', f));
-    return api(`/products/${productId}/images`, { method: 'POST', form: fd });
+    const x = new XMLHttpRequest();
+    x.open('POST', `/api/products/${productId}/images`);
+    x.setRequestHeader('Authorization', 'Bearer ' + getToken());
+    x.upload.onprogress = (e) => e.lengthComputable && setProgress(Math.round((e.loaded / e.total) * 100));
+    x.onload = () => { setProgress(null); let d = {}; try { d = JSON.parse(x.responseText); } catch { /* не JSON */ }
+      if (x.status < 300) resolve(d); else reject(new Error(d.error || (x.status === 413 ? 'Файл слишком большой для сервера' : 'Не удалось загрузить'))); };
+    x.onerror = () => { setProgress(null); reject(new Error('Нет связи с сервером')); };
+    setProgress(0); x.send(fd);
+  });
+  const onVideo = async (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    if (f.size > 50 * 1024 * 1024) return toast('Видео больше 50 МБ — сожмите его (например, в приложении «Фото» или CapCut)', 'error');
+    if (isNew) return setPendingFiles((s) => [...s, f]);
+    try { await uploadImages(id, [f]); toast('Видео загружено'); load(); } catch (err) { toast(err.message, 'error'); }
   };
 
   const onFiles = async (e) => {
@@ -95,10 +112,6 @@ export default function ProductForm() {
     await api(`/products/${id}/images/${imgId}`, { method: 'DELETE' });
     load();
   };
-  const tagImage = async (imgId, color) => {
-    await api(`/products/${id}/images/${imgId}`, { method: 'PUT', body: { color } });
-    load();
-  };
   const makeMainImage = async (imgId) => {
     const ids = [imgId, ...product.images.map((i) => i.id).filter((x) => x !== imgId)];
     await api(`/products/${id}/images/order`, { method: 'PUT', body: { ids } });
@@ -109,8 +122,8 @@ export default function ProductForm() {
     e?.preventDefault();
     setSaving(true);
     try {
-      if (variantsOn && !form.variants.some((v) => v.color || v.size)) throw new Error('Добавьте хотя бы один размер или цвет — или выключите «Размеры и цвета»');
-      if (!variantsOn && product?.hasVariants && !confirm('Убрать размеры и цвета? Варианты без движений удалятся, остальные уйдут в архив.')) { setSaving(false); return; }
+      if (variantsOn && !form.variants.some((v) => String(v.size || '').trim())) throw new Error('Добавьте хотя бы один размер — или выключите «Есть размеры»');
+      if (!variantsOn && product?.hasVariants && !confirm('Убрать размеры? Размеры без движений удалятся, остальные уйдут в архив.')) { setSaving(false); return; }
       const body = { ...form, barcodes: form.barcodes.filter((b) => b.trim()), variants: variantsOn ? form.variants : [], variantWarehouseId: variantWh || warehouses?.find((w) => w.active)?.id, lookIds: form.looks.map((l) => l.id) };
       delete body.looks;
       if (isNew) {
@@ -150,6 +163,7 @@ export default function ProductForm() {
           </div>
         </div>
         <div className="flex gap-2">
+          {!isNew && product.showInShop && <a href={`/product/${product.id}`} target="_blank" rel="noreferrer"><Button type="button" variant="secondary" icon={ExternalLink}>На сайте</Button></a>}
           {!isNew && <Button type="button" variant="secondary" icon={Tags} onClick={() => navigate('/labels?ids=' + id)}>Ценник</Button>}
           {!isNew && <Button type="button" variant="ghost" icon={Trash2} onClick={remove} className="text-rose-600 hover:bg-rose-50">Удалить</Button>}
           <Button type="submit" icon={Save} loading={saving}>Сохранить</Button>
@@ -179,6 +193,10 @@ export default function ProductForm() {
                 )}
               </Field>
               <Field label="Бренд"><input className="input" value={form.brand} onChange={set('brand')} placeholder="необязательно" /></Field>
+              <Field label="Цвет карточки">
+                <input className="input" value={form.color} onChange={set('color')} placeholder="например, тёмно-синий" list="color-presets" />
+                <datalist id="color-presets">{COLOR_PRESETS.map((c) => <option key={c} value={c} />)}</datalist>
+              </Field>
               <Field label="Таблица размеров">
                 <select className="input" value={form.sizeChartId ?? ''} onChange={(e) => setForm({ ...form, sizeChartId: e.target.value ? Number(e.target.value) : null })}>
                   <option value="">{categories?.find((c) => c.id === form.categoryId)?.sizeChartId ? 'как у категории' : '— нет —'}</option>
@@ -203,12 +221,12 @@ export default function ProductForm() {
             {margin !== null && <p className="mt-3 text-sm text-slate-500">Наценка: <b className="text-emerald-600">{fmtNum(form.price - form.costPrice, 2)}</b> · маржа {fmtNum(margin, 1)}%</p>}
           </Section>
 
-          <Section title={<span className="flex items-center gap-2"><Layers size={18} /> Размеры и цвета</span>} action={
-            <label className="flex cursor-pointer items-center gap-2 text-sm"><input type="checkbox" checked={variantsOn} onChange={(e) => setVariantsOn(e.target.checked)} /> Есть размеры / цвета</label>
+          <Section title={<span className="flex items-center gap-2"><Layers size={18} /> Баркод, размер и цена</span>} action={
+            <label className="flex cursor-pointer items-center gap-2 text-sm"><input type="checkbox" checked={variantsOn} onChange={(e) => setVariantsOn(e.target.checked)} /> Есть размеры</label>
           }>
             {variantsOn ? (
               <>
-                <p className="mb-4 text-sm text-slate-500">Как на Wildberries: один артикул — несколько вариантов. У каждого размера/цвета свой штрихкод, остаток и этикетка. Продаётся и приходуется конкретный вариант.</p>
+                <p className="mb-4 text-sm text-slate-500">Как на Wildberries: у каждого размера свой штрихкод, остаток и этикетка. Другой цвет — отдельная карточка этой модели (кнопка «Дублировать» в блоке «Модель»).</p>
                 <VariantsEditor value={form.variants} onChange={(v) => setForm({ ...form, variants: v })} price={form.price} costPrice={form.costPrice} isNew={isNew} unit={form.unit} />
                 {form.variants.some((v) => !v.id && Number(v.quantity) > 0) && (warehouses || []).filter((w) => w.active).length > 1 && (
                   <Field label="Начальный остаток новых вариантов — на склад" className="mt-3 max-w-xs">
@@ -216,7 +234,8 @@ export default function ProductForm() {
                   </Field>
                 )}
               </>
-            ) : <p className="text-sm text-slate-500">Включите, если товар продаётся в разных размерах или цветах — например, футболка S/M/L в чёрном и белом.</p>}
+            ) : <p className="text-sm text-slate-500">Включите, если товар продаётся в разных размерах: S/M/L, 42–48, oversize. Без размеров у товара один штрихкод (справа).</p>}
+            {product?.salesBySize?.length > 0 && <SizeSales rows={product.salesBySize} />}
           </Section>
 
           <Section title="Характеристики" action={<Button type="button" size="sm" variant="secondary" icon={Plus} onClick={() => setForm({ ...form, attributes: [...form.attributes, { name: '', value: '' }] })}>Добавить</Button>}>
@@ -269,18 +288,13 @@ export default function ProductForm() {
         </div>
 
         <div className="space-y-6">
+          {!isNew && <ModelPanel product={product} onChanged={load} />}
           <Section title="Фотографии">
             <div className="grid grid-cols-3 gap-2">
               {images.map((img, i) => (
                 <div key={img.id} className="group relative aspect-square overflow-hidden rounded-xl border border-slate-200">
                   {img.kind === 'video' ? <video src={img.url} muted className="h-full w-full object-cover" /> : <img src={img.url} alt="" className="h-full w-full object-cover" />}
                   {img.kind === 'video' && <PlayCircle size={22} className="pointer-events-none absolute right-1 bottom-1 text-white drop-shadow" />}
-                  {!isNew && variantsOn && (
-                    <select value={img.color || ''} onChange={(e) => tagImage(img.id, e.target.value)} title="Фото какого цвета" className="absolute inset-x-1 bottom-1 z-10 rounded bg-white/90 px-1 py-0.5 text-[10px]">
-                      <option value="">все цвета</option>
-                      {[...new Set(form.variants.map((v) => v.color).filter(Boolean))].map((c) => <option key={c}>{c}</option>)}
-                    </select>
-                  )}
                   {i === 0 && <span className="absolute top-1 left-1 rounded bg-indigo-600 px-1.5 text-[10px] font-medium text-white">Главное</span>}
                   <div className="absolute inset-0 flex items-center justify-center gap-1 bg-slate-900/50 opacity-0 transition group-hover:opacity-100">
                     {!isNew && i > 0 && <button type="button" title="Сделать главным" onClick={() => makeMainImage(img.id)} className="rounded-lg bg-white/90 p-1.5 text-amber-500"><Star size={14} /></button>}
@@ -288,12 +302,19 @@ export default function ProductForm() {
                   </div>
                 </div>
               ))}
-              <button type="button" onClick={() => fileRef.current.click()} className="flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-slate-300 text-xs text-slate-500 hover:border-indigo-400 hover:text-indigo-600">
-                <ImagePlus size={22} /> Фото / видео
+              <button type="button" onClick={() => fileRef.current.click()} disabled={progress !== null} className="flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-slate-300 text-xs text-slate-500 hover:border-indigo-400 hover:text-indigo-600">
+                <ImagePlus size={22} /> Фото
+              </button>
+              <button type="button" onClick={() => videoRef.current.click()} disabled={progress !== null} className="flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-slate-300 text-xs text-slate-500 hover:border-indigo-400 hover:text-indigo-600">
+                <Video size={22} /> Видео
               </button>
             </div>
-            <input ref={fileRef} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple hidden onChange={onFiles} />
-            <p className="mt-2 text-xs text-slate-400">Фото и короткие видео (MP4, до 50 МБ). Первое — главное.{variantsOn ? ' Для карточки с цветами отметьте на фото его цвет — в магазине при выборе цвета покажутся его фото.' : ''}</p>
+            {progress !== null && (
+              <div className="mt-3"><div className="mb-1 flex justify-between text-xs text-slate-500"><span>Загрузка…</span><span>{progress}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-indigo-600 transition-all" style={{ width: progress + '%' }} /></div></div>
+            )}
+            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/avif" multiple hidden onChange={onFiles} />
+            <input ref={videoRef} type="file" accept="video/mp4,video/webm,video/quicktime" hidden onChange={onVideo} />
+            <p className="mt-2 text-xs text-slate-400">Фото — до 10 МБ, видео — MP4/MOV до 50 МБ (лучше вертикальное, 10–30 секунд). Первое фото — главное, видео показывается в галерее магазина.</p>
           </Section>
 
           {!variantsOn && <Section title="Штрихкоды" action={
@@ -326,7 +347,7 @@ export default function ProductForm() {
           <Section title="Остатки">
             <Field label="Минимальный остаток (уведомление)" className="mb-4"><input className="input" type="number" step="any" min="0" value={form.minStock} onChange={set('minStock')} /></Field>
             <Field label="Вес, г (для расчёта доставки)" className="mb-4"><input className="input" type="number" step="any" min="0" value={form.weight ?? ''} onChange={set('weight')} placeholder="по умолчанию из настроек магазина" /></Field>
-            {variantsOn ? <p className="text-sm text-slate-500">Остатки ведутся по каждому размеру и цвету — см. таблицу вариантов. Всего: <b>{fmtNum(form.variants.reduce((a, v) => a + (v.stock || Number(v.quantity) || 0), 0))} {form.unit}</b></p> : isNew ? (
+            {variantsOn ? <p className="text-sm text-slate-500">Остатки ведутся по каждому размеру — см. «Баркод, размер и цена». Всего: <b>{fmtNum(form.variants.reduce((a, v) => a + (v.stock || Number(v.quantity) || 0), 0))} {form.unit}</b></p> : isNew ? (
               <div className="space-y-2">
                 <p className="text-xs text-slate-500">Начальный остаток по складам:</p>
                 {(warehouses || []).filter((w) => w.active).map((w) => (
@@ -413,5 +434,85 @@ function LookPicker({ value, onChange, selfId }) {
         )}
       </div>
     </div>
+  );
+}
+
+// Продажи по размерам за 90 дней — какие размеры заказывать
+function SizeSales({ rows }) {
+  const max = Math.max(1, ...rows.map((r) => r.sold));
+  const total = rows.reduce((a, r) => a + r.sold, 0);
+  return (
+    <div className="mt-5 border-t border-slate-100 pt-4">
+      <div className="mb-2 text-sm font-medium">Продажи по размерам за 90 дней <span className="font-normal text-slate-400">· всего {fmtNum(total)}</span></div>
+      <div className="space-y-1.5">
+        {rows.map((r) => (
+          <div key={r.id} className="flex items-center gap-3 text-sm">
+            <span className="w-16 shrink-0 font-medium">{r.size}</span>
+            <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-indigo-500" style={{ width: (r.sold / max) * 100 + '%' }} /></div>
+            <span className="w-24 shrink-0 text-right text-slate-600">{fmtNum(r.sold)} шт{total ? ` · ${Math.round((r.sold / total) * 100)}%` : ''}</span>
+            <span className={`w-20 shrink-0 text-right text-xs ${r.stock <= 0 ? 'text-rose-600' : 'text-slate-400'}`}>ост. {fmtNum(r.stock)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// «Модель» как на WB: карточки разных цветов одного товара (у каждой свой артикул и фото), до 30
+function ModelPanel({ product, onChanged }) {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [mode, setMode] = useState(null); // dup | join
+  const [color, setColor] = useState('');
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState([]);
+  const cards = product.group?.length ? product.group : [{ id: product.id, name: product.name, sku: product.sku, color: product.color, image: product.images[0]?.path, stock: product.totalStock }];
+  useEffect(() => {
+    if (mode !== 'join' || !q.trim()) { setFound([]); return; }
+    const t = setTimeout(() => api('/products?limit=8&q=' + encodeURIComponent(q.trim())).then((d) => setFound(d.items.filter((p) => !cards.some((c) => c.id === p.id)))).catch(() => {}), 250);
+    return () => clearTimeout(t);
+  }, [q, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  const duplicate = async () => {
+    try { const c = await api(`/products/${product.id}/duplicate`, { method: 'POST', body: { color } }); toast('Карточка создана — добавьте фото этого цвета'); setMode(null); setColor(''); navigate('/products/' + c.id); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+  const join = async (other) => { try { await api(`/products/${product.id}/group`, { method: 'POST', body: { productId: other.id } }); toast('Карточки объединены'); setMode(null); setQ(''); onChanged(); } catch (e) { toast(e.message, 'error'); } };
+  const leave = async () => { if (!confirm('Отвязать эту карточку от модели? Она станет отдельным товаром.')) return; await api(`/products/${product.id}/group`, { method: 'DELETE' }); toast('Карточка отвязана'); onChanged(); };
+  return (
+    <Section title={<span className="flex items-center gap-2"><Palette size={18} /> Модель · цвета</span>} action={<span className="text-sm text-slate-400">{cards.length} из 30</span>}>
+      <div className="space-y-2">
+        {cards.map((c) => (
+          <button type="button" key={c.id} onClick={() => c.id !== product.id && navigate('/products/' + c.id)}
+            className={`flex w-full items-center gap-3 rounded-xl p-2 text-left ${c.id === product.id ? 'bg-indigo-50 ring-1 ring-indigo-200' : 'hover:bg-slate-50'}`}>
+            <div className="h-14 w-11 shrink-0 overflow-hidden rounded-lg bg-slate-100">{c.image && <img src={fileUrl(c.image)} alt="" className="h-full w-full object-cover" />}</div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">{c.name}</div>
+              <div className="truncate font-mono text-xs text-slate-500">{c.sku || 'без артикула'}</div>
+              <div className="text-xs text-slate-600">{c.color || <span className="text-amber-600">цвет не указан</span>} · ост. {fmtNum(c.stock)}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+      {mode === 'dup' ? (
+        <div className="mt-3 space-y-2 rounded-xl bg-slate-50 p-3">
+          <div className="text-sm">Новая карточка этой модели: те же название, описание, цена и размеры, новые штрихкоды и артикул. Фото добавите для нового цвета.</div>
+          <input className="input" autoFocus value={color} onChange={(e) => setColor(e.target.value)} placeholder="Цвет новой карточки" list="color-presets" onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), duplicate())} />
+          <div className="flex gap-2"><Button type="button" size="sm" onClick={duplicate} disabled={!color.trim()}>Создать</Button><Button type="button" size="sm" variant="ghost" onClick={() => setMode(null)}>Отмена</Button></div>
+        </div>
+      ) : mode === 'join' ? (
+        <div className="relative mt-3 space-y-2 rounded-xl bg-slate-50 p-3">
+          <div className="text-sm">Найдите карточку другого цвета этой же модели — она объединится с этой (на сайте будет выбор цвета).</div>
+          <input className="input" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Название или артикул" />
+          {found.map((p) => <button type="button" key={p.id} onClick={() => join(p)} className="block w-full truncate rounded-lg bg-white px-3 py-2 text-left text-sm hover:bg-indigo-50">{p.name} <span className="text-slate-400">{p.sku}</span>{p.color && <span className="text-slate-500"> · {p.color}</span>}</button>)}
+          <Button type="button" size="sm" variant="ghost" onClick={() => setMode(null)}>Отмена</Button>
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button type="button" size="sm" icon={Copy} onClick={() => setMode('dup')}>Дублировать (другой цвет)</Button>
+          <Button type="button" size="sm" variant="secondary" icon={Link2} onClick={() => setMode('join')}>Из своей карточки</Button>
+          {cards.length > 1 && <Button type="button" size="sm" variant="ghost" icon={Unlink} onClick={leave}>Отвязать</Button>}
+        </div>
+      )}
+    </Section>
   );
 }

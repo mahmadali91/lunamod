@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Search, Package, Tags, Pencil, Archive, List, LayoutGrid, FileSpreadsheet, ZoomIn, Download } from 'lucide-react';
+import { Plus, Search, Package, Tags, Pencil, Archive, List, LayoutGrid, FileSpreadsheet, ZoomIn, Download, ExternalLink } from 'lucide-react';
 import { api, fileUrl, qs } from '../api';
 import { Badge, Button, Empty, PageHeader, RefSelect, Spinner, Thumb, fmtNum, useLoad, useMoney } from '../ui';
 import Lightbox from '../components/Lightbox';
@@ -58,7 +58,7 @@ export default function Products() {
         { title: 'Закупочная цена', value: (p) => p.costPrice, width: 15 },
         { title: 'Ед. изм.', value: (p) => p.unit, width: 9 },
         { title: 'Мин. остаток', value: (p) => p.minStock, width: 12 },
-        { title: 'Цвет', value: (p) => p.color, width: 14 },
+        { title: 'Цвет', value: (p) => p.color || p.parent?.color, width: 14 },
         { title: 'Размер', value: (p) => p.size, width: 10 },
         ...attrs.map((a) => ({ title: a, value: (p) => p.attributes.find((x) => x.name === a)?.value, width: 16 })),
         { title: 'Описание', value: (p) => p.description, width: 40 },
@@ -119,6 +119,7 @@ export default function Products() {
                   <div className="p-3">
                     <div className="line-clamp-2 min-h-[2.5rem] text-sm font-medium text-slate-900">{p.name}</div>
                     <div className="mt-0.5 truncate font-mono text-xs text-slate-400">{p.sku || p.barcodes[0]?.code}</div>
+                    {p.color && <div className="mt-0.5 truncate text-xs text-slate-600">{p.color}{p.group?._count.products > 1 && <span className="text-slate-400"> · +{p.group._count.products - 1} цв.</span>}</div>}
                     {p.hasVariants && <VariantChips p={p} />}
                     <div className="mt-2 flex items-end justify-between gap-2">
                       <div>
@@ -161,6 +162,7 @@ export default function Products() {
                         <Link to={`/products/${p.id}`} className="min-w-0">
                           <div className="font-medium text-slate-900 hover:text-indigo-600">{p.name}</div>
                           {p.category && <div className="text-xs text-slate-500">{p.category.name}</div>}
+                          {p.color && <div className="text-xs text-slate-600">{p.color}{p.group?._count.products > 1 && <span className="text-slate-400"> · модель: {p.group._count.products} цв.</span>}</div>}
                           {p.hasVariants && <VariantChips p={p} />}
                         </Link>
                       </div>
@@ -173,6 +175,7 @@ export default function Products() {
                     </td>
                     <td className="td">
                       <div className="flex justify-end gap-1">
+                        {p.showInShop && <a href={`/product/${p.id}`} target="_blank" rel="noreferrer" title="Открыть на сайте" className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-indigo-600"><ExternalLink size={16} /></a>}
                         <Link to={`/labels?ids=${p.id}`} title="Этикетка" className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-indigo-600"><Tags size={16} /></Link>
                         <Link to={`/products/${p.id}`} title="Изменить" className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-indigo-600"><Pencil size={16} /></Link>
                       </div>
