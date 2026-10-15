@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { api } from './api';
 import { SettingsCtx, useToast } from './ui';
+import ThemeToggle from './components/ThemeToggle';
 import { CameraButton } from './components/CameraScanner';
 
 const nav = [
@@ -104,7 +105,10 @@ export default function Layout() {
           </div>
           <button onClick={logout} title="Выйти" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-rose-600"><LogOut size={18} /></button>
         </div>
-        <div className="px-2 pt-1 text-[11px] text-slate-400" title="Версия программы">v{__APP_VERSION__}</div>
+        <div className="flex items-center justify-between px-2 pt-1">
+          <span className="text-[11px] text-slate-400" title="Версия программы">v{__APP_VERSION__}</span>
+          <ThemeToggle />
+        </div>
       </div>
     </div>
   );

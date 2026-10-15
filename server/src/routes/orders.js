@@ -98,14 +98,37 @@ r.post('/settings/test-tbank', requireAdmin, ah(async (req, res) => {
   res.json({ ok: true, message: 'Ключи верные: Т-Банк принял тестовый запрос' });
 }));
 
-r.post('/settings/test-telegram', requireAdmin, ah(async (req, res) => {
-  const s = await getShopSettings();
-  if (!s.tgBotToken || !s.tgChatId) throw new HttpError(400, 'Укажите токен бота и ID чата');
-  const { telegram } = require('../notify');
-  const raw = await telegram(s.tgBotToken, s.tgChatId, '✅ Уведомления магазина подключены');
-  let ok = false; try { ok = JSON.parse(raw).ok; } catch { /* ignore */ }
-  if (!ok) throw new HttpError(400, 'Telegram не принял сообщение: проверьте токен, ID чата и что вы написали боту /start');
-  res.json({ ok: true, message: 'Сообщение отправлено в Telegram' });
+// Проверка каналов уведомлений: отправляет тест и возвращает точную причину ошибки
+r.post('/settings/test-notify', requireAdmin, ah(async (req, res) => {
+  const n = require('../notify');
+  const s = await n.channelSettings();
+  const ch = req.body.channel;
+  if (ch === 'telegram') {
+    if (!s.tgBotToken || !s.tgChatId) throw new HttpError(400, 'Укажите токен бота и ID чата Telegram и сохраните');
+    const r = await n.telegram(s, '✅ Уведомления магазина подключены');
+    if (!r.ok) throw new HttpError(400, r.error);
+  } else if (ch === 'max') {
+    if (!s.maxBotToken || !s.maxChatId) throw new HttpError(400, 'Укажите токен бота и ID MAX и сохраните');
+    const r = await n.maxSend(s, '✅ Уведомления магазина подключены');
+    if (!r.ok) throw new HttpError(400, r.error);
+  } else throw new HttpError(400, 'Неизвестный канал');
+  res.json({ ok: true, message: 'Тестовое сообщение отправлено' });
+}));
+
+// Найти ID чата: последние, кто написал боту
+r.post('/settings/find-chat-id', requireAdmin, ah(async (req, res) => {
+  const n = require('../notify');
+  const s = await n.channelSettings();
+  const r = req.body.channel === 'max' ? (s.maxBotToken ? await n.maxUpdates(s) : { ok: false, error: 'Укажите токен бота MAX и сохраните' })
+    : (s.tgBotToken ? await n.telegramUpdates(s) : { ok: false, error: 'Укажите токен бота Telegram и сохраните' });
+  if (!r.ok) throw new HttpError(400, r.error);
+  if (!r.chats.length) throw new HttpError(400, 'Сообщений боту не найдено. Откройте бота, нажмите «Начать» или напишите ему любое сообщение и повторите.');
+  res.json(r.chats);
+}));
+
+r.get('/settings/notify-log', requireAdmin, ah(async (req, res) => {
+  const row = await prisma.setting.findUnique({ where: { key: 'notify_log' } });
+  res.json(row ? JSON.parse(row.value) : []);
 }));
 
 // Шаблоны документов и способов доставки (для кнопки «вернуть шаблон»)

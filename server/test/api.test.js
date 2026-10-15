@@ -26,7 +26,12 @@ const ean13ok = (c) => { let s = 0; for (let i = 0; i < 12; i++) s += +c[i] * (i
 
 before(async () => {
   execFileSync('node', ['prisma/seed.js'], { cwd: ROOT, env: { ...process.env, ADMIN_PASSWORD: PASS }, stdio: 'ignore' });
-  server = spawn('node', ['src/index.js'], { cwd: ROOT, env: { ...process.env, PORT: String(PORT) }, stdio: ['ignore', 'pipe', 'inherit'] });
+  // минимальная «сборка» фронтенда — для проверки страниц магазина (SEO)
+  const dist = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'dist-'));
+  require('fs').mkdirSync(dist + '/admin');
+  require('fs').writeFileSync(dist + '/shop.html', '<!doctype html><html><head><title>x</title><meta name="description" content="x" /></head><body><div id="root"></div></body></html>');
+  require('fs').writeFileSync(dist + '/admin/index.html', '<!doctype html><html><head><title>admin</title></head><body><div id="root"></div></body></html>');
+  server = spawn('node', ['src/index.js'], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), CLIENT_DIST: dist }, stdio: ['ignore', 'pipe', 'inherit'] });
   for (let i = 0; i < 50; i++) {
     try { if ((await fetch(BASE + '/api/health')).ok) break; } catch { /* ещё стартует */ }
     await new Promise((r) => setTimeout(r, 200));
@@ -250,13 +255,14 @@ test('категории: количество товаров', async () => {
   assert.ok(c && c._count.products === 1);
 });
 
+const shop = async (p, { method = 'GET', body, token: t } = {}) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (t) headers.Authorization = 'Bearer ' + t;
+  const res = await fetch(BASE + '/api/shop' + p, { method, headers, body: body && JSON.stringify(body) });
+  return { status: res.status, data: await res.json().catch(() => ({})) };
+};
+
 test('интернет-магазин: каталог, вход по SMS, заказ, выдача, оплата', async () => {
-  const shop = async (p, { method = 'GET', body, token: t } = {}) => {
-    const headers = { 'Content-Type': 'application/json' };
-    if (t) headers.Authorization = 'Bearer ' + t;
-    const res = await fetch(BASE + '/api/shop' + p, { method, headers, body: body && JSON.stringify(body) });
-    return { status: res.status, data: await res.json().catch(() => ({})) };
-  };
   // настройки: тестовый режим SMS, онлайн-оплата включена (без ключей → тестовая оплата)
   const methods = [
     { id: 'pickup', carrier: 'pickup', name: 'Самовывоз', enabled: true, price: 0, description: 'ул. Тестовая, 1' },
@@ -359,42 +365,87 @@ test('юридические документы магазина', async () => {
   assert.equal((await fetch(BASE + '/api/shop/legal/nope')).status, 404);
 });
 
-test('чат: сообщения, фото, ответ из админки, заказы покупателя', async () => {
-  const vk = require('crypto').randomBytes(16).toString('hex');
-  const send = (body, form) => fetch(BASE + '/api/shop/chat', { method: 'POST', headers: { 'X-Visitor': vk, ...(form ? {} : { 'Content-Type': 'application/json' }) }, body: form || JSON.stringify(body) });
-  assert.equal((await fetch(BASE + '/api/shop/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"text":"x"}' })).status, 400, 'без ключа посетителя');
-  assert.equal((await send({ text: '   ' })).status, 400, 'пустое сообщение');
-  assert.equal((await send({ text: 'Здравствуйте, где мой заказ?', name: 'Покупатель ' + U })).status, 201);
-  // фото (PNG)
+test('чат: только для вошедших, фото, голосовые, антиспам, ответ из админки', async () => {
+  const login = async (n, name) => {
+    const ph = '79' + String(Number(D.slice(-9)) + n).padStart(9, '0').slice(-9);
+    const rc = await shop('/auth/request-code', { method: 'POST', body: { phone: ph } });
+    return (await shop('/auth/verify', { method: 'POST', body: { phone: rc.data.phone, code: rc.data.testCode, name, consent: true } })).data.token;
+  };
+  const send = (tk, body, form) => fetch(BASE + '/api/shop/chat', { method: 'POST', headers: { Authorization: 'Bearer ' + tk, ...(form ? {} : { 'Content-Type': 'application/json' }) }, body: form || JSON.stringify(body) });
+  const read = (tk, q = '') => fetch(BASE + '/api/shop/chat' + q, { headers: { Authorization: 'Bearer ' + tk } }).then((x) => x.json());
+  assert.equal((await fetch(BASE + '/api/shop/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"text":"x"}' })).status, 401, 'без входа чат недоступен');
+  assert.equal((await fetch(BASE + '/api/shop/chat')).status, 401);
+  const a = await login(5, 'Чат А ' + U), b = await login(6, 'Чат Б ' + U), c = await login(7, 'Чат В ' + U);
+  assert.equal((await send(a, { text: '   ' })).status, 400, 'пустое сообщение');
+  const first = await send(a, { text: 'Здравствуйте, где мой заказ?' });
+  assert.equal(first.status, 201); assert.equal((await first.json()).cooldown, 10);
+  // антиспам: следующее сообщение не раньше чем через 10 с
+  const spam = await send(a, { text: 'ещё' });
+  assert.equal(spam.status, 429); assert.ok((await spam.json()).retryAfter > 0);
+  assert.ok((await read(a)).cooldown > 0);
+  // фото (PNG); SVG не принимается (может содержать скрипт)
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const fd2 = new FormData(); fd2.append('image', new Blob(['<svg onload="alert(1)"/>'], { type: 'image/svg+xml' }), 'x.svg');
+  assert.equal((await send(b, null, fd2)).status, 400);
   const fd = new FormData(); fd.append('image', new Blob([png], { type: 'image/png' }), 'screen.png');
-  const img = await (await send(null, fd)).json();
+  const img = await (await send(b, null, fd)).json();
   assert.match(img.image, /^\/uploads\/chat\/[a-f0-9]{32}\.png$/);
   assert.equal((await fetch(BASE + img.image)).status, 200);
-  // SVG не принимается (может содержать скрипт)
-  const fd2 = new FormData(); fd2.append('image', new Blob(['<svg onload="alert(1)"/>'], { type: 'image/svg+xml' }), 'x.svg');
-  assert.equal((await send(null, fd2)).status, 400);
-  // админка видит чат и непрочитанные
+  // голосовое сообщение
+  const fdv = new FormData(); fdv.append('audio', new Blob([Buffer.from('1a45dfa3', 'hex')], { type: 'audio/webm;codecs=opus' }), 'voice.webm'); fdv.append('duration', '7');
+  const voice = await (await send(c, null, fdv)).json();
+  assert.match(voice.audio, /^\/uploads\/chat\/[a-f0-9]{32}\.webm$/); assert.equal(voice.duration, 7);
+  // админка видит чаты и непрочитанные
   const list = await ok('/chats');
-  const conv = list.find((c) => c.name === 'Покупатель ' + U);
-  assert.ok(conv); assert.equal(conv.unreadAdmin, 2);
-  assert.ok((await ok('/chats/unread')).unread >= 2);
-  const full = await ok('/chats/' + conv.id);
-  assert.equal(full.messages.length, 2);
+  const conv = list.find((x) => x.name === 'Чат А ' + U);
+  assert.ok(conv); assert.equal(conv.unreadAdmin, 1); assert.ok(conv.phone);
+  assert.match(list.find((x) => x.name === 'Чат В ' + U).lastText, /Голосовое/);
+  assert.ok((await ok('/chats/unread')).unread >= 3);
   // ответ с фото из админки
   const fd3 = new FormData(); fd3.append('text', 'Вот фото вашего заказа'); fd3.append('image', new Blob([png], { type: 'image/png' }), 'order.png');
   const reply = await fetch(BASE + `/api/chats/${conv.id}/messages`, { method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: fd3 }).then((x) => x.json());
   assert.equal(reply.sender, 'admin'); assert.ok(reply.image);
-  const mine = await fetch(BASE + '/api/shop/chat', { headers: { 'X-Visitor': vk } }).then((x) => x.json());
-  assert.equal(mine.messages.length, 3); assert.equal(mine.conversation.unread, 1);
-  const after = await fetch(BASE + '/api/shop/chat?after=' + mine.messages[1].id, { headers: { 'X-Visitor': vk } }).then((x) => x.json());
-  assert.equal(after.messages.length, 1, 'дозагрузка только новых');
-  // чужой посетитель не видит переписку
-  const stranger = await fetch(BASE + '/api/shop/chat', { headers: { 'X-Visitor': require('crypto').randomBytes(16).toString('hex') } }).then((x) => x.json());
-  assert.equal(stranger.messages.length, 0);
+  const mine = await read(a);
+  assert.equal(mine.messages.length, 2); assert.equal(mine.conversation.unread, 1);
+  assert.equal((await read(a, '?after=' + mine.messages[0].id)).messages.length, 1, 'дозагрузка только новых');
+  // история хранится в аккаунте, другой покупатель её не видит
+  assert.equal((await read(b)).messages.length, 1);
   // пуш-подписка: проверка формата
   assert.equal((await api('/push/subscribe', { method: 'POST', body: { endpoint: 'x' } })).status, 400);
   assert.ok((await ok('/push/key')).key.length > 40, 'ключ VAPID создан');
+});
+
+test('SEO: страницы магазина, robots.txt, sitemap.xml, Метрика и соцсети', async () => {
+  await ok('/orders/settings', { method: 'PUT', body: { metrikaId: '12345678', yandexVerification: 'abc123', socialTelegram: '@botmi_shop', socialWhatsapp: '8 900 111-22-33', socialInstagram: 'javascript:alert(1)' } });
+  const p = await ok('/products', { method: 'POST', body: { name: 'SEO <платье> ' + U, price: 1990, description: 'Лёгкое летнее платье', showInShop: true, initialStock: [{ warehouseId: w1.id, quantity: 3 }] } });
+  const page = await fetch(BASE + '/product/' + p.id);
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.match(html, /<title>SEO &lt;платье&gt; .+ — купить за 1[\s\u00a0]990 ₽/, 'заголовок экранирован');
+  assert.match(html, new RegExp(`<link rel="canonical" href="https?://[^"]+/product/${p.id}"`));
+  assert.match(html, /"@type":"Product"/); assert.match(html, /"availability":"https:\/\/schema.org\/InStock"/);
+  assert.match(html, /<meta property="og:title"/);
+  assert.match(html, /<meta name="yandex-verification" content="abc123"/);
+  assert.match(html, /ym\(12345678,"init"/, 'Метрика на страницах магазина');
+  assert.match(html, /<h1>SEO &lt;платье&gt;/, 'текст страницы для роботов');
+  assert.equal((html.match(/<title>/g) || []).length, 1, 'один title');
+  assert.ok(!/<script>alert|<платье>/.test(html), 'нет внедрения HTML');
+  // Метрика не ставится в админку
+  assert.ok(!/mc\.yandex/.test(await fetch(BASE + '/admin/').then((x) => x.text())));
+  // служебные и несуществующие страницы
+  assert.match(await fetch(BASE + '/cart').then((x) => x.text()), /noindex/);
+  assert.equal((await fetch(BASE + '/product/99999999')).status, 404);
+  assert.equal((await fetch(BASE + '/no-such-page')).status, 404);
+  const robots = await fetch(BASE + '/robots.txt').then((x) => x.text());
+  assert.match(robots, /Disallow: \/admin/); assert.match(robots, /Sitemap: https?:\/\/.+\/sitemap\.xml/);
+  const sm = await fetch(BASE + '/sitemap.xml').then((x) => x.text());
+  assert.match(sm, new RegExp(`/product/${p.id}</loc>`));
+  // соцсети в настройках витрины: только http(s), WhatsApp из номера
+  const cfg = (await shop('/config')).data;
+  assert.deepEqual(cfg.socials, { telegram: 'https://t.me/botmi_shop', whatsapp: 'https://wa.me/79001112233' });
+  assert.deepEqual(cfg.metrika, { id: 12345678, ecommerce: true });
+  await ok('/orders/settings', { method: 'PUT', body: { metrikaId: '', yandexVerification: '', socialTelegram: '', socialWhatsapp: '', socialInstagram: '' } });
+  assert.ok(!/mc\.yandex/.test(await fetch(BASE + '/').then((x) => x.text())));
 });
 
 test('демо-данные: загрузка и удаление', async () => {

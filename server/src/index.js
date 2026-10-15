@@ -55,11 +55,16 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
 // Собранный фронтенд
 const dist = process.env.CLIENT_DIST || path.join(__dirname, '..', '..', 'client', 'dist');
+const seo = require('./seo');
+app.get('/robots.txt', (req, res, next) => seo.robots(req, res).catch(next));
+app.get('/sitemap.xml', (req, res, next) => seo.sitemap(req, res).catch(next));
 if (fs.existsSync(dist)) {
-  app.use(express.static(dist));
+  // Страница магазина собирается как shop.html (не index.html), чтобы веб-сервер хостинга не отдавал её
+  // напрямую: каждую страницу витрины формирует сервер — с заголовками и разметкой для поисковиков
+  app.use(express.static(dist, { index: false }));
   // /admin — программа учёта, остальное — витрина магазина
   app.get(['/admin', '/admin/*'], (req, res) => res.sendFile(path.join(dist, 'admin', 'index.html')));
-  app.get('*', (req, res) => res.sendFile(path.join(dist, 'index.html')));
+  app.get('*', (req, res) => seo.renderShop(req, res, dist).catch((e) => { console.error('shop page:', e.message); res.sendFile(path.join(dist, 'shop.html')); }));
 }
 
 app.use((err, req, res, next) => {

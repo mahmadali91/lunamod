@@ -58,7 +58,7 @@ export default function LoginModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center" onMouseDown={close}>
+    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 sm:items-center" onMouseDown={close}>
       <div className="w-full max-w-sm rounded-t-3xl bg-white p-6 shadow-2xl sm:rounded-3xl" onMouseDown={(e) => e.stopPropagation()}>
         <div className="mb-5 flex items-center justify-between">
           <h2 className="text-xl font-bold">{step === 'phone' ? 'Вход или регистрация' : 'Введите код'}</h2>

@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import '../index.css';
+import { applyTheme } from '../theme';
 import { ShopProvider } from './store';
 import ShopLayout from './ShopLayout';
 import Catalog from './pages/Catalog';
@@ -45,3 +46,5 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     </ShopProvider>
   </React.StrictMode>
 );
+
+applyTheme();

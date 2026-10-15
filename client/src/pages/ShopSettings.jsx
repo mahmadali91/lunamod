@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Save, ExternalLink, AlertTriangle, CreditCard, MessageSquare, Truck, Store, ShieldCheck, FileText, Bell, MessagesSquare, Plus, Trash2, RotateCcw, ChevronDown } from 'lucide-react';
+import { Save, ExternalLink, Search as SearchIcon, BarChart3, Share2, Send, History, CheckCircle2, XCircle, AlertTriangle, CreditCard, MessageSquare, Truck, Store, ShieldCheck, FileText, Bell, MessagesSquare, Plus, Trash2, RotateCcw, ChevronDown } from 'lucide-react';
 import PushToggle from '../components/PushToggle';
 import { api } from '../api';
 import { Button, Field, PageHeader, RefSelect, Spinner, useToast } from '../ui';
@@ -30,7 +30,6 @@ export default function ShopSettings() {
   if (!s || !tpl) return <Spinner />;
   const setM = (i, patch) => setMethods(methods.map((m, j) => (i === j ? { ...m, ...patch } : m)));
   const addMethod = (carrier) => setMethods([...methods, { id: carrier + '_' + Date.now().toString(36), carrier, name: tpl.carriers[carrier].name, enabled: true, price: 0, markupFixed: 0, markupPercent: 0, freeFrom: 0, days: '', description: '' }]);
-  const testTelegram = async () => { try { await api('/orders/settings', { method: 'PUT', body: s }); const r = await api('/orders/settings/test-telegram', { method: 'POST' }); toast(r.message); } catch (e) { toast(e.message, 'error'); } };
   const f = (k) => (v) => setS({ ...s, [k]: v });
   const inp = (k, props = {}) => <input className="input" value={s[k] ?? ''} onChange={(e) => f(k)(e.target.value)} {...props} />;
 
@@ -179,14 +178,38 @@ export default function ShopSettings() {
         <Field label="Приветствие в чате">{inp('chatGreeting')}</Field>
       </Section>
 
-      <Section icon={Bell} title="Уведомления о заказах и сообщениях" hint="Пуш-уведомления приходят в браузер или на телефон, где вы их включили. Telegram — надёжный запасной канал.">
+      <Section icon={Bell} title="Уведомления о заказах и сообщениях" hint="Пуш приходят в браузер или на телефон, где вы их включили. Дополнительно можно получать сообщения в мессенджер. Важно: с российских серверов Telegram часто недоступен (блокировка с весны 2026) — надёжнее MAX.">
         <PushToggle />
-        <div className="grid grid-cols-1 gap-4 rounded-xl bg-slate-50 p-4 sm:grid-cols-2">
-          <Field label="Telegram: токен бота">{inp('tgBotToken', { type: 'password', autoComplete: 'new-password', placeholder: '123456:ABC…' })}</Field>
-          <Field label="Telegram: ID чата">{inp('tgChatId', { placeholder: 'например, 123456789' })}</Field>
-          <p className="text-xs text-slate-500 sm:col-span-2">Создайте бота у @BotFather и скопируйте токен. Напишите своему боту /start, затем узнайте свой ID у @userinfobot. Для уведомлений в группу добавьте бота в группу и укажите ID группы.</p>
-          <div><Button size="sm" variant="secondary" onClick={testTelegram}>Проверить Telegram</Button></div>
+        <NotifyChannels s={s} f={f} inp={inp} />
+      </Section>
+
+      <Section icon={Share2} title="Соцсети в шапке сайта" hint="Заполненные ссылки показываются иконками вверху сайта и в подвале. Пустые — скрыты.">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Telegram">{inp('socialTelegram', { placeholder: 'https://t.me/ваш_канал' })}</Field>
+          <Field label="ВКонтакте">{inp('socialVk', { placeholder: 'https://vk.com/ваша_группа' })}</Field>
+          <Field label="MAX">{inp('socialMax', { placeholder: 'https://max.ru/…' })}</Field>
+          <Field label="Instagram">{inp('socialInstagram', { placeholder: 'https://instagram.com/…' })}</Field>
+          <Field label="WhatsApp">{inp('socialWhatsapp', { placeholder: 'номер +7 900 000-00-00 или ссылка wa.me' })}</Field>
         </div>
+        <p className="text-xs text-slate-500">Instagram принадлежит компании Meta, признанной экстремистской и запрещённой в РФ — при заполнении ссылки в подвале сайта автоматически появится обязательная пометка.</p>
+      </Section>
+
+      <Section icon={SearchIcon} title="Поисковики (SEO)" hint="Сайт сам отдаёт поисковикам заголовки, описания, карту сайта (/sitemap.xml) и robots.txt. Здесь — то, что нужно ввести вручную.">
+        <Field label="Описание магазина для поисковиков (до 160 символов)">
+          <textarea className="input min-h-[70px]" maxLength={300} value={s.seoDescription ?? ''} onChange={(e) => f('seoDescription')(e.target.value)} placeholder="Например: Одежда и обувь с доставкой по России. Примерка при получении, оплата картой или наличными." />
+        </Field>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Код подтверждения Яндекс Вебмастера">{inp('yandexVerification', { placeholder: 'содержимое content из meta yandex-verification' })}</Field>
+          <Field label="Код подтверждения Google Search Console">{inp('googleVerification', { placeholder: 'содержимое content из meta google-site-verification' })}</Field>
+        </div>
+        <p className="text-xs text-slate-500">Добавьте сайт в <a className="text-indigo-600 underline" href="https://webmaster.yandex.ru" target="_blank" rel="noreferrer">Яндекс Вебмастер</a>, выберите подтверждение «Мета-тег», вставьте сюда код и сохраните. Затем укажите там карту сайта: {location.origin}/sitemap.xml</p>
+      </Section>
+
+      <Section icon={BarChart3} title="Яндекс Метрика" hint="Счётчик ставится только на страницы магазина — админка не отслеживается.">
+        <Field label="Номер счётчика">{inp('metrikaId', { placeholder: 'например, 98765432', inputMode: 'numeric' })}</Field>
+        <Check v={s.metrikaWebvisor} set={f('metrikaWebvisor')} label="Вебвизор (запись действий посетителей) и карта кликов" />
+        <Check v={s.metrikaEcommerce} set={f('metrikaEcommerce')} label="Электронная коммерция (просмотры товаров, корзина, покупки)" />
+        <p className="text-xs text-slate-500">Создайте счётчик на <a className="text-indigo-600 underline" href="https://metrika.yandex.ru" target="_blank" rel="noreferrer">metrika.yandex.ru</a> с адресом {location.host} и скопируйте его номер. О метрике автоматически сообщается в уведомлении о cookie и в политике конфиденциальности.</p>
       </Section>
 
       <Section icon={MessageSquare} title="SMS для входа покупателей" hint="Покупатель вводит номер телефона и получает код по SMS.">
@@ -204,5 +227,70 @@ export default function ShopSettings() {
 
       <div className="flex justify-end"><Button icon={Save} loading={saving} onClick={save}>Сохранить</Button></div>
     </div>
+  );
+}
+
+function NotifyChannels({ s, f, inp }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState('');
+  const [found, setFound] = useState(null); // { channel, list }
+  const [log, setLog] = useState(null);
+  const saveFirst = () => api('/orders/settings', { method: 'PUT', body: s });
+  const test = async (channel) => {
+    setBusy('test-' + channel);
+    try { await saveFirst(); await api('/orders/settings/test-notify', { method: 'POST', body: { channel } }); toast('Тестовое сообщение отправлено — проверьте мессенджер'); } catch (e) { toast(e.message, 'error'); } finally { setBusy(''); }
+  };
+  const find = async (channel) => {
+    setBusy('find-' + channel);
+    try { await saveFirst(); const list = await api('/orders/settings/find-chat-id', { method: 'POST', body: { channel } }); setFound({ channel, list }); } catch (e) { toast(e.message, 'error'); } finally { setBusy(''); }
+  };
+  const pick = (channel, id) => { f(channel === 'max' ? 'maxChatId' : 'tgChatId')(String(id)); setFound(null); toast('ID подставлен — нажмите «Проверить»'); };
+  const Found = ({ channel }) => found?.channel === channel && (
+    <div className="space-y-1 sm:col-span-2">
+      <div className="text-xs text-slate-500">Кто писал боту — выберите себя:</div>
+      {found.list.map((c) => <button key={c.id} onClick={() => pick(channel, c.id)} className="mr-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm hover:border-indigo-400">{c.name} <span className="text-slate-400">· {c.id}</span></button>)}
+    </div>
+  );
+  return (
+    <>
+      <div className="grid grid-cols-1 gap-4 rounded-xl bg-slate-50 p-4 sm:grid-cols-2">
+        <div className="font-medium sm:col-span-2">MAX <span className="text-xs font-normal text-emerald-600">— рекомендуется, работает с российских серверов</span></div>
+        <Field label="Токен бота MAX">{inp('maxBotToken', { type: 'password', autoComplete: 'new-password' })}</Field>
+        <Field label="Ваш ID в MAX (или ID чата)">{inp('maxChatId', { placeholder: 'нажмите «Найти мой ID»' })}</Field>
+        <Found channel="max" />
+        <p className="text-xs text-slate-500 sm:col-span-2">1) На <a className="text-indigo-600 underline" href="https://business.max.ru" target="_blank" rel="noreferrer">business.max.ru</a> создайте бота (нужна организация или ИП) и скопируйте токен в «Интеграции». 2) Найдите бота в MAX и напишите ему любое сообщение. 3) Сохраните и нажмите «Найти мой ID», затем «Проверить».</p>
+        <div className="flex flex-wrap gap-2 sm:col-span-2">
+          <Button size="sm" variant="secondary" loading={busy === 'find-max'} onClick={() => find('max')}>Найти мой ID</Button>
+          <Button size="sm" variant="secondary" icon={Send} loading={busy === 'test-max'} onClick={() => test('max')}>Проверить</Button>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-4 rounded-xl bg-slate-50 p-4 sm:grid-cols-2">
+        <div className="font-medium sm:col-span-2">Telegram</div>
+        <Field label="Токен бота">{inp('tgBotToken', { type: 'password', autoComplete: 'new-password', placeholder: '123456:ABC…' })}</Field>
+        <Field label="ID чата">{inp('tgChatId', { placeholder: 'нажмите «Найти мой ID»' })}</Field>
+        <Found channel="telegram" />
+        <Field label="Адрес прокси для Telegram API (если сервер не достаёт до Telegram)">{inp('tgApiBase', { placeholder: 'https://api.telegram.org (по умолчанию)' })}</Field>
+        <p className="self-end text-xs text-slate-500">Создайте бота у @BotFather, скопируйте токен, напишите боту /start, сохраните и нажмите «Найти мой ID». Если проверка пишет «ошибка сети» — Telegram заблокирован для сервера: используйте MAX или свой прокси-адрес (например, Cloudflare Worker), который пересылает запросы на api.telegram.org.</p>
+        <div className="flex flex-wrap gap-2 sm:col-span-2">
+          <Button size="sm" variant="secondary" loading={busy === 'find-telegram'} onClick={() => find('telegram')}>Найти мой ID</Button>
+          <Button size="sm" variant="secondary" icon={Send} loading={busy === 'test-telegram'} onClick={() => test('telegram')}>Проверить</Button>
+        </div>
+      </div>
+      <div>
+        <Button size="sm" variant="ghost" icon={History} onClick={async () => setLog(log ? null : await api('/orders/settings/notify-log').catch(() => []))}>{log ? 'Скрыть журнал' : 'Журнал отправки уведомлений'}</Button>
+        {log && (log.length === 0 ? <p className="mt-2 text-sm text-slate-500">Уведомлений ещё не было.</p> : (
+          <div className="mt-2 max-h-80 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-100 text-sm">
+            {log.map((e, i) => (
+              <div key={i} className="px-3 py-2">
+                <div className="flex justify-between gap-2"><b className="truncate">{e.title}</b><span className="shrink-0 text-xs text-slate-400">{new Date(e.at).toLocaleString('ru-RU')}</span></div>
+                {[['Пуш', e.push], ['Telegram', e.telegram], ['MAX', e.max]].filter(([, v]) => v).map(([k, v]) => (
+                  <div key={k} className="flex items-start gap-1.5 text-xs">{v === 'отправлено' || /^(\d+) из \1$/.test(v) ? <CheckCircle2 size={14} className="shrink-0 text-emerald-500" /> : <XCircle size={14} className="shrink-0 text-rose-500" />}<span className="text-slate-500">{k}:</span> {v}</div>
+                ))}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </>
   );
 }

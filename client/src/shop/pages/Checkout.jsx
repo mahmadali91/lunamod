@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import DeliveryPicker from '../DeliveryPicker';
 import { shopApi, fmtPhone } from '../api';
 import { useShop } from '../store';
+import { ecommerce } from '../metrika';
 
 function Option({ active, onClick, icon: Icon, title, sub }) {
   return (
@@ -36,6 +37,7 @@ export default function Checkout() {
     setBusy(true); setError('');
     try {
       const r = await shopApi('/orders', { method: 'POST', body: { ...f, items: lines, delivery: dl.methodId, deliveryTo: dl.to, agree } });
+      ecommerce('purchase', cart.items.map((i) => ({ id: i.id, name: i.name, price: i.price, quantity: i.quantity })), { id: r.order.number || r.order.id, revenue: r.order.total });
       cart.clear();
       if (r.paymentUrl) { window.location.href = r.paymentUrl; return; }
       if (r.paymentError) notify(r.paymentError, 'error');

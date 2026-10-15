@@ -321,6 +321,8 @@ model ChatMessage {
   userId         Int? // сотрудник, ответивший из админки
   text           String?      @db.Text
   image          String? // /uploads/chat/...
+  audio          String? // голосовое сообщение /uploads/chat/...
+  duration       Int? // длительность голосового, сек
   createdAt      DateTime     @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 

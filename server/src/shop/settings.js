@@ -29,9 +29,13 @@ const DEFAULTS = {
   legal_privacy: '', legal_consent: '', legal_offer: '', legal_returns: '', legal_terms: '',
   // чат и уведомления
   chatEnabled: '1', chatGreeting: 'Здравствуйте! Напишите нам — ответим в течение рабочего дня.',
-  tgBotToken: '', tgChatId: '',
+  tgBotToken: '', tgChatId: '', tgApiBase: '', maxBotToken: '', maxChatId: '',
+  // соцсети, SEO, аналитика
+  socialTelegram: '', socialVk: '', socialMax: '', socialInstagram: '', socialWhatsapp: '',
+  seoDescription: '', yandexVerification: '', googleVerification: '',
+  metrikaId: '', metrikaWebvisor: '1', metrikaEcommerce: '1',
 };
-const SECRET = ['tbankPassword', 'smsruApiId', 'cdekClientSecret', 'tgBotToken'];
+const SECRET = ['tbankPassword', 'smsruApiId', 'cdekClientSecret', 'tgBotToken', 'maxBotToken'];
 
 async function getShopSettings() {
   const rows = await prisma.setting.findMany({ where: { key: { startsWith: 'shop_' } } });

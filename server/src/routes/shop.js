@@ -50,6 +50,18 @@ function publicProduct(p, s) {
   };
 }
 
+// Ссылки на соцсети: принимаем только http(s); WhatsApp можно указать номером
+function socialLinks(s) {
+  const url = (v) => { v = String(v || '').trim(); if (!v) return null; if (!/^https?:\/\//i.test(v)) v = 'https://' + v.replace(/^\/+/, ''); try { const u = new URL(v); return /^https?:$/.test(u.protocol) ? u.href : null; } catch { return null; } };
+  const wa = String(s.socialWhatsapp || '').trim();
+  const out = {
+    telegram: url(s.socialTelegram && !/[/.]/.test(s.socialTelegram) ? 't.me/' + s.socialTelegram.replace(/^@/, '') : s.socialTelegram),
+    vk: url(s.socialVk), max: url(s.socialMax), instagram: url(s.socialInstagram),
+    whatsapp: /^[+\d\s()-]{10,}$/.test(wa) ? 'https://wa.me/' + wa.replace(/\D/g, '').replace(/^8(\d{10})$/, '7$1') : url(wa),
+  };
+  return Object.fromEntries(Object.entries(out).filter(([, v]) => v));
+}
+
 r.get('/config', ah(async (req, res) => {
   const s = await getShopSettings();
   const store = await prisma.setting.findMany({ where: { key: { in: ['storeName', 'currency'] } } });
@@ -65,6 +77,8 @@ r.get('/config', ah(async (req, res) => {
     vapidKey: (await getVapid()).publicKey,
     payments: { cash: s.cashEnabled === '1', tbank: tbankReady(s) || (s.tbankEnabled === '1' && s.smsMode === 'test') },
     testMode: s.smsMode === 'test', allowBackorder: s.allowBackorder === '1',
+    socials: socialLinks(s),
+    metrika: /^\d{5,12}$/.test(s.metrikaId) ? { id: Number(s.metrikaId), ecommerce: s.metrikaEcommerce === '1' } : null,
   });
 }));
 
@@ -322,59 +336,50 @@ r.post('/tbank/notify', ah(async (req, res) => {
 }));
 
 // ---------- чат с магазином ----------
-// Посетитель определяется ключом из браузера (X-Visitor); если вошёл — чат привязывается к покупателю
-const visitorOf = (req) => { const v = String(req.headers['x-visitor'] || ''); if (!/^[a-f0-9]{32}$/.test(v)) throw new HttpError(400, 'Нет ключа посетителя'); return v; };
-const chatRate = new Map(); // защита от спама: не более 20 сообщений в минуту
-function rateOk(key) {
-  const now = Date.now(); const arr = (chatRate.get(key) || []).filter((t) => now - t < 60e3);
-  arr.push(now); chatRate.set(key, arr);
-  return arr.length <= 20;
-}
-
+// Только для вошедших покупателей: переписка привязана к аккаунту и видна на любом устройстве
 async function myConversation(req, create) {
-  const visitorKey = visitorOf(req);
-  let c = await prisma.conversation.findUnique({ where: { visitorKey } });
-  if (!c && create) c = await prisma.conversation.create({ data: { visitorKey } });
-  if (c && req.customer && c.customerId !== req.customer.cid) {
-    const cust = await prisma.customer.findUnique({ where: { id: req.customer.cid } });
-    c = await prisma.conversation.update({ where: { id: c.id }, data: { customerId: cust.id, phone: cust.phone, name: c.name || cust.name } });
+  const cid = req.customer.cid;
+  let c = await prisma.conversation.findFirst({ where: { customerId: cid }, orderBy: { id: 'asc' } });
+  if (!c && create) {
+    const cust = await prisma.customer.findUnique({ where: { id: cid } });
+    c = await prisma.conversation.create({ data: { visitorKey: 'cust-' + cid, customerId: cid, phone: cust.phone, name: cust.name } });
   }
   return c;
 }
 
-r.get('/chat', customerAuth(false), ah(async (req, res) => {
+r.get('/chat', customerAuth(), ah(async (req, res) => {
   const c = await myConversation(req, false);
-  if (!c) return res.json({ conversation: null, messages: [] });
+  if (!c) return res.json({ conversation: null, messages: [], cooldown: 0 });
   const after = Number(req.query.after) || 0;
-  const messages = await prisma.chatMessage.findMany({ where: { conversationId: c.id, id: { gt: after } }, orderBy: { id: 'asc' }, take: 200, select: { id: true, sender: true, text: true, image: true, createdAt: true } });
-  res.json({ conversation: { id: c.id, unread: c.unreadCustomer }, messages });
+  const messages = await prisma.chatMessage.findMany({ where: { conversationId: c.id, id: { gt: after } }, orderBy: { id: 'asc' }, take: 300, select: { id: true, sender: true, text: true, image: true, audio: true, duration: true, createdAt: true } });
+  res.json({ conversation: { id: c.id, unread: c.unreadCustomer }, messages, cooldown: await chat.cooldownLeft(c.id) });
 }));
 
-r.post('/chat', customerAuth(false), chat.upload.single('image'), ah(async (req, res) => {
+r.post('/chat', customerAuth(), chat.upload, ah(async (req, res) => {
   const s = await getShopSettings();
-  if (s.chatEnabled !== '1') throw new HttpError(403, 'Чат отключён');
-  const key = visitorOf(req);
-  if (!rateOk(key + ipOf(req))) throw new HttpError(429, 'Слишком много сообщений, подождите минуту');
+  const files = chat.attachments(req);
+  const cleanup = () => [files.image, files.audio].filter(Boolean).forEach((f) => require('fs').unlink(require('path').join(require('../paths').UPLOAD_DIR, f.replace('/uploads/', '')), () => {}));
+  if (s.chatEnabled !== '1') { cleanup(); throw new HttpError(403, 'Чат отключён'); }
   const c = await myConversation(req, true);
-  if (!c.name && str(req.body.name)) await prisma.conversation.update({ where: { id: c.id }, data: { name: str(req.body.name).slice(0, 100) } });
-  const msg = await chat.addMessage(c.id, { sender: 'customer', text: req.body.text, image: req.file ? '/uploads/chat/' + req.file.filename : null });
-  notifyAdmins({ title: `Сообщение в чате: ${c.name || (c.phone ? '+' + c.phone : 'посетитель')}`, body: msg.text || '📷 Фото', url: `/admin/chats?c=${c.id}`, tag: 'chat-' + c.id });
-  res.status(201).json(msg);
+  const wait = await chat.cooldownLeft(c.id);
+  if (wait > 0) { cleanup(); return res.status(429).json({ error: `Подождите ${wait} с перед следующим сообщением`, retryAfter: wait }); }
+  const msg = await chat.addMessage(c.id, { sender: 'customer', text: req.body.text, ...files });
+  notifyAdmins({ title: `Сообщение в чате: ${c.name || '+' + c.phone}`, body: msg.text || (msg.audio ? `🎤 Голосовое сообщение, ${msg.duration} с` : '📷 Фото'), url: `/admin/chats?c=${c.id}`, tag: 'chat-' + c.id });
+  res.status(201).json({ ...msg, cooldown: await chat.nextCooldown(c.id) });
 }));
 
-r.post('/chat/read', ah(async (req, res) => {
-  await prisma.conversation.updateMany({ where: { visitorKey: visitorOf(req) }, data: { unreadCustomer: 0 } });
+r.post('/chat/read', customerAuth(), ah(async (req, res) => {
+  await prisma.conversation.updateMany({ where: { customerId: req.customer.cid }, data: { unreadCustomer: 0 } });
   res.json({ ok: true });
 }));
 
-// Пуш-уведомления посетителю об ответах в чате
-r.post('/push/subscribe', ah(async (req, res) => {
-  const visitorKey = visitorOf(req);
+// Пуш-уведомления покупателю об ответах в чате
+r.post('/push/subscribe', customerAuth(), ah(async (req, res) => {
   const sub = req.body;
   if (!sub?.endpoint || !sub?.keys?.p256dh) throw new HttpError(400, 'Неверная подписка');
   await prisma.pushSubscription.deleteMany({ where: { endpoint: sub.endpoint } });
-  await prisma.pushSubscription.create({ data: { endpoint: sub.endpoint, keys: JSON.stringify(sub.keys), visitorKey } });
+  await prisma.pushSubscription.create({ data: { endpoint: sub.endpoint, keys: JSON.stringify(sub.keys), visitorKey: 'cust-' + req.customer.cid } });
   res.json({ ok: true });
 }));
 
-module.exports = { router: r, normPhone, applyPaymentStatus };
+module.exports = { router: r, normPhone, applyPaymentStatus, socialLinks, productWhere, publicProduct };

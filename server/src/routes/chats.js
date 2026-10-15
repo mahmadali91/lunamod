@@ -32,12 +32,12 @@ r.get('/:id(\\d+)', ah(async (req, res) => {
   res.json({ conversation: c, messages, orders });
 }));
 
-r.post('/:id(\\d+)/messages', chat.upload.single('image'), ah(async (req, res) => {
+r.post('/:id(\\d+)/messages', chat.upload, ah(async (req, res) => {
   const c = await prisma.conversation.findUnique({ where: { id: Number(req.params.id) } });
   if (!c) throw new HttpError(404, 'Чат не найден');
-  const msg = await chat.addMessage(c.id, { sender: 'admin', userId: req.user.id, text: req.body.text, image: req.file ? '/uploads/chat/' + req.file.filename : null });
+  const msg = await chat.addMessage(c.id, { sender: 'admin', userId: req.user.id, text: req.body.text, ...chat.attachments(req) });
   await prisma.conversation.update({ where: { id: c.id }, data: { unreadAdmin: 0 } });
-  notifyVisitor(c.visitorKey, { title: 'Ответ магазина', body: msg.text || '📷 Фото', url: '/?chat=1' });
+  notifyVisitor(c.customerId ? 'cust-' + c.customerId : c.visitorKey, { title: 'Ответ магазина', body: msg.text || (msg.audio ? '🎤 Голосовое сообщение' : '📷 Фото'), url: '/?chat=1' });
   res.status(201).json(msg);
 }));
 
@@ -66,8 +66,7 @@ push.post('/unsubscribe', ah(async (req, res) => {
 }));
 push.post('/test', ah(async (req, res) => {
   const { notifyAdmins } = require('../notify');
-  await notifyAdmins({ title: 'Проверка уведомлений', body: 'Уведомления работают 👍', url: '/admin/chats', tag: 'test' });
-  res.json({ ok: true });
+  res.json(await notifyAdmins({ title: 'Проверка уведомлений', body: 'Уведомления работают 👍', url: '/admin/chats', tag: 'test' }));
 }));
 
 module.exports = { chats: r, push };

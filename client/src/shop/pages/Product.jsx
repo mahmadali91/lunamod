@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Minus, Plus, ShoppingBag, Check } from 'luci
 import { shopApi } from '../api';
 import { useShop } from '../store';
 import ProductCard from '../ProductCard';
+import { ecommerce } from '../metrika';
 
 export default function Product() {
   const { id } = useParams();
@@ -12,7 +13,7 @@ export default function Product() {
   const [err, setErr] = useState('');
   const [i, setI] = useState(0);
   const [qty, setQty] = useState(1);
-  useEffect(() => { setP(null); setI(0); setQty(1); shopApi('/products/' + id).then((r) => { setP(r); document.title = r.name; }).catch((e) => setErr(e.message)); }, [id]);
+  useEffect(() => { setP(null); setI(0); setQty(1); shopApi('/products/' + id).then((r) => { setP(r); document.title = r.name; ecommerce('detail', [{ id: r.id, name: r.name, price: r.price, category: r.category?.name }]); }).catch((e) => setErr(e.message)); }, [id]);
   if (err) return <div className="py-24 text-center"><h1 className="text-2xl font-bold">{err}</h1><Link to="/" className="mt-4 inline-block underline">В каталог</Link></div>;
   if (!p) return <div className="py-24 text-center text-slate-400">Загрузка…</div>;
   const inCart = cart.items.find((x) => x.id === p.id);

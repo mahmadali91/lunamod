@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import './index.css';
+import { applyTheme } from './theme';
 import { getToken } from './api';
 import { ToastProvider } from './ui';
 import Layout from './Layout';
@@ -59,3 +60,5 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     </ToastProvider>
   </React.StrictMode>
 );
+
+applyTheme();

@@ -5,15 +5,17 @@ import { api, getToken, qs } from '../api';
 import { Badge, Button, Empty, PageHeader, Spinner, fmtDate, useMoney, useToast } from '../ui';
 import PushToggle from '../components/PushToggle';
 import { ORDER_STATUS, PAY_STATUS } from './Orders';
+import { VoicePlayer, VoiceRecorder } from '../components/Voice';
 
 const fmtPhone = (p) => (p ? `+${p[0]} ${p.slice(1, 4)} ${p.slice(4, 7)}-${p.slice(7, 9)}-${p.slice(9)}` : '');
 const who = (c) => c.name || c.customer?.name || (c.phone ? fmtPhone(c.phone) : `Посетитель #${c.id}`);
 const time = (d) => { const x = new Date(d); return x.toDateString() === new Date().toDateString() ? x.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : x.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }); };
 
-async function sendMessage(id, text, image) {
+async function sendMessage(id, text, image, voice) {
   const fd = new FormData();
   if (text) fd.append('text', text);
   if (image) fd.append('image', image);
+  if (voice) { fd.append('audio', voice.blob, 'voice.' + (voice.blob.type.includes('mp4') ? 'm4a' : voice.blob.type.includes('ogg') ? 'ogg' : 'webm')); fd.append('duration', String(voice.sec)); }
   const res = await fetch(`/api/chats/${id}/messages`, { method: 'POST', headers: { Authorization: 'Bearer ' + getToken() }, body: fd });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Не отправлено');
@@ -40,14 +42,15 @@ function Thread({ id, onBack, onChanged }) {
   useEffect(() => { last.current = 0; setData(null); load(true); const t = setInterval(() => load(false).catch(() => {}), 4000); return () => clearInterval(t); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { box.current?.scrollTo(0, box.current.scrollHeight); }, [data?.messages.length]);
 
-  const send = async (image) => {
-    if (!text.trim() && !image) return;
+  const send = async (image, voice) => {
+    if (!text.trim() && !image && !voice) return false;
     setBusy(true);
     try {
-      const m = await sendMessage(id, text.trim(), image);
+      const m = await sendMessage(id, voice ? '' : text.trim(), image, voice);
       last.current = Math.max(last.current, m.id);
-      setData((d) => ({ ...d, messages: [...d.messages, m] })); setText(''); onChanged();
-    } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
+      setData((d) => ({ ...d, messages: [...d.messages, m] })); if (!voice) setText(''); onChanged();
+      return true;
+    } catch (e) { toast(e.message, 'error'); return false; } finally { setBusy(false); }
   };
   const onPaste = (e) => { const f = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith('image/')); if (f) { e.preventDefault(); send(f); } };
   const setStatus = async (status) => { await api(`/chats/${id}/status`, { method: 'POST', body: { status } }); onChanged(); toast(status === 'closed' ? 'Диалог закрыт' : 'Диалог открыт'); load(true); };
@@ -61,7 +64,7 @@ function Thread({ id, onBack, onChanged }) {
           <button onClick={onBack} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 lg:hidden"><ArrowLeft size={20} /></button>
           <div className="min-w-0 flex-1">
             <div className="truncate font-semibold">{who(c)}</div>
-            <div className="text-xs text-slate-500">{c.phone ? <a href={`tel:+${c.phone}`} className="inline-flex items-center gap-1 text-indigo-600"><Phone size={11} />{fmtPhone(c.phone)}</a> : 'не вошёл на сайт — телефон неизвестен'}</div>
+            <div className="text-xs text-slate-500">{c.phone ? <a href={`tel:+${c.phone}`} className="inline-flex items-center gap-1 text-indigo-600"><Phone size={11} />{fmtPhone(c.phone)}</a> : 'телефон неизвестен'}</div>
           </div>
           {c.status === 'open'
             ? <Button size="sm" variant="secondary" icon={CheckCheck} onClick={() => setStatus('closed')}>Закрыть</Button>
@@ -72,6 +75,7 @@ function Thread({ id, onBack, onChanged }) {
             <div key={m.id} className={`flex ${m.sender === 'admin' ? 'justify-end' : ''}`}>
               <div className={`max-w-[75%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm ${m.sender === 'admin' ? 'rounded-tr-md bg-indigo-600 text-white' : 'rounded-tl-md bg-white'}`}>
                 {m.image && <img src={m.image} alt="" onClick={() => setZoom(m.image)} className="mb-1 max-h-64 cursor-zoom-in rounded-xl" />}
+                {m.audio && <VoicePlayer src={m.audio} duration={m.duration} dark={m.sender === 'admin'} />}
                 {m.text && <div className="whitespace-pre-wrap break-words">{m.text}</div>}
                 <div className={`mt-1 text-[10px] ${m.sender === 'admin' ? 'text-indigo-200' : 'text-slate-400'}`}>{fmtDate(m.createdAt)}</div>
               </div>
@@ -79,12 +83,12 @@ function Thread({ id, onBack, onChanged }) {
           ))}
         </div>
         <div className="border-t border-slate-100 p-3">
-          <div className="flex items-end gap-2">
+          <div className="relative flex items-end gap-2">
             <button onClick={() => file.current.click()} title="Отправить фото или скриншот" className="rounded-lg p-2.5 text-slate-500 hover:bg-slate-100"><ImagePlus size={20} /></button>
             <textarea rows={1} value={text} onChange={(e) => setText(e.target.value)} onPaste={onPaste} placeholder="Ответ… (Enter — отправить, скриншот можно вставить Ctrl+V)"
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
               className="input max-h-32 min-h-[42px] flex-1 resize-none" />
-            <Button onClick={() => send()} disabled={!text.trim()} loading={busy} icon={Send} />
+            {text.trim() ? <Button onClick={() => send()} loading={busy} icon={Send} /> : <VoiceRecorder onSend={(blob, sec) => send(null, { blob, sec })} disabled={busy} onError={(e) => toast(e, 'error')} />}
           </div>
           <input ref={file} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) send(f); }} />
         </div>

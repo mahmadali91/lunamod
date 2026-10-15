@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { shopApi, shopToken } from './api';
+import { ecommerce } from './metrika';
 
 const Ctx = createContext(null);
 export const useShop = () => useContext(Ctx);
@@ -33,6 +34,7 @@ export function ShopProvider({ children }) {
         const next = Math.min((ex?.quantity || 0) + q, max);
         if (next <= (ex?.quantity || 0)) { notify(`Больше нет в наличии: доступно ${p.stock} шт.`, 'error'); return c; }
         notify('Добавлено в корзину');
+        ecommerce('add', [{ id: p.id, name: p.name, price: p.price, quantity: next - (ex?.quantity || 0) }]);
         return ex ? c.map((i) => (i.id === p.id ? { ...i, quantity: next } : i)) : [...c, { id: p.id, name: p.name, price: p.price, image: p.images?.[0], stock: p.stock, quantity: next }];
       });
     },
