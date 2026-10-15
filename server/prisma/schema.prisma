@@ -90,6 +90,7 @@ model Product {
   packWidth   Float?
   packHeight  Float?
   sort        Int                @default(0) // порядок варианта
+  featuredPos Int? // место в начале каталога (1–20), закрепляется в разделе «Товары»
   brand       String?
   slug        String? // короткий адрес в магазине: /product/12-plate-leto
   modelInfo   String? // параметры модели на фото: «Рост 175, размер S»

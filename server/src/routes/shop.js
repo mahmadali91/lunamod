@@ -178,6 +178,8 @@ r.get('/products', ah(async (req, res) => {
   const sort = req.query.sort;
   // сортировка по цене — по фактической цене (у карточки с размерами — минимальной)
   let all = await prisma.product.findMany({ where, include, orderBy: sort === 'name' ? { name: 'asc' } : { id: 'desc' } });
+  // по умолчанию: сначала закреплённые (в заданном порядке), затем новые поступления
+  if (!sort || sort === 'default') all.sort((a, b) => (a.featuredPos ?? 1e9) - (b.featuredPos ?? 1e9) || b.id - a.id);
   // карточка подходит, если хотя бы один её вариант попадает в диапазон цен
   const inRange = (v) => (!min || v >= min) && (!max || v <= max);
   if (min || max) all = all.filter((p) => (p.hasVariants && p.variants.length ? p.variants.some((v) => inRange(v.price)) : inRange(p.price)));

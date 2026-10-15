@@ -41,8 +41,9 @@ const nav = [
     { to: '/settings', icon: Settings, label: 'Настройки' },
   ] },
 ];
-const NAV_KEY = 'nav_closed';
-const readClosed = () => { try { return JSON.parse(localStorage.getItem(NAV_KEY) || '[]'); } catch { return []; } };
+// по умолчанию раскрыта только «Продажи»; что раскрыто — запоминается
+const NAV_KEY = 'nav_open';
+const readOpen = () => { try { const v = JSON.parse(localStorage.getItem(NAV_KEY)); return Array.isArray(v) ? v : ['Продажи']; } catch { return ['Продажи']; } };
 
 function GlobalSearch() {
   const [q, setQ] = useState('');
@@ -91,8 +92,8 @@ export default function Layout() {
   }, []);
 
   const loc = useLocation();
-  const [closed, setClosed] = useState(readClosed);
-  const toggleGroup = (g) => setClosed((c) => { const next = c.includes(g) ? c.filter((x) => x !== g) : [...c, g]; try { localStorage.setItem(NAV_KEY, JSON.stringify(next)); } catch { /* ignore */ } return next; });
+  const [opened, setOpened] = useState(readOpen);
+  const toggleGroup = (g) => setOpened((c) => { const next = c.includes(g) ? c.filter((x) => x !== g) : [...c, g]; try { localStorage.setItem(NAV_KEY, JSON.stringify(next)); } catch { /* ignore */ } return next; });
   const badgeOf = (n) => (n.badge === 'orders' ? newOrders : n.badge === 'chats' ? unreadChats : n.badge === 'reviews' ? pendingReviews : 0);
   const logout = () => { localStorage.removeItem('token'); localStorage.removeItem('user'); navigate('/login'); };
 
@@ -108,7 +109,7 @@ export default function Layout() {
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
         {nav.map((g, gi) => {
           const active = g.items.some((n) => (n.end ? loc.pathname === n.to : loc.pathname.startsWith(n.to)));
-          const open = !g.group || active || !closed.includes(g.group);
+          const open = !g.group || active || opened.includes(g.group);
           const badges = g.items.reduce((a, n) => a + badgeOf(n), 0);
           return (
             <div key={gi}>

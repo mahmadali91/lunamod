@@ -5,7 +5,7 @@ import { shopApi } from '../api';
 import ProductCard from '../ProductCard';
 import RecentlyViewed from '../RecentlyViewed';
 
-const SORTS = [['popular', 'Популярные'], ['new', 'Новинки'], ['cheap', 'Сначала дешевле'], ['expensive', 'Сначала дороже']];
+const SORTS = [['default', 'Рекомендуемые'], ['new', 'Новинки'], ['popular', 'Популярные'], ['cheap', 'Сначала дешевле'], ['expensive', 'Сначала дороже']];
 const FILTER_KEYS = ['sizes', 'colors', 'brands', 'min', 'max', 'inStock', 'sale'];
 const COLOR_HEX = { чёрный: '#111', черный: '#111', белый: '#fff', серый: '#9ca3af', бежевый: '#e8d8bf', синий: '#2549b6', голубой: '#7fb3ea', красный: '#d42a2a', розовый: '#f4a6c0', зелёный: '#2f8a4b', зеленый: '#2f8a4b', хаки: '#7a7a4b', жёлтый: '#f2cf3a', желтый: '#f2cf3a', коричневый: '#7b4a2a', молочный: '#f6efe3', бордовый: '#7d1e2c', фиолетовый: '#7c4dc4', оранжевый: '#f08a24' };
 export const colorHex = (c) => COLOR_HEX[String(c || '').toLowerCase()] || null;
@@ -66,7 +66,7 @@ export default function Catalog() {
   const [page, setPage] = useState(1);
   const [items, setItems] = useState([]);
   const [panel, setPanel] = useState(false);
-  const category = params.get('category'), q = params.get('q'), sort = params.get('sort') || 'popular', sale = params.get('sale');
+  const category = params.get('category'), q = params.get('q'), sort = params.get('sort') || 'default', sale = params.get('sale');
   const multi = (k) => (params.get(k) ? params.get(k).split(',') : []);
   const set = (k, v) => { const p = new URLSearchParams(params); v ? p.set(k, v) : p.delete(k); setParams(p, { replace: k !== 'category' }); };
   const setMany = (obj) => { const p = new URLSearchParams(params); Object.entries(obj).forEach(([k, v]) => (v ? p.set(k, v) : p.delete(k))); setParams(p, { replace: true }); };

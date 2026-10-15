@@ -89,6 +89,25 @@ r.get('/export', ah(async (req, res) => {
   res.json(list.map((p) => withTotals(p.parent ? { ...p, name: p.parent.name, sku: p.parent.sku, description: p.parent.description, attributes: p.parent.attributes } : p)));
 }));
 
+// ---- Закреплённые в начале каталога (до 20, по порядку) ----
+const MAX_FEATURED = 20;
+r.get('/featured', ah(async (req, res) => {
+  const list = await prisma.product.findMany({ where: { featuredPos: { not: null }, parentId: null }, orderBy: { featuredPos: 'asc' },
+    include: { images: { take: 1, orderBy: { sort: 'asc' } }, stocks: true, variants: { where: { active: true }, select: { stocks: true } } } });
+  res.json(list.map((p) => ({ id: p.id, article: articleOf(p.id), name: p.name, sku: p.sku, color: p.color, price: p.price, active: p.active, showInShop: p.showInShop, image: p.images[0]?.path || null, totalStock: withTotals(p).totalStock })));
+}));
+r.put('/featured', ah(async (req, res) => {
+  const ids = [...new Set((req.body.ids || []).map(Number).filter(Boolean))];
+  if (ids.length > MAX_FEATURED) throw new HttpError(400, `Закрепить можно не больше ${MAX_FEATURED} товаров`);
+  const cards = await prisma.product.findMany({ where: { id: { in: ids }, parentId: null }, select: { id: true } });
+  if (cards.length !== ids.length) throw new HttpError(400, 'Закреплять можно только карточки товаров');
+  await prisma.$transaction([
+    prisma.product.updateMany({ where: { featuredPos: { not: null } }, data: { featuredPos: null } }),
+    ...ids.map((id, i) => prisma.product.update({ where: { id }, data: { featuredPos: i + 1 } })),
+  ]);
+  res.json({ ok: true, count: ids.length });
+}));
+
 // ---- Цены и скидки: карточки с ценой, ценой до скидки, закупочной и фактической себестоимостью (по партиям) ----
 r.get('/prices', ah(async (req, res) => {
   const where = { active: true, parentId: null };

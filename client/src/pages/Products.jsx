@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Search, Package, Tags, Pencil, Archive, List, LayoutGrid, FileSpreadsheet, ZoomIn, Download, ExternalLink } from 'lucide-react';
+import { Plus, Search, Package, Tags, Pencil, Archive, List, LayoutGrid, FileSpreadsheet, ZoomIn, Download, ExternalLink, Pin } from 'lucide-react';
 import { api, fileUrl, qs } from '../api';
 import { Badge, Button, Empty, PageHeader, RefSelect, Spinner, Thumb, fmtNum, useLoad, useMoney } from '../ui';
 import Lightbox from '../components/Lightbox';
 import ImportProducts from '../components/ImportProducts';
+import FeaturedEditor from '../components/FeaturedEditor';
 import { CameraButton } from '../components/CameraScanner';
 import { downloadXlsx, today } from '../excel';
 
@@ -21,6 +22,7 @@ export default function Products() {
   const [view, setView] = useState(readView);
   const [zoom, setZoom] = useState(null); // { images, title }
   const [importOpen, setImportOpen] = useState(false);
+  const [featuredOpen, setFeaturedOpen] = useState(false);
   const changeView = (v) => { setView(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* приватный режим */ } };
 
   // Крупный просмотр: сразу первое фото, затем подгружаем все фото товара
@@ -84,6 +86,7 @@ export default function Products() {
           <Button variant="secondary" icon={Tags} onClick={() => navigate('/labels?ids=' + selected.join(','))}>Печать этикеток ({selected.length})</Button>
         )}
         <Button variant="secondary" icon={Download} loading={exporting} onClick={exportXlsx}>Выгрузить в Excel</Button>
+        <Button variant="secondary" icon={Pin} onClick={() => setFeaturedOpen(true)}>Первые в каталоге</Button>
         <Button variant="secondary" icon={FileSpreadsheet} onClick={() => setImportOpen(true)}>Загрузить из Excel</Button>
         <Button icon={Plus} onClick={() => navigate('/products/new')}>Добавить товар</Button>
       </PageHeader>
@@ -162,7 +165,7 @@ export default function Products() {
                         </button>
                         <Link to={`/products/${p.id}`} className="min-w-0">
                           <div className="font-medium text-slate-900 hover:text-indigo-600">{p.name}</div>
-                          {p.category && <div className="text-xs text-slate-500">{p.category.name}</div>}
+                          {p.category && <div className="text-xs text-slate-500">{p.category.name}{p.featuredPos && <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-800"><Pin size={10} /> №{p.featuredPos}</span>}</div>}
                           {p.color && <div className="text-xs text-slate-600">{p.color}{p.group?._count.products > 1 && <span className="text-slate-400"> · модель: {p.group._count.products} цв.</span>}</div>}
                           {p.hasVariants && <VariantChips p={p} />}
                         </Link>
@@ -199,6 +202,7 @@ export default function Products() {
       </div>
       {zoom && <Lightbox images={zoom.images} title={zoom.title} onClose={() => setZoom(null)} />}
       <ImportProducts open={importOpen} onClose={() => setImportOpen(false)} onDone={reload} />
+      {featuredOpen && <FeaturedEditor onClose={() => { setFeaturedOpen(false); reload(); }} />}
       {archived && <p className="mt-3 flex items-center gap-1 text-xs text-slate-500"><Archive size={12} /> Показаны архивные товары (удалённые, по которым были документы)</p>}
     </div>
   );

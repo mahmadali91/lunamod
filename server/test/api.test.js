@@ -533,6 +533,19 @@ test('цены и скидки: список с себестоимостью п�
   assert.equal((await api('/products/prices', { method: 'PUT', body: { items: [{ id: c.id, price: -5 }] } })).status, 400);
 });
 
+test('каталог: закреплённые товары первыми по порядку, затем новые', async () => {
+  const mk = (n) => ok('/products', { method: 'POST', body: { name: `Порядок ${n} ${U}`, price: 100, initialStock: [{ warehouseId: w1.id, quantity: 1 }] } });
+  const a = await mk('A'), b = await mk('B'), c = await mk('C');
+  const prev = (await ok('/products/featured')).map((x) => x.id);
+  await ok('/products/featured', { method: 'PUT', body: { ids: [b.id, a.id] } });
+  assert.deepEqual((await ok('/products/featured')).map((x) => x.id), [b.id, a.id]);
+  const items = (await shop('/products?limit=5')).data.items.map((x) => x.id);
+  assert.deepEqual(items.slice(0, 3), [b.id, a.id, c.id], 'закреплённые, затем самый новый');
+  assert.equal((await shop('/products?limit=1&sort=new')).data.items[0].id, c.id, '«Новинки» — без закрепления');
+  assert.equal((await api('/products/featured', { method: 'PUT', body: { ids: Array.from({ length: 21 }, (_, i) => i + 1) } })).status, 400);
+  await ok('/products/featured', { method: 'PUT', body: { ids: prev } });
+});
+
 test('импорт из Excel: строки с одним артикулом и разными размерами — одна карточка', async () => {
   const sku = 'IMPV-' + D;
   const r = await ok('/products/import', { method: 'POST', body: { warehouseId: w1.id, rows: [
