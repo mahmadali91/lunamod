@@ -1,36 +1,48 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Package, Boxes, ShoppingCart, Receipt, Warehouse, Radio, Users, Tags, Settings, LogOut, Menu, X, ScanBarcode, PackagePlus, HandCoins, FolderTree, BarChart3, ShoppingBag, Globe, MessageCircle, Star, Store,
+  LayoutDashboard, Package, Boxes, ShoppingCart, Receipt, Warehouse, Radio, Users, Tags, Settings, LogOut, Menu, X, ScanBarcode, PackagePlus, HandCoins, FolderTree, BarChart3, ShoppingBag, Globe, MessageCircle, Star, Store, BadgePercent, ChevronDown,
 } from 'lucide-react';
 import { api } from './api';
 import { SettingsCtx, useToast } from './ui';
 import ThemeToggle from './components/ThemeToggle';
 import { CameraButton } from './components/CameraScanner';
 
+// Меню: группы сворачиваются (состояние запоминается), группа с открытой страницей раскрыта всегда
 const nav = [
-  { to: '/', icon: LayoutDashboard, label: 'Дашборд', end: true },
-  { to: '/pos', icon: ShoppingCart, label: 'Новая продажа' },
-  { to: '/orders', icon: ShoppingBag, label: 'Заказы', badge: 'orders' },
-  { to: '/chats', icon: MessageCircle, label: 'Чаты', badge: 'chats' },
-  { to: '/reviews', icon: Star, label: 'Отзывы', badge: 'reviews' },
-  { to: '/sales', icon: Receipt, label: 'Продажи' },
-  { to: '/consignment', icon: HandCoins, label: 'Реализация' },
-  { to: '/stats', icon: BarChart3, label: 'Статистика' },
-  { group: 'Товары' },
-  { to: '/products', icon: Package, label: 'Товары' },
-  { to: '/categories', icon: FolderTree, label: 'Категории' },
-  { to: '/stock', icon: Boxes, label: 'Остатки' },
-  { to: '/receipts', icon: PackagePlus, label: 'Приход товара' },
-  { to: '/labels', icon: Tags, label: 'Ценники и этикетки' },
-  { group: 'Справочники' },
-  { to: '/warehouses', icon: Warehouse, label: 'Склады' },
-  { to: '/channels', icon: Radio, label: 'Каналы продаж' },
-  { to: '/counterparties', icon: Users, label: 'Контрагенты' },
-  { to: '/shop-settings', icon: Globe, label: 'Интернет-магазин' },
-  { to: '/wildberries', icon: Store, label: 'Wildberries' },
-  { to: '/settings', icon: Settings, label: 'Настройки' },
+  { items: [
+    { to: '/', icon: LayoutDashboard, label: 'Дашборд', end: true },
+    { to: '/pos', icon: ShoppingCart, label: 'Новая продажа' },
+  ] },
+  { group: 'Продажи', items: [
+    { to: '/sales', icon: Receipt, label: 'Продажи' },
+    { to: '/consignment', icon: HandCoins, label: 'Реализация' },
+    { to: '/stats', icon: BarChart3, label: 'Статистика' },
+  ] },
+  { group: 'Интернет-магазин', items: [
+    { to: '/orders', icon: ShoppingBag, label: 'Заказы', badge: 'orders' },
+    { to: '/chats', icon: MessageCircle, label: 'Чаты', badge: 'chats' },
+    { to: '/reviews', icon: Star, label: 'Отзывы', badge: 'reviews' },
+    { to: '/shop-settings', icon: Globe, label: 'Настройки магазина' },
+    { to: '/wildberries', icon: Store, label: 'Wildberries' },
+  ] },
+  { group: 'Товары', items: [
+    { to: '/products', icon: Package, label: 'Товары' },
+    { to: '/prices', icon: BadgePercent, label: 'Цены и скидки' },
+    { to: '/categories', icon: FolderTree, label: 'Категории' },
+    { to: '/stock', icon: Boxes, label: 'Остатки' },
+    { to: '/receipts', icon: PackagePlus, label: 'Приход товара' },
+    { to: '/labels', icon: Tags, label: 'Ценники и этикетки' },
+  ] },
+  { group: 'Справочники', items: [
+    { to: '/warehouses', icon: Warehouse, label: 'Склады' },
+    { to: '/channels', icon: Radio, label: 'Каналы продаж' },
+    { to: '/counterparties', icon: Users, label: 'Контрагенты' },
+    { to: '/settings', icon: Settings, label: 'Настройки' },
+  ] },
 ];
+const NAV_KEY = 'nav_closed';
+const readClosed = () => { try { return JSON.parse(localStorage.getItem(NAV_KEY) || '[]'); } catch { return []; } };
 
 function GlobalSearch() {
   const [q, setQ] = useState('');
@@ -78,27 +90,46 @@ export default function Layout() {
     return () => clearInterval(t);
   }, []);
 
+  const loc = useLocation();
+  const [closed, setClosed] = useState(readClosed);
+  const toggleGroup = (g) => setClosed((c) => { const next = c.includes(g) ? c.filter((x) => x !== g) : [...c, g]; try { localStorage.setItem(NAV_KEY, JSON.stringify(next)); } catch { /* ignore */ } return next; });
+  const badgeOf = (n) => (n.badge === 'orders' ? newOrders : n.badge === 'chats' ? unreadChats : n.badge === 'reviews' ? pendingReviews : 0);
   const logout = () => { localStorage.removeItem('token'); localStorage.removeItem('user'); navigate('/login'); };
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 px-5 py-5">
+      <Link to="/" onClick={() => setMobile(false)} title="На дашборд" className="flex items-center gap-3 px-5 py-5 hover:opacity-80">
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-md shadow-indigo-500/30"><Boxes size={20} /></div>
         <div className="min-w-0">
           <div className="truncate font-bold text-slate-900">{settings.storeName || 'Склад'}</div>
           <div className="text-xs text-slate-500">Учёт и продажи</div>
         </div>
-      </div>
+      </Link>
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
-        {nav.map((n, i) => n.group ? (
-          <div key={i} className="px-3 pt-5 pb-1.5 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">{n.group}</div>
-        ) : (
-          <NavLink key={n.to} to={n.to} end={n.end} onClick={() => setMobile(false)}
-            className={({ isActive }) => `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${isActive ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}>
-            <n.icon size={18} /> {n.label}
-            {(n.badge === 'orders' ? newOrders : n.badge === 'chats' ? unreadChats : n.badge === 'reviews' ? pendingReviews : 0) > 0 && <span className="ml-auto rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] leading-none font-semibold text-white">{n.badge === 'orders' ? newOrders : n.badge === 'chats' ? unreadChats : pendingReviews}</span>}
-          </NavLink>
-        ))}
+        {nav.map((g, gi) => {
+          const active = g.items.some((n) => (n.end ? loc.pathname === n.to : loc.pathname.startsWith(n.to)));
+          const open = !g.group || active || !closed.includes(g.group);
+          const badges = g.items.reduce((a, n) => a + badgeOf(n), 0);
+          return (
+            <div key={gi}>
+              {g.group && (
+                <button type="button" onClick={() => toggleGroup(g.group)} aria-expanded={open} disabled={active}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 pt-4 pb-1.5 text-[11px] font-semibold tracking-wider text-slate-400 uppercase hover:text-slate-600 disabled:cursor-default">
+                  {g.group}
+                  {!open && badges > 0 && <span className="rounded-full bg-rose-500 px-1.5 text-[10px] text-white normal-case">{badges}</span>}
+                  {!active && <ChevronDown size={14} className={`ml-auto transition ${open ? '' : '-rotate-90'}`} />}
+                </button>
+              )}
+              {open && g.items.map((n) => (
+                <NavLink key={n.to} to={n.to} end={n.end} onClick={() => setMobile(false)}
+                  className={({ isActive }) => `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${isActive ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}>
+                  <n.icon size={18} /> {n.label}
+                  {badgeOf(n) > 0 && <span className="ml-auto rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] leading-none font-semibold text-white">{badgeOf(n)}</span>}
+                </NavLink>
+              ))}
+            </div>
+          );
+        })}
       </nav>
       <div className="border-t border-slate-100 p-3">
         <div className="flex items-center gap-3 rounded-lg px-2 py-2">

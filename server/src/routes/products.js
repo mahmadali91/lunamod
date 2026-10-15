@@ -89,6 +89,51 @@ r.get('/export', ah(async (req, res) => {
   res.json(list.map((p) => withTotals(p.parent ? { ...p, name: p.parent.name, sku: p.parent.sku, description: p.parent.description, attributes: p.parent.attributes } : p)));
 }));
 
+// ---- Цены и скидки: карточки с ценой, ценой до скидки, закупочной и фактической себестоимостью (по партиям) ----
+r.get('/prices', ah(async (req, res) => {
+  const where = { active: true, parentId: null };
+  if (req.query.categoryId) where.categoryId = Number(req.query.categoryId);
+  if (req.query.q) {
+    const s = String(req.query.q).trim(); const art = idOfArticle(s);
+    where.OR = [{ name: like(s) }, { sku: like(s) }, ...(art ? [{ id: art }] : [])];
+  }
+  const cards = await prisma.product.findMany({ where, orderBy: { id: 'desc' }, take: Math.min(1000, Number(req.query.limit) || 500),
+    include: { images: { take: 1, orderBy: { sort: 'asc' } }, category: { select: { name: true } }, stocks: true,
+      variants: { where: { active: true }, orderBy: [{ sort: 'asc' }, { id: 'asc' }], include: { stocks: true } } } });
+  const ids = cards.flatMap((c) => [c.id, ...c.variants.map((v) => v.id)]);
+  const rows = ids.length ? await prisma.$queryRawUnsafe(`SELECT productId, SUM(remaining) q, SUM(remaining * costPrice) v FROM Batch WHERE remaining > 0 AND productId IN (${ids.map(Number).join(',')}) GROUP BY productId`) : [];
+  const lot = Object.fromEntries(rows.map((x) => [x.productId, { q: Number(x.q), v: Number(x.v) }]));
+  const avg = (list) => { const q = list.reduce((a, i) => a + (lot[i]?.q || 0), 0); return q > 0 ? Math.round((list.reduce((a, i) => a + (lot[i]?.v || 0), 0) / q) * 100) / 100 : null; };
+  const stock = (x) => x.stocks.reduce((a, s) => a + s.quantity, 0);
+  res.json(cards.map((c) => ({
+    id: c.id, article: articleOf(c.id), name: c.name, sku: c.sku, color: c.color, category: c.category?.name || null, image: c.images[0]?.path || null,
+    price: c.price, oldPrice: c.oldPrice, costPrice: c.costPrice, hasVariants: c.hasVariants,
+    avgCost: avg(c.hasVariants ? c.variants.map((v) => v.id) : [c.id]),
+    stock: c.hasVariants ? c.variants.reduce((a, v) => a + stock(v), 0) : stock(c),
+    variants: c.variants.map((v) => ({ id: v.id, size: v.size, price: v.price, oldPrice: v.oldPrice, costPrice: v.costPrice, avgCost: avg([v.id]), stock: stock(v) })),
+  })));
+}));
+
+// Массовое сохранение: [{ id, price, oldPrice, costPrice, sizes: true }] — sizes: применить к размерам карточки
+r.put('/prices', ah(async (req, res) => {
+  const items = Array.isArray(req.body.items) ? req.body.items.slice(0, 2000) : [];
+  const n = (v) => (v === null || v === '' || v === undefined ? null : Math.round(Number(v) * 100) / 100);
+  let changed = 0;
+  await prisma.$transaction(async (tx) => {
+    for (const it of items) {
+      const data = {};
+      if (it.price !== undefined) { const v = n(it.price); if (v === null || v < 0 || isNaN(v)) throw new HttpError(400, 'Цена должна быть числом не меньше 0'); data.price = v; }
+      if (it.oldPrice !== undefined) { const v = n(it.oldPrice); data.oldPrice = v && v > (data.price ?? 0) ? v : null; }
+      if (it.costPrice !== undefined) { const v = n(it.costPrice); if (v !== null && (v < 0 || isNaN(v))) throw new HttpError(400, 'Закупочная цена не может быть отрицательной'); data.costPrice = v ?? 0; }
+      if (!Object.keys(data).length) continue;
+      const p = await tx.product.update({ where: { id: Number(it.id) }, data });
+      if (it.sizes && !p.parentId) await tx.product.updateMany({ where: { parentId: p.id }, data });
+      changed++;
+    }
+  }, { timeout: 60000 });
+  res.json({ ok: true, changed });
+}));
+
 // Самые продаваемые товары (для подсказки в кассе)
 r.get('/popular', ah(async (req, res) => {
   const limit = Math.min(30, Number(req.query.limit) || 10);

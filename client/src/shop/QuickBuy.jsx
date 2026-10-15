@@ -45,25 +45,25 @@ export default function QuickBuy({ card, onClose }) {
                 const n = cart.qty(x.id);
                 return (
                   <button key={x.id} onClick={() => pick(x)} aria-pressed={sel === x.id} title={x.inStock ? `${money(x.price)}${x.stock <= 3 ? ` · осталось ${x.stock}` : ''}` : 'Нет в наличии'}
-                    className={`relative min-w-[4.5rem] rounded-2xl border-2 px-3 py-2 text-center transition ${sel === x.id ? 'border-violet-600' : 'border-slate-200 hover:border-slate-400'} ${x.inStock ? '' : 'text-slate-400'}`}>
+                    className={`relative min-w-[4.5rem] rounded-2xl border-2 px-3 py-2 text-center transition ${sel === x.id ? 'border-slate-900' : 'border-slate-200 hover:border-slate-400'} ${x.inStock ? '' : 'text-slate-400'}`}>
                     <span className={`block text-lg leading-tight ${x.inStock ? '' : 'line-through'}`}>{x.size || 'Единый'}</span>
                     {x.sizeRu && <span className="block text-xs text-slate-400">{x.sizeRu}</span>}
-                    {n > 0 && <span className="absolute -top-2 -right-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-rose-500 px-1 text-xs font-bold text-white">{n}</span>}
+                    {n > 0 && <span className="absolute -top-2 -right-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-400 px-1 text-xs font-bold text-slate-900">{n}</span>}
                   </button>
                 );
               })}
             </div>
             {v && !v.inStock && !config.allowBackorder ? (
-              <button onClick={wait} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 py-4 text-lg font-semibold text-white"><Bell size={20} /> Сообщить о поступлении</button>
+              <button onClick={wait} className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-slate-900 py-4 text-lg font-semibold text-white"><Bell size={20} /> Сообщить о поступлении</button>
             ) : (
               <div className="mt-6 flex gap-3">
-                <button onClick={() => (cart.countOf(p.id) ? navigate('/cart') : v ? pick(v) : notify('Выберите размер', 'error'))} className="flex-1 rounded-2xl bg-violet-600 py-4 text-lg font-semibold text-white hover:bg-violet-700">
+                <button onClick={() => (cart.countOf(p.id) ? navigate('/cart') : v ? pick(v) : notify('Выберите размер', 'error'))} className="flex-1 rounded-full bg-slate-900 py-4 text-lg font-semibold text-white hover:bg-slate-700">
                   {cart.countOf(p.id) ? 'Перейти в корзину' : 'Добавить в корзину'}
                 </button>
-                <div className={`flex items-center rounded-2xl bg-violet-50 px-2 ${q ? '' : 'opacity-40'}`}>
-                  <button disabled={!q} onClick={() => (q <= 1 ? cart.remove(v.id) : cart.set(v.id, q - 1))} className="p-3 text-violet-700" aria-label="Меньше"><Minus size={20} /></button>
-                  <span className="w-8 text-center text-lg font-semibold text-violet-700" aria-live="polite">{q}</span>
-                  <button disabled={!q || q >= max} onClick={() => cart.set(v.id, q + 1)} className="p-3 text-violet-700 disabled:opacity-40" aria-label="Больше"><Plus size={20} /></button>
+                <div className={`flex items-center rounded-full bg-slate-100 px-2 ${q ? '' : 'opacity-40'}`}>
+                  <button disabled={!q} onClick={() => (q <= 1 ? cart.remove(v.id) : cart.set(v.id, q - 1))} className="p-3 text-slate-900" aria-label="Меньше"><Minus size={20} /></button>
+                  <span className="w-8 text-center text-lg font-semibold text-slate-900" aria-live="polite">{q}</span>
+                  <button disabled={!q || q >= max} onClick={() => cart.set(v.id, q + 1)} className="p-3 text-slate-900 disabled:opacity-40" aria-label="Больше"><Plus size={20} /></button>
                 </div>
               </div>
             )}

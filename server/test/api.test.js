@@ -517,6 +517,22 @@ test('карточки «как на WB»: цвет — карточка, раз
   void white;
 });
 
+test('цены и скидки: список с себестоимостью по партиям, массовое сохранение', async () => {
+  const c = await ok('/products', { method: 'POST', body: { name: 'Цены ' + U, price: 1000, costPrice: 400, variantWarehouseId: w1.id, variants: [{ size: 'S', quantity: 2 }, { size: 'M' }] } });
+  const row = (await ok('/products/prices?q=' + encodeURIComponent('Цены ' + U))).find((x) => x.id === c.id);
+  assert.equal(row.article, c.article); assert.equal(row.variants.length, 2); assert.equal(row.avgCost, 400); assert.equal(row.stock, 2);
+  // скидка 20% от 1500 на всю карточку (с размерами) + новая закупочная
+  await ok('/products/prices', { method: 'PUT', body: { items: [{ id: c.id, price: 1200, oldPrice: 1500, costPrice: 450, sizes: true }] } });
+  const d = await ok('/products/' + c.id);
+  assert.equal(d.price, 1200); assert.equal(d.oldPrice, 1500); assert.equal(d.costPrice, 450);
+  assert.ok(d.variants.every((v) => v.price === 1200 && v.oldPrice === 1500));
+  // отдельная цена размера; старая цена меньше цены — не сохраняется
+  await ok('/products/prices', { method: 'PUT', body: { items: [{ id: d.variants[1].id, price: 1300, oldPrice: 1000 }] } });
+  const m = (await ok('/products/' + c.id)).variants[1];
+  assert.equal(m.price, 1300); assert.equal(m.oldPrice, null);
+  assert.equal((await api('/products/prices', { method: 'PUT', body: { items: [{ id: c.id, price: -5 }] } })).status, 400);
+});
+
 test('импорт из Excel: строки с одним артикулом и разными размерами — одна карточка', async () => {
   const sku = 'IMPV-' + D;
   const r = await ok('/products/import', { method: 'POST', body: { warehouseId: w1.id, rows: [
