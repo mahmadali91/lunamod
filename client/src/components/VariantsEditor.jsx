@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Plus, Trash2, Wand2 } from 'lucide-react';
 import { api } from '../api';
 import { Button, fmtNum } from '../ui';
@@ -17,7 +18,10 @@ export const COLOR_PRESETS = ['Чёрный', 'Белый', 'Серый', 'Бе�
  * «Баркод, размер и цена» — как на WB: у каждого размера карточки свой штрихкод, цена и остаток.
  * value — [{ id?, size, barcode, price, costPrice, quantity, stock }]. Новым размерам штрихкод EAN-13 создаётся при сохранении.
  */
-export default function VariantsEditor({ value, onChange, price, costPrice, isNew, unit = 'шт' }) {
+export default function VariantsEditor({ value, onChange, price, costPrice, isNew, unit = 'шт', warehouseId }) {
+  // остаток размера на выбранном складе (редактируется прямо в таблице)
+  const [showCost, setShowCost] = useState(false);
+  const whStock = (v) => (v.stocks || []).find((x) => String(x.warehouseId) === String(warehouseId))?.quantity || 0;
   const set = (i, patch) => onChange(value.map((v, j) => (i === j ? { ...v, ...patch } : v)));
   const addSizes = (list) => {
     const have = new Set(value.map((v) => String(v.size).toLowerCase()));
@@ -40,35 +44,37 @@ export default function VariantsEditor({ value, onChange, price, costPrice, isNe
 
       {value.length > 0 && (
         <div className="-mx-5 overflow-x-auto px-5">
-          <table className="w-full min-w-[640px] text-sm">
+          <table className="w-full min-w-[470px] text-sm">
             <thead>
               <tr className="text-left text-xs text-slate-500">
                 <th className="py-2 pr-2 font-medium">Размер</th>
                 <th className="py-2 pr-2 font-medium">Рос. размер</th>
                 <th className="py-2 pr-2 font-medium">Штрихкод</th>
                 <th className="py-2 pr-2 font-medium">Цена <button type="button" className="text-indigo-600" onClick={() => fillAll('price', price)} title="Всем — цена карточки">↓</button></th>
-                <th className="py-2 pr-2 font-medium">Закупка <button type="button" className="text-indigo-600" onClick={() => fillAll('costPrice', costPrice)} title="Всем — закупочная карточки">↓</button></th>
-                <th className="py-2 pr-2 text-right font-medium">{isNew ? 'Нач. остаток' : 'Остаток'}</th><th />
+                {showCost && <th className="py-2 pr-2 font-medium">Закупка <button type="button" className="text-indigo-600" onClick={() => fillAll('costPrice', costPrice)} title="Всем — закупочная карточки">↓</button></th>}
+                <th className="py-2 pr-2 text-right font-medium">Остаток</th><th />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {value.map((v, i) => (
                 <tr key={v.id || 'n' + i}>
-                  <td className="py-1.5 pr-2"><input className="input w-24 py-1.5 font-medium" value={v.size || ''} onChange={(e) => set(i, { size: e.target.value })} placeholder="M" list="size-presets" /></td>
-                  <td className="py-1.5 pr-2"><input className="input w-20 py-1.5" value={v.sizeRu || ''} onChange={(e) => set(i, { sizeRu: e.target.value })} placeholder="42-44" /></td>
-                  <td className="py-1.5 pr-2"><input className="input w-20 py-1.5" value={v.sizeRu || ''} onChange={(e) => set(i, { sizeRu: e.target.value })} placeholder="42-44" /></td>
+                  <td className="py-1.5 pr-2"><input className="input w-16 py-1.5 font-medium" value={v.size || ''} onChange={(e) => set(i, { size: e.target.value })} placeholder="M" list="size-presets" /></td>
+                  <td className="py-1.5 pr-2"><input className="input w-16 py-1.5" value={v.sizeRu || ''} onChange={(e) => set(i, { sizeRu: e.target.value })} placeholder="42-44" /></td>
                   <td className="py-1.5 pr-2">
                     <div className="relative flex items-center gap-1">
-                      <input className="input w-40 py-1.5 pr-8 font-mono text-xs" value={v.barcode || ''} onChange={(e) => set(i, { barcode: e.target.value.replace(/\s/g, '') })} placeholder="авто EAN-13" />
+                      <input className="input w-[8.5rem] py-1.5 pr-8 font-mono text-[11px]" value={v.barcode || ''} onChange={(e) => set(i, { barcode: e.target.value.replace(/\s/g, '') })} placeholder="авто EAN-13" />
                       <CameraButton onResult={(code) => set(i, { barcode: code })} className="absolute top-1/2 right-9 -translate-y-1/2" />
                       <button type="button" onClick={() => gen(i)} className="rounded p-1 text-slate-400 hover:text-indigo-600" title="Сгенерировать"><Wand2 size={14} /></button>
                     </div>
                   </td>
-                  <td className="py-1.5 pr-2"><input className="input w-24 py-1.5" type="number" step="any" min="0" value={v.price ?? ''} onChange={(e) => set(i, { price: e.target.value })} placeholder={price || '0'} /></td>
-                  <td className="py-1.5 pr-2"><input className="input w-24 py-1.5" type="number" step="any" min="0" value={v.costPrice ?? ''} onChange={(e) => set(i, { costPrice: e.target.value })} placeholder={costPrice || '0'} /></td>
+                  <td className="py-1.5 pr-2"><input className="input w-20 py-1.5" type="number" step="any" min="0" value={v.price ?? ''} onChange={(e) => set(i, { price: e.target.value })} placeholder={price || '0'} /></td>
+                  {showCost && <td className="py-1.5 pr-2"><input className="input w-[5.5rem] py-1.5" type="number" step="any" min="0" value={v.costPrice ?? ''} onChange={(e) => set(i, { costPrice: e.target.value })} placeholder={costPrice || '0'} /></td>}
                   <td className="py-1.5 pr-2 text-right">
-                    {v.id ? <b className={v.stock <= 0 ? 'text-rose-600' : ''}>{fmtNum(v.stock || 0)} {unit}</b>
-                      : <input className="input ml-auto w-20 py-1.5" type="number" step="any" min="0" value={v.quantity ?? ''} onChange={(e) => set(i, { quantity: e.target.value })} placeholder="0" />}
+                    {v.id ? (
+                      <div className="flex items-center justify-end gap-1">
+                        <input className={`input w-16 py-1.5 text-right ${v.newStock !== undefined && Number(v.newStock) !== whStock(v) ? 'border-amber-400 bg-amber-50' : ''}`} type="number" step="any" value={v.newStock ?? whStock(v)} onChange={(e) => set(i, { newStock: e.target.value })} title={`Всего на всех складах: ${fmtNum(v.stock || 0)} ${unit}`} />
+                      </div>
+                    ) : <input className="input ml-auto w-20 py-1.5 text-right" type="number" step="any" min="0" value={v.quantity ?? ''} onChange={(e) => set(i, { quantity: e.target.value })} placeholder="0" />}
                   </td>
                   <td><button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))} className="rounded p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="Удалить размер"><Trash2 size={15} /></button></td>
                 </tr>
@@ -81,6 +87,7 @@ export default function VariantsEditor({ value, onChange, price, costPrice, isNe
       <div className="flex flex-wrap gap-2">
         <Button type="button" size="sm" variant="secondary" icon={Plus} onClick={() => onChange([...value, { size: '', barcode: '', price: '', costPrice: '', quantity: '' }])}>Добавить размер</Button>
         {value.some((v) => !v.barcode) && <Button type="button" size="sm" variant="ghost" icon={Wand2} onClick={genAll}>Сгенерировать баркоды</Button>}
+        {value.length > 0 && <label className="ml-auto flex items-center gap-1.5 text-xs text-slate-500"><input type="checkbox" checked={showCost} onChange={(e) => setShowCost(e.target.checked)} /> закупочная цена по размерам</label>}
       </div>
     </div>
   );

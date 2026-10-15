@@ -109,7 +109,7 @@ export default function Product() {
             <button onClick={() => fav.toggle(p.id)} aria-pressed={liked} aria-label={liked ? 'Убрать из избранного' : 'В избранное'} className={`shrink-0 rounded-full border border-slate-200 p-2.5 ${liked ? 'text-rose-500' : 'text-slate-600 hover:text-slate-900'}`}><Heart size={20} fill={liked ? 'currentColor' : 'none'} /></button>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-slate-400">
-            {p.sku && <span>Артикул: {p.sku}</span>}
+            <button type="button" onClick={() => { navigator.clipboard?.writeText(String(p.article)); notify('Артикул скопирован'); }} title="Скопировать артикул" className="hover:text-slate-700">Артикул: <span className="font-medium text-slate-600">{p.article}</span></button>
             {p.reviews.count > 0 && <a href="#reviews" className="flex items-center gap-1 text-slate-600"><Stars value={p.reviews.avg} size={14} /> {p.reviews.avg} · {p.reviews.count} отзыв.</a>}
           </div>
           <div className="mt-5 flex flex-wrap items-baseline gap-x-3 gap-y-1">

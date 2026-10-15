@@ -56,6 +56,20 @@ export function ShopProvider({ children }) {
     set(id, q) { setCart((c) => c.map((i) => (i.id === id ? { ...i, quantity: Math.max(1, Math.min(q, config?.allowBackorder ? 999 : i.stock || 999)) } : i))); },
     remove(id) { setCart((c) => c.filter((i) => i.id !== id)); },
     clear() { setCart([]); },
+    // сверка с сервером: убрать то, что больше не продаётся, обновить цены и доступное количество
+    async check() {
+      if (!cart.length) return;
+      const r = await shopApi('/cart/check', { method: 'POST', body: { items: cart.map((i) => ({ productId: i.id, quantity: i.quantity })) } }).catch(() => null);
+      if (!r) return;
+      const removed = [];
+      setCart((c) => c.flatMap((i) => {
+        const x = r.items.find((y) => y.productId === i.id);
+        if (!x) return [i];
+        if (!x.ok || x.quantity <= 0) { removed.push(i.name); return []; }
+        return [{ ...i, price: x.price, stock: x.stock, quantity: x.quantity }];
+      }));
+      if (removed.length) notify(`Убрали из корзины — больше нет в продаже: ${removed.slice(0, 3).join(', ')}${removed.length > 3 ? ` и ещё ${removed.length - 3}` : ''}`, 'error');
+    },
   }), [cart, config, notify]);
 
   const fav = {

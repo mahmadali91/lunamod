@@ -94,7 +94,7 @@ async function pageFor(req, info) {
       description: clip(x.description || `${x.name}${x.category ? ` (${x.category.name})` : ''}${x.priceFrom ? ' от' : ' за'} ${rub(x.price)}. ${sizes}${attrs ? attrs + '. ' : ''}${x.inStock ? 'В наличии' : 'Под заказ'}, доставка по России.`),
       canonical: url, image: x.images[0], type: 'product', price: x.price,
       jsonld: [
-        { '@context': 'https://schema.org', '@type': 'Product', name: x.name, sku: x.sku || String(x.id), ...(gtin ? { gtin } : {}), description: clip(x.description || x.name, 5000),
+        { '@context': 'https://schema.org', '@type': 'Product', name: x.name, sku: String(x.article), productID: String(x.article), ...(x.sku ? { mpn: x.sku } : {}), ...(gtin ? { gtin } : {}), description: clip(x.description || x.name, 5000),
           image: x.images.map((i) => base + i), ...(x.category ? { category: x.category.name } : {}), brand: { '@type': 'Brand', name: x.brand || shopTitle },
           ...(x.colors.length ? { color: x.colors.join(', ') } : {}), ...(x.sizes.length ? { size: x.sizes.join(', ') } : {}),
           ...(x.attributes.length ? { additionalProperty: x.attributes.map((a) => ({ '@type': 'PropertyValue', name: a.name, value: a.value })) } : {}),

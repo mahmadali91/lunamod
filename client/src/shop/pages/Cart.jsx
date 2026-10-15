@@ -1,9 +1,11 @@
+import { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Minus, Plus, Trash2, ShoppingBag, ImageOff } from 'lucide-react';
 import { useShop } from '../store';
 
 export default function Cart() {
   const { cart, money, auth } = useShop();
+  useEffect(() => { cart.check(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const navigate = useNavigate();
   if (!cart.items.length) {
     return (

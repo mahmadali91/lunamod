@@ -3,7 +3,7 @@ const express = require('express');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const prisma = require('../db');
-const { ah, HttpError, nextNumber, num, str, like } = require('../util');
+const { ah, HttpError, nextNumber, num, str, like, articleOf, idOfArticle } = require('../util');
 const { getShopSettings, tbankReady } = require('../shop/settings');
 const { sendSms } = require('../shop/sms');
 const tbank = require('../shop/tbank');
@@ -60,7 +60,7 @@ function publicProduct(p, s, full) {
   const price = p.hasVariants && vs.length ? Math.min(...vs.map((v) => v.price)) : p.price;
   const images = (p.images || []).map((i) => i.path);
   const out = {
-    id: p.id, name: p.name, sku: p.sku, price, oldPrice: p.oldPrice && p.oldPrice > price ? p.oldPrice : null, unit: p.unit, brand: p.brand || null,
+    id: p.id, article: articleOf(p.id), name: p.name, sku: p.sku, price, oldPrice: p.oldPrice && p.oldPrice > price ? p.oldPrice : null, unit: p.unit, brand: p.brand || null,
     category: p.category ? { id: p.category.id, name: p.category.name } : null, url: productUrl(p),
     images: images.filter((_, i) => (p.images[i].kind || 'image') === 'image'),
     stock, inStock: stock > 0, isNew: Date.now() - new Date(p.createdAt).getTime() < 30 * 864e5,
@@ -96,7 +96,7 @@ const productWhere = async (s, q) => {
   const and = [{ active: true, showInShop: true, parentId: null, OR: [{ price: { gt: 0 } }, { hasVariants: true }] }];
   if ((s.showOutOfStock !== '1' && !q.ids) || q.inStock) and.push(await inStockWhere(s));
   if (q.category) and.push({ categoryId: Number(q.category) });
-  if (q.q) { const t = String(q.q).trim(); and.push({ OR: [{ name: like(t) }, { sku: like(t) }, { brand: like(t) }, { barcodes: { some: { code: t } } }, { variants: { some: { barcodes: { some: { code: t } } } } }] }); }
+  if (q.q) { const t = String(q.q).trim(); const art = idOfArticle(t); and.push({ OR: [...(art ? [{ id: art }] : []), { name: like(t) }, { sku: like(t) }, { brand: like(t) }, { barcodes: { some: { code: t } } }, { variants: { some: { barcodes: { some: { code: t } } } } }] }); }
   if (q.sizes) and.push({ variants: { some: { active: true, size: { in: list(q.sizes) } } } });
   if (q.colors) and.push({ OR: [{ color: { in: list(q.colors) } }, { variants: { some: { active: true, color: { in: list(q.colors) } } } }] });
   if (q.brands) and.push({ brand: { in: list(q.brands) } });
@@ -254,7 +254,7 @@ async function cartInfo(tx, s, lines) {
   const items = []; let weight = 0;
   for (const l of lines) {
     const p = await tx.product.findFirst({ where: { id: l.productId, active: true, showInShop: true }, include: { stocks: true } });
-    if (!p || p.price <= 0) throw new HttpError(400, 'Товар больше не продаётся — обновите корзину');
+    if (!p || p.price <= 0) throw new HttpError(400, 'Некоторые товары больше не продаются — откройте корзину, она обновится');
     if (p.hasVariants) throw new HttpError(400, `«${p.name}»: выберите размер`);
     items.push({ p, quantity: l.quantity });
     weight += (p.weight || num(s.defaultWeight) || 500) * l.quantity;
@@ -262,6 +262,20 @@ async function cartInfo(tx, s, lines) {
   return { items, weight, subtotal: round(items.reduce((a, i) => a + i.p.price * i.quantity, 0)) };
 }
 const parseLines = (raw) => (raw || []).map((i) => ({ productId: Number(i.productId), quantity: Math.floor(num(i.quantity)) })).filter((i) => i.productId && i.quantity > 0);
+
+// Проверка корзины: что ещё продаётся, актуальные цены и наличие (корзина хранится в браузере и может устареть)
+r.post('/cart/check', ah(async (req, res) => {
+  const s = await getShopSettings();
+  const lines = parseLines(req.body.items).slice(0, 100);
+  const found = await prisma.product.findMany({ where: { id: { in: lines.map((l) => l.productId) } }, include: { stocks: true, parent: { select: { id: true, active: true, showInShop: true } } } });
+  res.json({ items: lines.map((l) => {
+    const p = found.find((x) => x.id === l.productId);
+    const alive = p && p.active && p.showInShop && p.price > 0 && !p.hasVariants && (!p.parent || (p.parent.active && p.parent.showInShop));
+    if (!alive) return { productId: l.productId, ok: false, reason: p?.hasVariants ? 'size' : 'gone' };
+    const stock = Math.max(0, sumStock(p.stocks, s));
+    return { productId: p.id, ok: true, name: p.name, price: p.price, stock, quantity: s.allowBackorder === '1' ? l.quantity : Math.min(l.quantity, stock) };
+  }) });
+}));
 
 r.post('/delivery/quote', ah(async (req, res) => {
   const s = await getShopSettings();

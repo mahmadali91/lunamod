@@ -494,7 +494,26 @@ test('карточки «как на WB»: цвет — карточка, раз
   assert.ok((await ok('/stats?groupBy=color')).rows.some((r) => r.name === 'Красный'));
   // нельзя добавить размеры товару, у которого есть остаток без размера
   const simple = await ok('/products', { method: 'POST', body: { name: 'Простой ' + U, price: 10, initialStock: [{ warehouseId: w1.id, quantity: 2 }] } });
-  assert.equal((await api('/products/' + simple.id, { method: 'PUT', body: { ...simple, variants: [{ size: 'S' }] } })).status, 400);
+  assert.equal((await api('/products/' + simple.id, { method: 'PUT', body: { ...simple, variants: [{ size: 'S' }] } })).status, 400, 'нужно выбрать размер для остатка');
+  // перенос остатка без размера на выбранный размер
+  const movedCard = await ok('/products/' + simple.id, { method: 'PUT', body: { ...simple, variants: [{ size: 'S' }, { size: 'M' }], moveStockTo: 'M', variantWarehouseId: w1.id } });
+  assert.equal(movedCard.variants.find((v) => v.size === 'M').stocks.find((x) => x.warehouseId === w1.id).quantity, 2);
+  assert.equal(movedCard.totalStock, 2);
+  // правка остатка размера прямо в карточке
+  const vm = movedCard.variants.find((v) => v.size === 'M');
+  const ed = await ok('/products/' + simple.id, { method: 'PUT', body: { ...movedCard, variantWarehouseId: w1.id, variants: movedCard.variants.map((v) => ({ id: v.id, size: v.size, barcode: v.barcodes[0].code, ...(v.id === vm.id ? { newStock: 5 } : {}) })) } });
+  assert.equal(ed.variants.find((v) => v.id === vm.id).stocks.find((x) => x.warehouseId === w1.id).quantity, 5);
+  // числовой артикул: 8 цифр, поиск по нему в программе и на сайте
+  assert.match(String(ed.article), /^\d{8}$/);
+  assert.equal((await ok('/products?q=' + ed.article)).items[0].id, simple.id);
+  assert.equal((await ok('/products/lookup/' + ed.article)).id, simple.id);
+  assert.equal((await ok('/products?sellable=1&q=' + ed.article)).items.length, 2, 'размеры карточки по артикулу');
+  assert.equal((await shop('/products?q=' + ed.article)).data.items[0].article, ed.article);
+  // проверка корзины: удалённый товар и карточка с размерами — не продаются, размер — с актуальной ценой
+  const chk = (await shop('/cart/check', { method: 'POST', body: { items: [{ productId: 99999999, quantity: 1 }, { productId: simple.id, quantity: 1 }, { productId: vm.id, quantity: 9 }] } })).data.items;
+  assert.deepEqual(chk.map((x) => x.ok), [false, false, true]);
+  assert.equal(chk[1].reason, 'size');
+  assert.equal(chk[2].quantity, 5, 'не больше остатка');
   void white;
 });
 

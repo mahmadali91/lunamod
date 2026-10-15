@@ -138,4 +138,9 @@ const num = (v, d = 0) => (v === '' || v === null || v === undefined || isNaN(Nu
 const int = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
 const str = (v) => (v === undefined || v === null || String(v).trim() === '' ? null : String(v).trim());
 
-module.exports = { ah, HttpError, ean13CheckDigit, isValidEan13, generateEan13, detectBarcodeType, changeStock, nextNumber, num, int, str, like };
+// Числовой артикул карточки «как на WB»: 8 цифр, однозначно по номеру карточки (не меняется, не повторяется)
+const ARTICLE_BASE = 10000000;
+const articleOf = (id) => ARTICLE_BASE + id;
+const idOfArticle = (q) => { const s = String(q || '').trim(); return /^\d{8}$/.test(s) && Number(s) > ARTICLE_BASE ? Number(s) - ARTICLE_BASE : null; };
+
+module.exports = { articleOf, idOfArticle, ah, HttpError, ean13CheckDigit, isValidEan13, generateEan13, detectBarcodeType, changeStock, nextNumber, num, int, str, like };

@@ -49,7 +49,8 @@ export default function Products() {
       await downloadXlsx(`tovary-${today()}.xlsx`, [
         { title: 'ID', value: (p) => p.id, width: 7 },
         { title: 'Название', value: (p) => p.name, width: 42 },
-        { title: 'Артикул', value: (p) => p.sku, width: 16 },
+        { title: 'Артикул', value: (p) => p.sku, width: 18 },
+        { title: 'Числовой артикул', value: (p) => p.article, width: 14 },
         { title: 'Штрихкод', value: (p) => p.barcodes[0]?.code, width: 16 },
         { title: 'Доп. штрихкоды', value: (p) => p.barcodes.slice(1).map((b) => b.code).join(', '), width: 16 },
         { title: 'Категория', value: (p) => p.category?.name, width: 28 },
@@ -118,7 +119,7 @@ export default function Products() {
                   </div>
                   <div className="p-3">
                     <div className="line-clamp-2 min-h-[2.5rem] text-sm font-medium text-slate-900">{p.name}</div>
-                    <div className="mt-0.5 truncate font-mono text-xs text-slate-400">{p.sku || p.barcodes[0]?.code}</div>
+                    <div className="mt-0.5 truncate font-mono text-xs text-slate-400"><b className="text-slate-600">{p.article}</b>{p.sku ? ' · ' + p.sku : ''}</div>
                     {p.color && <div className="mt-0.5 truncate text-xs text-slate-600">{p.color}{p.group?._count.products > 1 && <span className="text-slate-400"> · +{p.group._count.products - 1} цв.</span>}</div>}
                     {p.hasVariants && <VariantChips p={p} />}
                     <div className="mt-2 flex items-end justify-between gap-2">
@@ -167,7 +168,7 @@ export default function Products() {
                         </Link>
                       </div>
                     </td>
-                    <td className="td font-mono text-xs text-slate-600">{p.sku || '—'}</td>
+                    <td className="td font-mono text-xs"><div className="font-semibold text-slate-800">{p.article}</div><div className="text-slate-400">{p.sku || ''}</div></td>
                     <td className="td font-mono text-xs text-slate-600">{p.hasVariants ? <span className="font-sans text-slate-500">{p.variants.length} штрихкод.</span> : p.barcodes[0]?.code}</td>
                     <td className="td text-right font-semibold">{money(p.price)}</td>
                     <td className="td text-right">

@@ -32,6 +32,7 @@ export default function ProductForm() {
   const [newCat, setNewCat] = useState(null);
   const [variantsOn, setVariantsOn] = useState(false);
   const [variantWh, setVariantWh] = useState('');
+  const [moveTo, setMoveTo] = useState('');
   const [progress, setProgress] = useState(null); // загрузка видео/фото, %
   const videoRef = useRef(null);
   const fileRef = useRef(null);
@@ -46,7 +47,7 @@ export default function ProductForm() {
       barcodes: p.barcodes.map((b) => b.code), attributes: p.attributes.map((a) => ({ name: a.name, value: a.value })),
       brand: p.brand || '', color: p.color || '', modelInfo: p.modelInfo || '',
       packLength: p.packLength ?? '', packWidth: p.packWidth ?? '', packHeight: p.packHeight ?? '',
-      variants: p.variants.map((v) => ({ id: v.id, size: v.size || '', sizeRu: v.sizeRu || '', barcode: v.barcodes[0]?.code || '', price: v.price, costPrice: v.costPrice, stock: v.stocks.reduce((a, x) => a + x.quantity, 0) })),
+      variants: p.variants.map((v) => ({ id: v.id, size: v.size || '', sizeRu: v.sizeRu || '', barcode: v.barcodes[0]?.code || '', price: v.price, costPrice: v.costPrice, stock: v.stocks.reduce((a, x) => a + x.quantity, 0), stocks: v.stocks.map((x) => ({ warehouseId: x.warehouseId, quantity: x.quantity })) })),
       looks: p.looks.map((l) => l.linked),
     });
     setVariantsOn(p.hasVariants);
@@ -119,13 +120,16 @@ export default function ProductForm() {
     load();
   };
 
+  const whId = variantWh || warehouses?.find((w) => w.active)?.id;
   const save = async (e) => {
     e?.preventDefault();
     setSaving(true);
     try {
       if (variantsOn && !form.variants.some((v) => String(v.size || '').trim())) throw new Error('Добавьте хотя бы один размер — или выключите «Есть размеры»');
       if (!variantsOn && product?.hasVariants && !confirm('Убрать размеры? Размеры без движений удалятся, остальные уйдут в архив.')) { setSaving(false); return; }
-      const body = { ...form, barcodes: form.barcodes.filter((b) => b.trim()), variants: variantsOn ? form.variants : [], variantWarehouseId: variantWh || warehouses?.find((w) => w.active)?.id, lookIds: form.looks.map((l) => l.id) };
+      const sizes = form.variants.map((v) => String(v.size || '').trim()).filter(Boolean);
+      const body = { ...form, barcodes: form.barcodes.filter((b) => b.trim()), variants: variantsOn ? form.variants.map(({ stocks, ...v }) => v) : [], variantWarehouseId: whId, lookIds: form.looks.map((l) => l.id),
+        moveStockTo: variantsOn && !product?.hasVariants && product?.totalStock ? (moveTo || sizes[0]) : undefined };
       delete body.looks;
       if (isNew) {
         body.initialStock = Object.entries(initialStock).map(([warehouseId, quantity]) => ({ warehouseId, quantity }));
@@ -135,7 +139,7 @@ export default function ProductForm() {
         navigate('/products/' + p.id, { replace: true });
       } else {
         await api('/products/' + id, { method: 'PUT', body });
-        toast('Сохранено');
+        toast(body.moveStockTo ? `Сохранено. Остаток перенесён на размер ${body.moveStockTo}` : 'Сохранено');
         load();
       }
     } catch (err) { toast(err.message, 'error'); }
@@ -160,7 +164,7 @@ export default function ProductForm() {
           <Link to="/products" className="rounded-lg p-2 text-slate-500 hover:bg-white hover:shadow-sm"><ArrowLeft size={20} /></Link>
           <div>
             <h1 className="text-2xl font-bold tracking-tight">{isNew ? 'Новый товар' : form.name}</h1>
-            {!isNew && <p className="text-sm text-slate-500">Остаток всего: <b>{fmtNum(product.totalStock)} {product.unit}</b>{!product.active && <> · <Badge color="amber">в архиве</Badge></>}</p>}
+            {!isNew && <p className="text-sm text-slate-500"><button type="button" onClick={() => { navigator.clipboard?.writeText(String(product.article)); toast('Артикул скопирован'); }} className="mr-2 rounded-md bg-slate-100 px-2 py-0.5 font-mono font-semibold text-slate-700 hover:bg-slate-200" title="Артикул товара — по нему ищут на сайте и в программе">{product.article}</button>Остаток всего: <b>{fmtNum(product.totalStock)} {product.unit}</b>{!product.active && <> · <Badge color="amber">в архиве</Badge></>}</p>}
           </div>
         </div>
         <div className="flex gap-2">
@@ -264,12 +268,21 @@ export default function ProductForm() {
             {variantsOn ? (
               <>
                 <p className="mb-4 text-sm text-slate-500">Как на Wildberries: у каждого размера свой штрихкод, остаток и этикетка. Другой цвет — отдельная карточка этой модели (кнопка «Дублировать» в блоке «Модель»).</p>
-                <VariantsEditor value={form.variants} onChange={(v) => setForm({ ...form, variants: v })} price={form.price} costPrice={form.costPrice} isNew={isNew} unit={form.unit} />
-                {form.variants.some((v) => !v.id && Number(v.quantity) > 0) && (warehouses || []).filter((w) => w.active).length > 1 && (
-                  <Field label="Начальный остаток новых вариантов — на склад" className="mt-3 max-w-xs">
-                    <select className="input" value={variantWh} onChange={(e) => setVariantWh(e.target.value)}>{warehouses.filter((w) => w.active).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select>
+                {(warehouses || []).filter((w) => w.active).length > 1 && (
+                  <Field label="Остатки размеров — на складе" className="mb-3 max-w-xs">
+                    <select className="input" value={whId || ''} onChange={(e) => setVariantWh(e.target.value)}>{warehouses.filter((w) => w.active).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select>
                   </Field>
                 )}
+                {!isNew && !product.hasVariants && product.totalStock !== 0 && (
+                  <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+                    У товара остаток {fmtNum(product.totalStock)} {form.unit} без размера — перенести его на размер
+                    <select className="input w-auto py-1" value={moveTo} onChange={(e) => setMoveTo(e.target.value)}>
+                      {form.variants.map((v) => String(v.size || '').trim()).filter(Boolean).map((z) => <option key={z} value={z}>{z}</option>)}
+                    </select>
+                  </div>
+                )}
+                <VariantsEditor value={form.variants} onChange={(v) => setForm({ ...form, variants: v })} price={form.price} costPrice={form.costPrice} isNew={isNew} unit={form.unit} warehouseId={whId} />
+                <p className="mt-2 text-xs text-slate-400">Остаток можно изменить прямо в таблице — при сохранении будет записана корректировка на выбранном складе. Для поступления товара лучше оформлять «Приход» — так сохранится закупочная цена партии.</p>
               </>
             ) : <p className="text-sm text-slate-500">Включите, если товар продаётся в разных размерах: S/M/L, 42–48, oversize. Без размеров у товара один штрихкод (справа).</p>}
             {product?.salesBySize?.length > 0 && <SizeSales rows={product.salesBySize} />}

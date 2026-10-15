@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ShoppingBag, Heart, User, Search, Menu, X, Phone, MapPin, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useShop } from './store';
+import { shopApi } from './api';
 import LoginModal from './Login';
 import ChatWidget from './ChatWidget';
 import CookieNotice from './CookieNotice';
@@ -18,7 +19,16 @@ export default function ShopLayout() {
   useEffect(() => { setMenu(false); window.scrollTo(0, 0); }, [loc.pathname]);
   useMetrika(config?.metrika);
 
-  const search = (e) => { e.preventDefault(); navigate('/' + (q.trim() ? '?q=' + encodeURIComponent(q.trim()) : '')); };
+  const search = async (e) => {
+    e.preventDefault();
+    const t = q.trim();
+    // числовой артикул — сразу открываем товар, как на WB
+    if (/^\d{8}$/.test(t)) {
+      const r = await shopApi('/products?limit=2&q=' + t).catch(() => null);
+      if (r?.items.length === 1 && r.items[0].article === Number(t)) { setQ(''); navigate(r.items[0].url); return; }
+    }
+    navigate('/' + (t ? '?q=' + encodeURIComponent(t) : ''));
+  };
   if (!config) return <div className="flex h-screen items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" /></div>;
   if (config.error || !config.enabled) {
     return <div className="flex min-h-screen flex-col items-center justify-center p-8 text-center"><h1 className="text-3xl font-bold">{config.title || 'Магазин'}</h1><p className="mt-2 text-slate-500">Скоро открытие. Заходите позже!</p></div>;
@@ -40,7 +50,7 @@ export default function ShopLayout() {
           </nav>
           <form onSubmit={search} className="relative ml-auto hidden max-w-xs flex-1 sm:block">
             <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск товаров" aria-label="Поиск товаров" className="w-full rounded-full bg-slate-100 py-2 pr-4 pl-9 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-slate-900" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск по названию или артикулу" aria-label="Поиск товаров" className="w-full rounded-full bg-slate-100 py-2 pr-4 pl-9 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-slate-900" />
           </form>
           <Socials links={config.socials} size={17} className="hidden shrink-0 md:flex" />
           <div className="ml-auto flex shrink-0 items-center sm:ml-0">
@@ -60,7 +70,7 @@ export default function ShopLayout() {
         </div>
         <form onSubmit={search} className="relative px-4 pb-3 sm:hidden">
           <Search size={16} className="pointer-events-none absolute top-1/2 left-7 -translate-y-[60%] text-slate-400" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск товаров" className="w-full rounded-full bg-slate-100 py-2.5 pr-4 pl-9 text-sm outline-none" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск по названию или артикулу" className="w-full rounded-full bg-slate-100 py-2.5 pr-4 pl-9 text-sm outline-none" />
         </form>
       </header>
 

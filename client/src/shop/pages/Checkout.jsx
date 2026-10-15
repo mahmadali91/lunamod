@@ -17,6 +17,7 @@ function Option({ active, onClick, icon: Icon, title, sub }) {
 
 export default function Checkout() {
   const { config, cart, money, auth, notify } = useShop();
+  useEffect(() => { cart.check(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const navigate = useNavigate();
   const pay = config.payments;
   const [f, setF] = useState({ name: '', paymentMethod: pay.sbp ? 'sbp' : pay.tbank ? 'tbank' : 'cash', comment: '' });

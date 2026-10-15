@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const prisma = require('../db');
-const { ah, HttpError, generateEan13, detectBarcodeType, changeStock, num, int, str, like } = require('../util');
+const { ah, HttpError, generateEan13, detectBarcodeType, changeStock, num, int, str, like, articleOf, idOfArticle } = require('../util');
 
 const r = express.Router();
 const { UPLOAD_DIR } = require('../paths');
@@ -33,7 +33,7 @@ const fullInclude = {
 function withTotals(p) {
   const own = (p.stocks || []).reduce((s, x) => s + x.quantity, 0);
   const totalStock = p.hasVariants ? (p.variants || []).reduce((s, v) => s + (v.stocks || []).reduce((a, x) => a + x.quantity, 0), 0) : own;
-  return { ...p, totalStock };
+  return { ...p, totalStock, article: p.parentId ? articleOf(p.parentId) : articleOf(p.id) };
 }
 
 // Название варианта: «Платье Лето · Красный · M» — так он виден везде (касса, продажи, этикетки, отчёты)
@@ -56,7 +56,8 @@ r.get('/', ah(async (req, res) => {
   if (categoryId) where.categoryId = Number(categoryId);
   if (q) {
     const s = String(q).trim();
-    where.OR = [{ name: like(s) }, { sku: like(s) }, { barcodes: { some: { code: like(s) } } },
+    const art = idOfArticle(s);
+    where.OR = [{ name: like(s) }, { sku: like(s) }, { barcodes: { some: { code: like(s) } } }, ...(art ? [{ id: art }, { parentId: art }] : []),
       ...(sellable ? [{ parent: { sku: like(s) } }] : [{ variants: { some: { active: true, barcodes: { some: { code: like(s) } } } } }])];
   }
   const stocks = warehouseId ? { where: { warehouseId: Number(warehouseId) } } : true;
@@ -115,6 +116,7 @@ r.get('/lookup/:code', ah(async (req, res) => {
   const code = String(req.params.code).trim();
   let p = await prisma.product.findFirst({ where: { barcodes: { some: { code } } }, include: fullInclude });
   if (!p) p = await prisma.product.findFirst({ where: { sku: code }, include: fullInclude });
+  if (!p && idOfArticle(code)) p = await prisma.product.findFirst({ where: { id: idOfArticle(code), parentId: null }, include: fullInclude });
   if (!p) throw new HttpError(404, `Товар с кодом «${code}» не найден`);
   if (p.hasVariants && req.query.sellable) throw new HttpError(409, `У артикула ${code} есть размеры/цвета — отсканируйте штрихкод нужного размера или выберите его в поиске`);
   if (p.parentId && !p.images.length) p.images = await prisma.productImage.findMany({ where: { productId: p.parentId }, orderBy: { sort: 'asc' } });
@@ -171,7 +173,7 @@ const SHARED = ['description', 'unit', 'oldPrice', 'minStock', 'weight', 'catego
  * Новые создаются, изменённые обновляются, удалённые из списка — удаляются (или в архив, если по ним были движения).
  */
 const sizeRows = (list) => (list || []).map((v, i) => ({ ...v, size: str(v.size), sort: i })).filter((v) => v.size);
-async function saveVariants(tx, parent, list, warehouseId) {
+async function saveVariants(tx, parent, list, warehouseId, { moveStockTo } = {}) {
   const rows = sizeRows(list).map((v) => ({ ...v, color: parent.color || null }));
   const seen = new Set();
   for (const v of rows) {
@@ -180,9 +182,14 @@ async function saveVariants(tx, parent, list, warehouseId) {
     seen.add(k);
   }
   const existing = await tx.product.findMany({ where: { parentId: parent.id } });
+  // остаток товара без размеров при добавлении размеров переносится на выбранный размер (вместе с партиями)
+  let moveFrom = [];
   if (rows.length && !parent.hasVariants) {
-    const own = await tx.stock.aggregate({ where: { productId: parent.id }, _sum: { quantity: true } });
-    if (Math.abs(own._sum.quantity || 0) > 1e-9) throw new HttpError(400, `У товара есть остаток (${own._sum.quantity}) без размера. Обнулите его в «Остатках» или оформите на нужный размер, затем добавьте размеры`);
+    moveFrom = (await tx.stock.findMany({ where: { productId: parent.id } })).filter((x) => Math.abs(x.quantity) > 1e-9);
+    if (moveFrom.length && !moveStockTo) {
+      const total = moveFrom.reduce((a, x) => a + x.quantity, 0);
+      throw new HttpError(400, `У товара есть остаток (${total}) без размера — выберите, на какой размер его перенести`);
+    }
   }
   const shared = Object.fromEntries(SHARED.map((k) => [k, parent[k]]));
   const keep = new Set();
@@ -207,10 +214,25 @@ async function saveVariants(tx, parent, list, warehouseId) {
     } else if (!primary) {
       await tx.barcode.create({ data: { productId: child.id, code: await generateEan13(tx), type: 'EAN13', isPrimary: true, generated: true } });
     }
-    if (warehouseId && num(v.quantity) > 0 && !existing.some((e) => e.id === child.id)) {
+    const isNew = !existing.some((e) => e.id === child.id);
+    if (warehouseId && num(v.quantity) > 0 && isNew) {
       await changeStock(tx, { productId: child.id, warehouseId: Number(warehouseId), quantity: num(v.quantity), type: 'ADJUST', note: 'Начальный остаток', cost: data.costPrice });
     }
+    // правка остатка размера прямо в карточке (на выбранном складе)
+    if (warehouseId && !isNew && v.newStock !== undefined && v.newStock !== '' && !isNaN(Number(v.newStock))) {
+      const cur = await tx.stock.findUnique({ where: { productId_warehouseId: { productId: child.id, warehouseId: Number(warehouseId) } } });
+      const diff = num(v.newStock) - (cur?.quantity || 0);
+      if (diff) await changeStock(tx, { productId: child.id, warehouseId: Number(warehouseId), quantity: diff, type: 'ADJUST', note: 'Остаток из карточки товара', cost: data.costPrice });
+    }
+    if (moveFrom.length && String(moveStockTo).toLowerCase() === v.size.toLowerCase()) {
+      for (const st of moveFrom) {
+        const out = await changeStock(tx, { productId: parent.id, warehouseId: st.warehouseId, quantity: -st.quantity, type: 'TRANSFER_OUT', note: `Перенос на размер ${v.size}` });
+        await changeStock(tx, { productId: child.id, warehouseId: st.warehouseId, quantity: st.quantity, type: 'TRANSFER_IN', note: 'Остаток без размера', lots: out.lots.length ? out.lots : undefined, cost: data.costPrice });
+      }
+      moveFrom = [];
+    }
   }
+  if (moveFrom.length) throw new HttpError(400, `Размер «${moveStockTo}» не найден среди размеров — выберите размер для переноса остатка`);
   for (const e of existing.filter((x) => !keep.has(x.id))) {
     const used = await tx.saleItem.count({ where: { productId: e.id } }) + await tx.receiptItem.count({ where: { productId: e.id } }) + await tx.orderItem.count({ where: { productId: e.id } }) + await tx.stockMovement.count({ where: { productId: e.id } });
     if (used) await tx.product.update({ where: { id: e.id }, data: { active: false } });
@@ -289,7 +311,7 @@ r.post('/', ah(async (req, res) => {
     await saveLooks(tx, p.id, b.lookIds);
     return p;
   }, { timeout: 30000 });
-  res.status(201).json(await prisma.product.findUnique({ where: { id: p.id }, include: fullInclude }));
+  res.status(201).json(withTotals(await prisma.product.findUnique({ where: { id: p.id }, include: fullInclude })));
 }));
 
 r.put('/:id', ah(async (req, res) => {
@@ -303,7 +325,7 @@ r.put('/:id', ah(async (req, res) => {
     if (Array.isArray(req.body.variants)) {
       const sized = sizeRows(req.body.variants).length > 0;
       await saveRelations(tx, id, sized ? { ...req.body, barcodes: undefined } : req.body);
-      await saveVariants(tx, p, req.body.variants, req.body.variantWarehouseId);
+      await saveVariants(tx, p, req.body.variants, req.body.variantWarehouseId, { moveStockTo: str(req.body.moveStockTo) });
       if (!sized && !(await tx.barcode.count({ where: { productId: id } }))) {
         await tx.barcode.create({ data: { productId: id, code: await generateEan13(tx), type: 'EAN13', isPrimary: true, generated: true } });
       }
@@ -313,7 +335,7 @@ r.put('/:id', ah(async (req, res) => {
     if ((await tx.product.findUnique({ where: { id } })).hasVariants) await syncVariants(tx, await tx.product.findUnique({ where: { id } }));
     await saveLooks(tx, id, req.body.lookIds);
   }, { timeout: 30000 });
-  res.json(await prisma.product.findUnique({ where: { id }, include: fullInclude }));
+  res.json(withTotals(await prisma.product.findUnique({ where: { id }, include: fullInclude })));
 }));
 
 r.delete('/:id', ah(async (req, res) => {
@@ -492,7 +514,7 @@ r.post('/:id/duplicate', ah(async (req, res) => {
     else await tx.barcode.create({ data: { productId: card.id, code: await generateEan13(tx), type: 'EAN13', isPrimary: true, generated: true } });
     return card;
   }, { timeout: 30000 });
-  res.status(201).json(await prisma.product.findUnique({ where: { id: card.id }, include: fullInclude }));
+  res.status(201).json(withTotals(await prisma.product.findUnique({ where: { id: card.id }, include: fullInclude })));
 }));
 
 // «Из своей карточки»: присоединить существующую карточку (или всю её модель) к модели этой карточки
