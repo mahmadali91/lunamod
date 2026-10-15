@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2, Wand2, ImagePlus, Star, Tags, Save, X, History, Layers, Shirt, Search, PlayCircle, ExternalLink, Video, Copy, Link2, Unlink, Palette } from 'lucide-react';
 import { api, fileUrl, getToken } from '../api';
-import { Badge, BarcodeSvg, Button, Field, Spinner, fmtDate, fmtNum, useLoad, useToast } from '../ui';
+import { Badge, BarcodeSvg, Button, Field, Modal, Spinner, fmtDate, fmtNum, useLoad, useToast } from '../ui';
+import VideoPlayer, { canPlayFile, isHls } from '../components/VideoPlayer';
 import { CameraButton } from '../components/CameraScanner';
 import VariantsEditor, { COLOR_PRESETS } from '../components/VariantsEditor';
 
@@ -35,6 +36,7 @@ export default function ProductForm() {
   const [moveTo, setMoveTo] = useState('');
   const [progress, setProgress] = useState(null); // загрузка видео/фото, %
   const videoRef = useRef(null);
+  const [playing, setPlaying] = useState(null); // открытое видео
   const fileRef = useRef(null);
   const { data: categories, reload: reloadCats } = useLoad('/categories');
   const { data: warehouses } = useLoad('/warehouses');
@@ -98,6 +100,8 @@ export default function ProductForm() {
     const f = e.target.files[0]; e.target.value = '';
     if (!f) return;
     if (f.size > 50 * 1024 * 1024) return toast('Видео больше 50 МБ — сожмите его (например, в приложении «Фото» или CapCut)', 'error');
+    // формат, который браузер не показывает (часто HEVC с iPhone), покупатели не увидят
+    if ((await canPlayFile(f)) === false && !confirm('Этот браузер не может воспроизвести видео — скорее всего, его не увидят и покупатели.\n\nПересохраните ролик в MP4 (H.264): на iPhone — Настройки → Камера → Форматы → «Наиболее совместимый», или через CapCut / InShot.\n\nВсё равно загрузить?')) return;
     if (isNew) return setPendingFiles((s) => [...s, f]);
     try { await uploadImages(id, [f]); toast('Видео загружено'); load(); } catch (err) { toast(err.message, 'error'); }
   };
@@ -186,10 +190,13 @@ export default function ProductForm() {
               <div className="grid grid-cols-3 gap-2">
                 {images.map((img, i) => (
                   <div key={img.id} className="group relative aspect-square overflow-hidden rounded-xl border border-slate-200">
-                    {img.kind === 'video' ? <video src={img.url} muted className="h-full w-full object-cover" /> : <img src={img.url} alt="" className="h-full w-full object-cover" />}
-                    {img.kind === 'video' && <PlayCircle size={22} className="pointer-events-none absolute right-1 bottom-1 text-white drop-shadow" />}
+                    {img.kind === 'video'
+                      ? (isHls(img.url) ? <div className="h-full w-full bg-slate-800" /> : <video src={img.url + '#t=0.5'} muted preload="metadata" playsInline className="h-full w-full object-cover" />)
+                      : <img src={img.url} alt="" className="h-full w-full object-cover" />}
+                    {img.kind === 'video' && <PlayCircle size={30} className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white drop-shadow" />}
                     {i === 0 && <span className="absolute top-1 left-1 rounded bg-indigo-600 px-1.5 text-[10px] font-medium text-white">Главное</span>}
-                    <div className="absolute inset-0 flex items-center justify-center gap-1 bg-slate-900/50 opacity-0 transition group-hover:opacity-100">
+                    <div onClick={(e) => e.target === e.currentTarget && img.kind === 'video' && setPlaying(img.url)} className={`absolute inset-0 flex items-center justify-center gap-1 bg-slate-900/50 opacity-0 transition group-hover:opacity-100 ${img.kind === 'video' ? 'cursor-pointer' : ''}`}>
+                      {img.kind === 'video' && <button type="button" title="Смотреть видео" onClick={() => setPlaying(img.url)} className="rounded-lg bg-white/90 p-1.5 text-indigo-600"><PlayCircle size={14} /></button>}
                       {!isNew && i > 0 && <button type="button" title="Сделать главным" onClick={() => makeMainImage(img.id)} className="rounded-lg bg-white/90 p-1.5 text-amber-500"><Star size={14} /></button>}
                       <button type="button" title="Удалить" onClick={() => (isNew ? setPendingFiles((s) => s.filter((_, j) => j !== i)) : deleteImage(img.id))} className="rounded-lg bg-white/90 p-1.5 text-rose-600"><Trash2 size={14} /></button>
                     </div>
@@ -207,7 +214,8 @@ export default function ProductForm() {
               )}
               <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/avif" multiple hidden onChange={onFiles} />
               <input ref={videoRef} type="file" accept="video/mp4,video/webm,video/quicktime" hidden onChange={onVideo} />
-              <p className="mt-2 text-xs text-slate-400">Фото — до 10 МБ, видео — MP4/MOV до 50 МБ (лучше вертикальное, 10–30 секунд). Первое фото — главное, видео показывается в галерее магазина.</p>
+              <p className="mt-2 text-xs text-slate-400">Фото — до 10 МБ, видео — MP4 (H.264) до 50 МБ, лучше вертикальное, 10–30 секунд. Первое фото — главное, видео показывается в галерее магазина.</p>
+              {playing && <Modal open title="Видео товара" onClose={() => setPlaying(null)}><VideoPlayer src={playing} className="aspect-[3/4] max-h-[70vh] w-full overflow-hidden rounded-xl" /></Modal>}
             </Section>
           </div>
         </div>

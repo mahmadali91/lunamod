@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Package, Boxes, ShoppingCart, Receipt, Warehouse, Radio, Users, Tags, Settings, LogOut, Menu, X, ScanBarcode, PackagePlus, HandCoins, FolderTree, BarChart3, ShoppingBag, Globe, MessageCircle, Star, Store, BadgePercent, ChevronDown,
+  LayoutDashboard, Package, Boxes, ShoppingCart, Receipt, Warehouse, Radio, Users, Tags, Settings, LogOut, Menu, X, ScanBarcode, PackagePlus, HandCoins, FolderTree, BarChart3, ShoppingBag, Globe, MessageCircle, Star, Store, BadgePercent, ChevronDown, BookOpen, CircleHelp,
 } from 'lucide-react';
 import { api } from './api';
 import { SettingsCtx, useToast } from './ui';
 import ThemeToggle from './components/ThemeToggle';
 import { CameraButton } from './components/CameraScanner';
+import { helpFor } from './kb/articles';
 
 // Меню: группы сворачиваются (состояние запоминается), группа с открытой страницей раскрыта всегда
 const nav = [
@@ -39,6 +40,7 @@ const nav = [
     { to: '/channels', icon: Radio, label: 'Каналы продаж' },
     { to: '/counterparties', icon: Users, label: 'Контрагенты' },
     { to: '/settings', icon: Settings, label: 'Настройки' },
+    { to: '/help', icon: BookOpen, label: 'База знаний' },
   ] },
 ];
 // по умолчанию раскрыта только «Продажи»; что раскрыто — запоминается
@@ -166,7 +168,11 @@ export default function Layout() {
           <header className="no-print sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-slate-200 bg-white/80 px-4 backdrop-blur lg:px-8">
             <button className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:hidden" onClick={() => setMobile(true)}><Menu size={20} /></button>
             <GlobalSearch />
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              {/* справка по текущему разделу */}
+              <Link to={'/help/' + helpFor(loc.pathname)} title="Как это работает — инструкция по этому разделу" className="inline-flex items-center gap-1.5 rounded-lg p-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-indigo-600 sm:px-3 sm:py-2">
+                <CircleHelp size={18} /> <span className="hidden md:inline">Справка</span>
+              </Link>
               <NavLink to="/pos" title="Продать" className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 p-2.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 sm:px-4 sm:py-2">
                 <ShoppingCart size={16} /> <span className="hidden sm:inline">Продать</span>
               </NavLink>

@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Boxes } from 'lucide-react';
 import { api } from '../api';
 import { Button, Field } from '../ui';
+import { solveCaptcha } from '../captcha';
 
 export default function Login() {
   const [form, setForm] = useState({ login: '', password: '' });
@@ -10,11 +11,19 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  const needCaptcha = useRef(false);
   const submit = async (e) => {
     e.preventDefault();
     setLoading(true); setError('');
     try {
-      const r = await api('/auth/login', { method: 'POST', body: form });
+      // после нескольких ошибок сервер просит капчу — решаем её и повторяем вход
+      let r;
+      try { r = await api('/auth/login', { method: 'POST', body: needCaptcha.current ? { ...form, captcha: await solveCaptcha() } : form }); }
+      catch (err) {
+        if (err.data?.captcha) needCaptcha.current = true;
+        if (err.status !== 428) throw err;
+        r = await api('/auth/login', { method: 'POST', body: { ...form, captcha: await solveCaptcha() } });
+      }
       localStorage.setItem('token', r.token);
       localStorage.setItem('user', JSON.stringify(r.user));
       navigate('/');

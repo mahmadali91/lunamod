@@ -106,7 +106,7 @@ export default function Product() {
           {p.brand && <Link to={`/?brands=${encodeURIComponent(p.brand)}`} className="text-sm font-semibold tracking-wide text-slate-500 uppercase hover:text-slate-900">{p.brand}</Link>}
           <div className="flex items-start justify-between gap-3">
             <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{p.name}</h1>
-            <button onClick={() => fav.toggle(p.id)} aria-pressed={liked} aria-label={liked ? 'Убрать из избранного' : 'В избранное'} className={`shrink-0 rounded-full border border-slate-200 p-2.5 ${liked ? 'text-rose-500' : 'text-slate-600 hover:text-slate-900'}`}><Heart size={20} fill={liked ? 'currentColor' : 'none'} /></button>
+            <button onClick={() => fav.toggle(p.id)} aria-pressed={liked} aria-label={liked ? 'Убрать из избранного' : 'В избранное'} className={`shrink-0 rounded-full border border-slate-200 bg-white p-2.5 ${liked ? 'text-rose-500' : 'text-slate-600 hover:text-slate-900'}`}><Heart size={20} fill={liked ? 'currentColor' : 'none'} /></button>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-slate-400">
             <button type="button" onClick={() => { navigator.clipboard?.writeText(String(p.article)); notify('Артикул скопирован'); }} title="Скопировать артикул" className="hover:text-slate-700">Артикул: <span className="font-medium text-slate-600">{p.article}</span></button>
@@ -144,7 +144,7 @@ export default function Product() {
                   const v = vOf(s);
                   return (
                     <button key={s} onClick={() => { setSize(s); setNeedSize(false); setQty(1); }} aria-pressed={s === size} title={v?.inStock ? (v.stock <= 3 ? `Осталось ${v.stock} шт.` : 'В наличии') : 'Нет в наличии — можно подписаться'}
-                      className={`relative min-w-[3rem] rounded-xl border px-3 py-2.5 text-sm font-medium ${s === size ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 hover:border-slate-900'} ${v?.inStock ? '' : 'text-slate-400'}`}>
+                      className={`relative min-w-[3rem] rounded-xl border px-3 py-2.5 text-sm font-medium ${s === size ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white hover:border-slate-900'} ${v?.inStock ? '' : 'text-slate-400'}`}>
                       <span className={`block ${v?.inStock ? '' : 'line-through'}`}>{s}</span>
                       {v?.sizeRu && <span className={`block text-[11px] font-normal ${s === size ? 'text-white/70' : 'text-slate-400'}`}>{v.sizeRu}</span>}
                       {v?.inStock && v.stock <= 2 && <span className="absolute -top-1.5 -right-1.5 h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-white" />}
@@ -161,7 +161,7 @@ export default function Product() {
 
           {(!sellable || sellable.inStock || config.allowBackorder) ? (
             <div className="mt-6 flex gap-3">
-              <div className="flex items-center rounded-full border border-slate-300">
+              <div className="flex items-center rounded-full border border-slate-300 bg-white">
                 <button onClick={() => setQty(Math.max(1, qty - 1))} className="p-3" aria-label="Меньше"><Minus size={16} /></button>
                 <span className="w-8 text-center font-semibold" aria-live="polite">{qty}</span>
                 <button onClick={() => setQty(Math.min(sellable && !config.allowBackorder ? sellable.stock : 99, qty + 1))} className="p-3" aria-label="Больше"><Plus size={16} /></button>

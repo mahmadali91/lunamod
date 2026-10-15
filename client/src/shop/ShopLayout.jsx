@@ -35,10 +35,10 @@ export default function ShopLayout() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-white text-slate-900">
+    <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-white focus:p-3">Перейти к содержимому</a>
       {config.testMode && <div className="bg-amber-400 px-4 py-1 text-center text-xs font-medium text-amber-950">Магазин работает в тестовом режиме</div>}
-      <header className="sticky top-0 z-30 border-b border-slate-100 bg-white/90 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-2 px-4 sm:gap-4">
           <button className="-ml-1 shrink-0 p-1 md:hidden" onClick={() => setMenu(true)} aria-label="Меню"><Menu /></button>
           <Link to="/" className="min-w-0 truncate text-lg font-extrabold tracking-tight sm:text-xl">{config.title}</Link>
@@ -91,7 +91,7 @@ export default function ShopLayout() {
 
       <main id="main" className="flex-1"><Outlet /></main>
 
-      <footer className="mt-16 border-t border-slate-100 bg-slate-50">
+      <footer className="mt-16 border-t border-slate-200 bg-white">
         <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:grid-cols-3">
           <div><div className="text-lg font-extrabold">{config.title}</div><p className="mt-2 text-sm text-slate-500">{config.tagline}</p><Socials links={config.socials} className="-ml-2 mt-3" /></div>
           <div className="space-y-2 text-sm text-slate-600">

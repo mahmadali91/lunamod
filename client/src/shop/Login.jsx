@@ -3,6 +3,7 @@ import { X, Phone, Loader2, ShieldCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { shopApi, fmtPhone } from './api';
 import { useShop } from './store';
+import { solveCaptcha } from '../captcha';
 
 // Маска +7 (900) 000-00-00
 function maskPhone(v) {
@@ -41,7 +42,9 @@ export default function LoginModal() {
     e?.preventDefault();
     setBusy(true); setError('');
     try {
-      const r = await shopApi('/auth/request-code', { method: 'POST', body: { phone } });
+      // проверка «не робот» — незаметно для покупателя, около секунды
+      const captcha = await solveCaptcha();
+      const r = await shopApi('/auth/request-code', { method: 'POST', body: { phone, captcha } });
       setTestCode(r.testCode || null); setStep('code'); setWait(60);
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
@@ -78,16 +81,16 @@ export default function LoginModal() {
               <span>Даю <Link to="/legal/consent" target="_blank" className="underline">согласие на обработку персональных данных</Link> и принимаю <Link to="/legal/privacy" target="_blank" className="underline">политику конфиденциальности</Link></span>
             </label>
             <button disabled={busy || !consent || phone.replace(/\D/g, '').length !== 11} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 py-3.5 font-semibold text-white disabled:opacity-40">
-              {busy && <Loader2 size={18} className="animate-spin" />} Получить код
+              {busy && <Loader2 size={18} className="animate-spin" />} {busy ? 'Проверяем и отправляем…' : 'Получить код'}
             </button>
           </form>
         ) : (
           <div className="space-y-4">
             <p className="text-sm text-slate-500">Код отправлен на {fmtPhone(phone.replace(/\D/g, ''))} <button onClick={() => setStep('phone')} className="text-slate-900 underline">изменить</button></p>
             {testCode && <div className="flex items-center gap-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-900"><ShieldCheck size={16} /> Тестовый режим, SMS не отправляется. Код: <b className="text-base tracking-widest">{testCode}</b></div>}
-            <input ref={codeRef} inputMode="numeric" autoComplete="one-time-code" maxLength={4} value={code}
-              onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 4); setCode(v); if (v.length === 4) verify(v); }}
-              className="w-full rounded-2xl border border-slate-300 py-3.5 text-center text-3xl font-semibold tracking-[0.6em] outline-none focus:border-slate-900" placeholder="····" />
+            <input ref={codeRef} inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code}
+              onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 6); setCode(v); if (v.length === 6) verify(v); }}
+              className="w-full rounded-2xl border border-slate-300 py-3.5 text-center text-3xl font-semibold tracking-[0.35em] outline-none focus:border-slate-900" placeholder="······" />
             {error && <p className="text-sm text-rose-600">{error}</p>}
             {busy && <div className="flex justify-center"><Loader2 className="animate-spin text-slate-400" /></div>}
             <button disabled={wait > 0 || busy} onClick={request} className="w-full text-sm text-slate-500 disabled:opacity-60">{wait > 0 ? `Отправить код повторно через ${wait} с` : 'Отправить код ещё раз'}</button>

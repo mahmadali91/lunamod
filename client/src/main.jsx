@@ -26,6 +26,7 @@ import Prices from './pages/Prices';
 import Labels from './pages/Labels';
 import { Warehouses, Channels, Counterparties } from './pages/Refs';
 import SettingsPage from './pages/Settings';
+import Help from './pages/Help';
 
 const Private = ({ children }) => (getToken() ? children : <Navigate to="/login" replace />);
 
@@ -59,6 +60,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="channels" element={<Channels />} />
             <Route path="counterparties" element={<Counterparties />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="help" element={<Help />} />
+            <Route path="help/:id" element={<Help />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Route>
         </Routes>

@@ -7,14 +7,17 @@ const { ah, HttpError, generateEan13, detectBarcodeType, changeStock, num, int, 
 
 const r = express.Router();
 const { UPLOAD_DIR } = require('../paths');
+const MEDIA_EXT = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'image/heic': '.heic', 'image/avif': '.avif', 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mp4' };
 const upload = multer({
   storage: multer.diskStorage({
     destination: UPLOAD_DIR,
-    filename: (req, file, cb) => cb(null, Date.now() + '-' + Math.round(Math.random() * 1e9) + path.extname(file.originalname).toLowerCase()),
+    // расширение берём только по типу файла (не из имени), иначе можно подсунуть .html под видом картинки;
+    // .mov с телефона — тот же MP4 внутри, с расширением .mp4 его показывают Chrome и Android
+    filename: (req, file, cb) => cb(null, Date.now() + '-' + Math.round(Math.random() * 1e9) + (MEDIA_EXT[file.mimetype] || '.bin')),
   }),
   limits: { fileSize: 50 * 1024 * 1024 },
   // фото (кроме SVG) и короткие видео
-  fileFilter: (req, file, cb) => cb(null, /^image\/(jpeg|png|webp|gif|heic|avif)$/.test(file.mimetype) || /^video\/(mp4|webm|quicktime)$/.test(file.mimetype)),
+  fileFilter: (req, file, cb) => cb(null, Boolean(MEDIA_EXT[file.mimetype])),
 });
 
 const variantInclude = { barcodes: { orderBy: [{ isPrimary: 'desc' }, { id: 'asc' }] }, stocks: { include: { warehouse: true } } };

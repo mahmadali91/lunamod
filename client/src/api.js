@@ -16,7 +16,7 @@ export async function api(path, { method = 'GET', body, form } = {}) {
     window.location.href = '/admin/login';
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Ошибка ' + res.status);
+  if (!res.ok) throw Object.assign(new Error(data.error || 'Ошибка ' + res.status), { status: res.status, data });
   return data;
 }
 

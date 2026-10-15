@@ -1,19 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import VideoPlayer from '../components/VideoPlayer';
 import { ChevronLeft, ChevronRight, X, ImageOff, Play } from 'lucide-react';
-
-// Видео: обычный файл или поток HLS (.m3u8, как у Wildberries) — в Safari играет сам, в остальных через hls.js
-function Video({ src, className }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || !/\.m3u8($|\?)/.test(src) || el.canPlayType('application/vnd.apple.mpegurl')) return undefined;
-    let hls;
-    import('hls.js').then(({ default: Hls }) => { if (Hls.isSupported()) { hls = new Hls(); hls.loadSource(src); hls.attachMedia(el); } });
-    return () => hls?.destroy();
-  }, [src]);
-  const isHls = /\.m3u8($|\?)/.test(src);
-  return <video ref={ref} src={isHls ? undefined : src} controls playsInline autoPlay muted loop className={className} />;
-}
 
 /**
  * Галерея товара: свайп на телефоне, стрелки и миниатюры на компьютере, видео.
@@ -26,6 +13,9 @@ export default function Gallery({ media, alt }) {
   useEffect(() => { setI(0); }, [media]);
   const go = (d) => setI((x) => (x + d + n) % n);
   const touch = useRef(null);
+  const strip = useRef(null);
+  // активная миниатюра всегда видна в колонке
+  useEffect(() => { strip.current?.querySelector(`[data-k="${i}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [i]);
   const onTouchStart = (e) => { touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; };
   const onTouchEnd = (e) => {
     if (!touch.current) return;
@@ -36,26 +26,32 @@ export default function Gallery({ media, alt }) {
   if (!n) return <div className="flex aspect-[3/4] items-center justify-center rounded-3xl bg-slate-100 text-slate-300"><ImageOff size={48} /></div>;
   const cur = media[i];
   return (
-    <div className="sm:flex sm:flex-row-reverse sm:gap-3">
-      <div className="relative aspect-[3/4] overflow-hidden rounded-3xl bg-slate-100 sm:flex-1" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+    // сетка: слева колонка миниатюр той же высоты, что и главное фото (прокручивается внутри), справа фото 3:4
+    <div className="lg:grid lg:grid-cols-[4.5rem_minmax(0,1fr)] lg:content-start lg:gap-3 lg:self-start">
+      {n > 1 && (
+        <div className="relative hidden lg:block">
+          <div ref={strip} className="no-scrollbar absolute inset-0 flex flex-col gap-2 overflow-y-auto overscroll-contain">
+            {media.map((m, k) => (
+              <button key={k} data-k={k} onClick={() => setI(k)} onMouseEnter={() => m.kind !== 'video' && setI(k)} aria-label={m.kind === 'video' ? 'Видео' : `Фото ${k + 1}`} aria-current={k === i}
+                className={`relative aspect-[3/4] w-full shrink-0 overflow-hidden rounded-xl border-2 bg-slate-100 transition ${k === i ? 'border-slate-900' : 'border-transparent opacity-75 hover:opacity-100'}`}>
+                {m.kind === 'video' ? <span className="flex h-full w-full items-center justify-center bg-slate-800"><Play size={20} className="text-white" fill="currentColor" /></span> : <img src={m.path} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className={`relative aspect-[3/4] w-full overflow-hidden rounded-3xl bg-slate-100 ${n > 1 ? '' : 'lg:col-span-2'}`} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
         {cur.kind === 'video'
-          ? <Video key={cur.path} src={cur.path} className="h-full w-full bg-black object-contain" />
-          : <button type="button" onClick={() => setFull(true)} className="h-full w-full cursor-zoom-in" aria-label="Открыть фото во весь экран"><img src={cur.path} alt={alt} className="h-full w-full object-cover" /></button>}
+          ? <VideoPlayer key={cur.path} src={cur.path} className="absolute inset-0 h-full w-full" />
+          : <button type="button" onClick={() => setFull(true)} className="absolute inset-0 h-full w-full cursor-zoom-in" aria-label="Открыть фото во весь экран"><img src={cur.path} alt={alt} className="absolute inset-0 h-full w-full object-cover" /></button>}
         {n > 1 && <>
           <button onClick={() => go(-1)} className="absolute top-1/2 left-3 hidden -translate-y-1/2 rounded-full bg-white/90 p-2 text-slate-900 shadow sm:block" aria-label="Предыдущее фото"><ChevronLeft /></button>
           <button onClick={() => go(1)} className="absolute top-1/2 right-3 hidden -translate-y-1/2 rounded-full bg-white/90 p-2 text-slate-900 shadow sm:block" aria-label="Следующее фото"><ChevronRight /></button>
-          <div className="absolute inset-x-0 bottom-3 flex justify-center gap-1.5 sm:hidden">{media.map((_, k) => <span key={k} className={`h-1.5 rounded-full transition-all ${k === i ? 'w-5 bg-white' : 'w-1.5 bg-white/60'}`} />)}</div>
+          {n <= 8
+            ? <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center gap-1.5 lg:hidden">{media.map((_, k) => <span key={k} className={`h-1.5 rounded-full shadow transition-all ${k === i ? 'w-5 bg-white' : 'w-1.5 bg-white/60'}`} />)}</div>
+            : <div className="pointer-events-none absolute right-3 bottom-3 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white lg:hidden">{i + 1} / {n}</div>}
         </>}
       </div>
-      {n > 1 && (
-        <div className="hidden max-h-[min(80vh,720px)] w-16 shrink-0 flex-col gap-2 overflow-y-auto sm:flex">
-          {media.map((m, k) => (
-            <button key={k} onClick={() => setI(k)} onMouseEnter={() => m.kind !== 'video' && setI(k)} aria-label={m.kind === 'video' ? 'Видео' : `Фото ${k + 1}`} className={`relative h-20 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-100 ${k === i ? 'ring-2 ring-slate-900' : 'opacity-70 hover:opacity-100'}`}>
-              {m.kind === 'video' ? <span className="flex h-full w-full items-center justify-center bg-slate-800"><Play size={20} className="text-white" fill="currentColor" /></span> : <img src={m.path} alt="" loading="lazy" className="h-full w-full object-cover" />}
-            </button>
-          ))}
-        </div>
-      )}
       {full && <Viewer media={media.filter((m) => m.kind !== 'video')} start={media.filter((m) => m.kind !== 'video').indexOf(cur)} alt={alt} onClose={() => setFull(false)} />}
     </div>
   );

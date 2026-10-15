@@ -10,6 +10,14 @@ const { stock, receipts } = require('./routes/stock');
 
 const app = express();
 app.use(cors());
+// заголовки безопасности: без чужих фреймов (кликджекинг), без угадывания типа файлов, HTTPS для браузера
+app.use((req, res, next) => {
+  // запрет фреймов только для программы учёта: витрину Метрика (Вебвизор) показывает во фрейме
+  if (req.path.startsWith('/admin') || req.path.startsWith('/api/')) res.set('X-Frame-Options', 'SAMEORIGIN');
+  res.set({ 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=()' });
+  if (req.secure || req.headers['x-forwarded-proto'] === 'https') res.set('Strict-Transport-Security', 'max-age=15552000');
+  next();
+});
 app.use(express.json({ limit: '5mb' }));
 const { UPLOAD_DIR } = require('./paths');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -33,6 +41,8 @@ app.get('/api/health', async (req, res) => {
 // Интернет-магазин: публичное API (свой вход покупателей по SMS)
 app.use('/api/shop', require('./routes/shop').router);
 
+// задача для капчи (вход в программу, SMS-код в магазине)
+app.get('/api/captcha', (req, res) => { res.set('Cache-Control', 'no-store'); res.json(require('./captcha').createChallenge()); });
 app.use('/api/auth', auth);
 // скачивание резервной копии по одноразовой ссылке из «Настроек» (браузер качает файл сам, без заголовка входа)
 app.get('/api/backup/:kind(db|uploads)', async (req, res) => {

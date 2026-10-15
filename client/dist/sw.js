@@ -1,5 +1,5 @@
 // Service worker витрины: работа как приложение (PWA), офлайн-страница, пуш-уведомления
-const CACHE = 'shop-v1';
+const CACHE = 'shop-v2';
 const OFFLINE = '/offline.html';
 
 self.addEventListener('install', (e) => {
@@ -14,6 +14,8 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin || url.pathname.startsWith('/api/') || url.pathname.startsWith('/admin')) return;
+  // видео и голосовые идут частями (Range) — их не трогаем, иначе Safari не воспроизводит
+  if (req.headers.has('range') || req.destination === 'video' || req.destination === 'audio' || /\.(mp4|webm|mov|m4a|ogg|mp3|m3u8|ts)$/i.test(url.pathname)) return;
   // страницы — всегда из сети (свежие цены и наличие); без сети — офлайн-страница
   if (req.mode === 'navigate') {
     e.respondWith(fetch(req).catch(() => caches.match(OFFLINE)));
@@ -22,7 +24,7 @@ self.addEventListener('fetch', (e) => {
   // собранные файлы с хэшем в имени и фото товаров — из кэша, если уже скачаны
   if (url.pathname.startsWith('/assets/') || url.pathname.startsWith('/uploads/') || url.pathname.startsWith('/icons/')) {
     e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => {
-      if (res.ok && res.type === 'basic') { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
+      if (res.status === 200 && res.type === 'basic') { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
       return res;
     })));
   }

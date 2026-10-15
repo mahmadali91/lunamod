@@ -21,6 +21,13 @@ async function api(p, { method = 'GET', body, auth = true, form } = {}) {
   const data = await res.json().catch(() => ({}));
   return { status: res.status, data };
 }
+// решение капчи, как в браузере: перебор чисел до совпадения хэша
+const cap = async () => {
+  const c = await fetch(BASE + '/api/captcha').then((r) => r.json());
+  const h = (x) => require('crypto').createHash('sha256').update(x).digest('hex');
+  for (let n = 0; n <= c.maxnumber; n++) if (h(c.salt + n) === c.challenge) return Buffer.from(JSON.stringify({ algorithm: c.algorithm, challenge: c.challenge, number: n, salt: c.salt, signature: c.signature })).toString('base64');
+  throw new Error('капча не решена');
+};
 const ok = async (...a) => { const r = await api(...a); assert.ok(r.status < 300, `${a[0]} → ${r.status} ${JSON.stringify(r.data)}`); return r.data; };
 const ean13ok = (c) => { let s = 0; for (let i = 0; i < 12; i++) s += +c[i] * (i % 2 ? 3 : 1); return (10 - (s % 10)) % 10 === +c[12]; };
 
@@ -286,11 +293,11 @@ test('интернет-магазин: каталог, вход по SMS, зак
 
   // вход по SMS
   const phone = '79' + D.slice(-9);
-  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { phone: '123' } })).status, 400);
-  const rc = await shop('/auth/request-code', { method: 'POST', body: { phone: '8' + phone.slice(1) } });
-  assert.equal(rc.status, 200); assert.match(rc.data.testCode, /^\d{4}$/);
-  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { phone } })).status, 429, 'повтор не раньше 60 с');
-  assert.equal((await shop('/auth/verify', { method: 'POST', body: { phone, code: rc.data.testCode === '0000' ? '1111' : '0000' } })).status, 400);
+  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { captcha: await cap(), phone: '123' } })).status, 400);
+  const rc = await shop('/auth/request-code', { method: 'POST', body: { captcha: await cap(), phone: '8' + phone.slice(1) } });
+  assert.equal(rc.status, 200); assert.match(rc.data.testCode, /^\d{6}$/);
+  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { captcha: await cap(), phone } })).status, 429, 'повтор не раньше 60 с');
+  assert.equal((await shop('/auth/verify', { method: 'POST', body: { phone, code: rc.data.testCode === '000000' ? '111111' : '000000' } })).status, 400);
   const noConsent = await shop('/auth/verify', { method: 'POST', body: { phone, code: rc.data.testCode } });
   assert.equal(noConsent.status, 400, 'без согласия на обработку ПД вход невозможен');
   assert.match(noConsent.data.error, /согласие/);
@@ -341,7 +348,7 @@ test('интернет-магазин: каталог, вход по SMS, зак
   const paid = (await shop(`/orders/${o3.data.order.id}/test-pay`, { method: 'POST', token: ct })).data;
   assert.equal(paid.paymentStatus, 'paid'); assert.equal(paid.status, 'confirmed');
   // чужой заказ недоступен
-  const rc2 = await shop('/auth/request-code', { method: 'POST', body: { phone: '79' + String(Number(D.slice(-9)) + 1).padStart(9, '0').slice(-9) } });
+  const rc2 = await shop('/auth/request-code', { method: 'POST', body: { captcha: await cap(), phone: '79' + String(Number(D.slice(-9)) + 1).padStart(9, '0').slice(-9) } });
   const other = (await shop('/auth/verify', { method: 'POST', body: { phone: rc2.data.phone, code: rc2.data.testCode, consent: true } })).data.token;
   assert.equal((await shop(`/orders/${o3.data.order.id}`, { token: other })).status, 404);
   // уведомление банка с неверной подписью отклоняется
@@ -368,7 +375,7 @@ test('юридические документы магазина', async () => {
 test('чат: только для вошедших, фото, голосовые, антиспам, ответ из админки', async () => {
   const login = async (n, name) => {
     const ph = '79' + String(Number(D.slice(-9)) + n).padStart(9, '0').slice(-9);
-    const rc = await shop('/auth/request-code', { method: 'POST', body: { phone: ph } });
+    const rc = await shop('/auth/request-code', { method: 'POST', body: { captcha: await cap(), phone: ph } });
     return (await shop('/auth/verify', { method: 'POST', body: { phone: rc.data.phone, code: rc.data.testCode, name, consent: true } })).data.token;
   };
   const send = (tk, body, form) => fetch(BASE + '/api/shop/chat', { method: 'POST', headers: { Authorization: 'Bearer ' + tk, ...(form ? {} : { 'Content-Type': 'application/json' }) }, body: form || JSON.stringify(body) });
@@ -651,7 +658,7 @@ test('витрина: варианты, фильтры, избранное, ож
 
   const login = async (n) => {
     const ph = '79' + String(Number(D.slice(-9)) + n).padStart(9, '0').slice(-9);
-    const rc = await shop('/auth/request-code', { method: 'POST', body: { phone: ph } });
+    const rc = await shop('/auth/request-code', { method: 'POST', body: { captcha: await cap(), phone: ph } });
     return (await shop('/auth/verify', { method: 'POST', body: { phone: rc.data.phone, code: rc.data.testCode, name: 'Ирина Петрова', consent: true } })).data.token;
   };
   const t = await login(11);
@@ -762,4 +769,41 @@ test('резервная копия: база (SQL) и файлы (tar) по о�
   const up = await ok('/admin/backup/link', { method: 'POST', body: { kind: 'uploads' } });
   const tar = require('zlib').gunzipSync(Buffer.from(await (await fetch(BASE + up.url)).arrayBuffer()));
   assert.equal(tar.subarray(257, 262).toString(), 'ustar');
+});
+
+test('капча и защита от подбора: SMS только с капчей, решение одноразовое, вход админа после 3 ошибок — с капчей', async () => {
+  const ph = '79' + String(Date.now()).slice(-9);
+  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { phone: ph } })).status, 428, 'без капчи код не отправляется');
+  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { phone: ph, captcha: 'bad' } })).status, 428);
+  const c = await cap();
+  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { phone: ph, captcha: c } })).status, 200);
+  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { phone: '79' + String(Date.now() + 7).slice(-9), captcha: c } })).status, 428, 'повтор решения не принимается');
+  // подбор пароля: отдельный логин, чтобы не мешать остальным тестам
+  const login = 'brute' + Date.now();
+  // после 3 ошибок (по логину или с этого адреса — считаются и ошибки из других тестов) нужна капча
+  let need;
+  for (let i = 0; i < 4; i++) { need = await api('/auth/login', { method: 'POST', auth: false, body: { login, password: 'x' + i } }); if (need.status !== 401) break; }
+  assert.equal(need.status, 428); assert.equal(need.data.captcha, true);
+  assert.equal((await api('/auth/login', { method: 'POST', auth: false, body: { login, password: 'x', captcha: await cap() } })).status, 401, 'с капчей проверяется пароль');
+  // подменённый X-Forwarded-For не сбрасывает счётчик по адресу
+  const spoof = await fetch(BASE + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '1.2.3.4' }, body: JSON.stringify({ login, password: 'y' }) });
+  assert.equal(spoof.status, 428);
+});
+
+test('безопасность: подделка уведомления Т-Банка, расширение загрузок, заголовки', async () => {
+  // уведомление с пустым ключом терминала и подписью от пустого пароля — не принимается
+  const { token } = require('../src/shop/tbank');
+  const body = { TerminalKey: '', OrderId: 'Z-000001', Status: 'CONFIRMED', Success: true, PaymentId: '1', Amount: 100 };
+  body.Token = token(body, '');
+  const r = await fetch(BASE + '/api/shop/tbank/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal(r.status, 400);
+  // файл «x.html» с типом картинки сохраняется как .png — HTML на сайт не попадёт
+  const p = await ok('/products', { method: 'POST', body: { name: 'Безопасность ' + U, price: 1 } });
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const form = new FormData(); form.append('images', new Blob([png], { type: 'image/png' }), 'x.html');
+  const [img] = await ok(`/products/${p.id}/images`, { method: 'POST', form });
+  assert.match(img.path, /\.png$/);
+  const h = await fetch(BASE + '/admin');
+  assert.equal(h.headers.get('x-frame-options'), 'SAMEORIGIN');
+  assert.equal(h.headers.get('x-content-type-options'), 'nosniff');
 });

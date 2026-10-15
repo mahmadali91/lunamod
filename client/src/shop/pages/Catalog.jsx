@@ -11,7 +11,7 @@ const COLOR_HEX = { чёрный: '#111', черный: '#111', белый: '#ff
 export const colorHex = (c) => COLOR_HEX[String(c || '').toLowerCase()] || null;
 
 function Chip({ on, onClick, children, title }) {
-  return <button type="button" onClick={onClick} title={title} aria-pressed={on} className={`rounded-full border px-3 py-1.5 text-sm transition ${on ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 hover:border-slate-900'}`}>{children}</button>;
+  return <button type="button" onClick={onClick} title={title} aria-pressed={on} className={`rounded-full border px-3 py-1.5 text-sm transition ${on ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white hover:border-slate-900'}`}>{children}</button>;
 }
 
 // Выпадающий фильтр в строке над товарами (на телефоне — панель снизу)
@@ -28,7 +28,7 @@ function FilterMenu({ label, count, children }) {
   return (
     <div ref={ref} className="relative shrink-0">
       <button onClick={() => setOpen(!open)} aria-expanded={open}
-        className={`flex items-center gap-1 rounded-full border px-3.5 py-2 text-sm transition ${count ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 hover:border-slate-900'}`}>
+        className={`flex items-center gap-1 rounded-full border px-3.5 py-2 text-sm transition ${count ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white hover:border-slate-900'}`}>
         {label}{count > 0 && <span className="ml-0.5 text-xs opacity-80">· {count}</span>}<ChevronDown size={15} className={`transition ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
@@ -172,7 +172,7 @@ export default function Catalog() {
       {/* строка фильтров: выпадающие списки + сортировка справа */}
       <div className="mb-5 flex items-center gap-2">
         <div className="-mx-4 flex min-w-0 flex-1 items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
-          <button onClick={() => setPanel(true)} className="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-300 px-3.5 py-2 text-sm lg:hidden">
+          <button onClick={() => setPanel(true)} className="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3.5 py-2 text-sm lg:hidden">
             <SlidersHorizontal size={15} /> Все{active > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-slate-900 px-1 text-xs text-white">{active}</span>}
           </button>
           {facets?.sizes.length > 0 && <FilterMenu label="Размер" count={multi('sizes').length}>
@@ -193,7 +193,7 @@ export default function Catalog() {
           </FilterMenu>}
           {[['inStock', 'В наличии'], ['sale', 'Со скидкой']].map(([k, l]) => (
             <button key={k} onClick={() => set(k, params.get(k) ? '' : '1')} aria-pressed={!!params.get(k)}
-              className={`shrink-0 rounded-full border px-3.5 py-2 text-sm transition ${params.get(k) ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 hover:border-slate-900'}`}>{l}</button>
+              className={`shrink-0 rounded-full border px-3.5 py-2 text-sm transition ${params.get(k) ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white hover:border-slate-900'}`}>{l}</button>
           ))}
         </div>
         <select value={sort} onChange={(e) => set('sort', e.target.value)} aria-label="Сортировка" className="hidden shrink-0 rounded-full border border-slate-300 bg-white px-3.5 py-2 text-sm outline-none sm:block">
@@ -210,7 +210,7 @@ export default function Catalog() {
         </div>
       )}
       <div className="flex gap-8">
-        <aside className="hidden w-60 shrink-0 lg:block">{categoriesUi}</aside>
+        <aside className="panel hidden w-60 shrink-0 self-start p-3 lg:block">{categoriesUi}</aside>
         <div className="min-w-0 flex-1">
           {!data ? <div className="py-20 text-center text-slate-400">Загрузка…</div> : items.length === 0 ? (
             <div className="py-20 text-center"><div className="text-lg font-semibold">Ничего не найдено</div><p className="mt-1 text-slate-500">Попробуйте изменить фильтры или выбрать другую категорию</p>{active > 0 && <button onClick={reset} className="mt-4 rounded-full bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white">Сбросить фильтры</button>}</div>

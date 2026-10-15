@@ -3,7 +3,9 @@ const express = require('express');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const prisma = require('../db');
-const { ah, HttpError, nextNumber, num, str, like, articleOf, idOfArticle, fillImages } = require('../util');
+const captcha = require('../captcha');
+const { pushEndpointOk } = require('../notify');
+const { ah, HttpError, nextNumber, num, str, like, articleOf, idOfArticle, fillImages, clientIp } = require('../util');
 const { getShopSettings, tbankReady } = require('../shop/settings');
 const { sendSms } = require('../shop/sms');
 const tbank = require('../shop/tbank');
@@ -25,7 +27,7 @@ function normPhone(p) {
   return d;
 }
 const hashCode = (phone, code) => crypto.createHash('sha256').update(`${phone}:${code}:${SECRET}`).digest('hex');
-const ipOf = (req) => String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+const ipOf = clientIp; // адрес клиента без подделки через X-Forwarded-For
 
 function customerAuth(required = true) {
   return (req, res, next) => {
@@ -282,7 +284,7 @@ r.post('/cart/check', ah(async (req, res) => {
 
 r.post('/delivery/quote', ah(async (req, res) => {
   const s = await getShopSettings();
-  const lines = parseLines(req.body.items);
+  const lines = parseLines(req.body.items).slice(0, 100);
   if (!lines.length) throw new HttpError(400, 'Корзина пуста');
   const c = await cartInfo(prisma, s, lines);
   const q = await delivery.quote(s, String(req.body.methodId), req.body.to || {}, { subtotal: c.subtotal, weight: c.weight });
@@ -291,6 +293,8 @@ r.post('/delivery/quote', ah(async (req, res) => {
 
 // ---------- вход по SMS ----------
 r.post('/auth/request-code', ah(async (req, res) => {
+  // каждое SMS стоит денег — без решённой капчи код не отправляем
+  if (!captcha.check(req)) return res.status(428).json({ error: 'Подтвердите, что вы не робот', captcha: true });
   const phone = normPhone(req.body.phone);
   const ip = ipOf(req);
   const s = await getShopSettings();
@@ -299,7 +303,15 @@ r.post('/auth/request-code', ah(async (req, res) => {
   const hourAgo = new Date(Date.now() - 3600e3);
   if (await prisma.smsCode.count({ where: { phone, createdAt: { gte: hourAgo } } }) >= 5) throw new HttpError(429, 'Слишком много попыток. Попробуйте через час.');
   if (await prisma.smsCode.count({ where: { ip, createdAt: { gte: hourAgo } } }) >= 20) throw new HttpError(429, 'Слишком много запросов. Попробуйте позже.');
-  const code = String(crypto.randomInt(1000, 10000));
+  // общий предел на магазин: защита бюджета SMS от рассылки по чужим номерам
+  if (s.smsMode !== 'test') {
+    const day = await prisma.smsCode.count({ where: { createdAt: { gte: new Date(Date.now() - 864e5) } } });
+    if (day >= Number(process.env.SMS_DAILY_LIMIT || 300)) {
+      notifyAdmins({ title: 'Достигнут дневной лимит SMS', body: 'Вход покупателей по SMS временно приостановлен — проверьте, нет ли атаки на сайт.', url: '/admin/shop-settings' }).catch(() => {});
+      throw new HttpError(429, 'Вход временно недоступен. Попробуйте позже или напишите нам.');
+    }
+  }
+  const code = String(crypto.randomInt(100000, 1000000)); // 6 цифр — подобрать нереально
   const r1 = await sendSms(s, phone, `Код для входа: ${code}`);
   await prisma.smsCode.create({ data: { phone, ip, codeHash: hashCode(phone, code), expiresAt: new Date(Date.now() + 5 * 60e3) } });
   res.json({ ok: true, phone, ...(r1.test ? { testCode: code } : {}) });
@@ -310,8 +322,11 @@ r.post('/auth/verify', ah(async (req, res) => {
   const code = String(req.body.code || '').replace(/\D/g, '');
   const rec = await prisma.smsCode.findFirst({ where: { phone, used: false }, orderBy: { id: 'desc' } });
   if (!rec || rec.expiresAt < new Date()) throw new HttpError(400, 'Код устарел. Запросите новый.');
-  if (rec.codeHash === hashCode(phone, code) && !req.body.consent && !(await prisma.customer.findUnique({ where: { phone } }))?.consentAt) throw new HttpError(400, 'Подтвердите согласие на обработку персональных данных');
   if (rec.attempts >= 5) throw new HttpError(429, 'Слишком много неверных попыток. Запросите новый код.');
+  // ошибки по номеру за сутки (по всем кодам) — чтобы нельзя было перебирать, запрашивая новые коды
+  const failsDay = await prisma.smsCode.aggregate({ _sum: { attempts: true }, where: { phone, createdAt: { gte: new Date(Date.now() - 864e5) } } });
+  if ((failsDay._sum.attempts || 0) >= 15) throw new HttpError(429, 'Слишком много неверных кодов. Вход для этого номера заблокирован на сутки — напишите нам.');
+  if (rec.codeHash === hashCode(phone, code) && !req.body.consent && !(await prisma.customer.findUnique({ where: { phone } }))?.consentAt) throw new HttpError(400, 'Подтвердите согласие на обработку персональных данных');
   if (rec.codeHash !== hashCode(phone, code)) {
     await prisma.smsCode.update({ where: { id: rec.id }, data: { attempts: { increment: 1 } } });
     throw new HttpError(400, 'Неверный код');
@@ -375,6 +390,7 @@ r.post('/orders', customerAuth(), ah(async (req, res) => {
   const lines = parseLines(b.items);
   if (!lines.length) throw new HttpError(400, 'Корзина пуста');
   if (lines.length > 100) throw new HttpError(400, 'Слишком много позиций');
+  if (await prisma.order.count({ where: { customerId: req.customer.cid, createdAt: { gte: new Date(Date.now() - 3600e3) } } }) >= 5) throw new HttpError(429, 'Слишком много заказов за час. Если нужно больше — напишите нам в чат.');
   if (!b.agree) throw new HttpError(400, 'Подтвердите согласие с условиями продажи и возврата');
   const method = ['tbank', 'sbp'].includes(b.paymentMethod) ? b.paymentMethod : 'cash';
   if (method === 'cash' && s.cashEnabled !== '1') throw new HttpError(400, 'Оплата при получении недоступна');
@@ -468,10 +484,14 @@ async function applyPaymentStatus(orderId, status) {
 // Уведомление от Т-Банка (NotificationURL). Ответ должен быть ровно «OK».
 r.post('/tbank/notify', ah(async (req, res) => {
   const s = await getShopSettings();
-  if (!tbank.verifyNotification(s, req.body)) { console.warn('Т-Банк: неверная подпись уведомления'); return res.status(400).send('BAD TOKEN'); }
+  // без настроенного терминала уведомления не принимаем: иначе подпись можно подделать пустым паролем
+  if (!tbankReady(s) || !tbank.verifyNotification(s, req.body)) { console.warn('Т-Банк: неверная подпись уведомления'); return res.status(400).send('BAD TOKEN'); }
   const number = String(req.body.OrderId || '').replace(/-\d+$/, '');
-  const o = await prisma.order.findFirst({ where: { OR: [{ paymentId: String(req.body.PaymentId) }, { number }] } });
-  if (o) await applyPaymentStatus(o.id, req.body.Status);
+  const o = await prisma.order.findFirst({ where: { paymentMethod: { in: ['tbank', 'sbp'] }, OR: [{ paymentId: String(req.body.PaymentId) }, { number }] } });
+  // оплата засчитывается, только если сумма совпадает с заказом
+  const paidOk = !['CONFIRMED', 'AUTHORIZED'].includes(req.body.Status) || Number(req.body.Amount) === Math.round(Number(o?.total || 0) * 100);
+  if (o && !paidOk) console.warn(`Т-Банк: сумма ${req.body.Amount} не совпадает с заказом ${o.number}`);
+  if (o && paidOk) await applyPaymentStatus(o.id, req.body.Status);
   res.send('OK');
 }));
 
@@ -608,7 +628,7 @@ r.post('/chat/read', customerAuth(), ah(async (req, res) => {
 // Пуш-уведомления покупателю об ответах в чате
 r.post('/push/subscribe', customerAuth(), ah(async (req, res) => {
   const sub = req.body;
-  if (!sub?.endpoint || !sub?.keys?.p256dh) throw new HttpError(400, 'Неверная подписка');
+  if (!sub?.endpoint || !sub?.keys?.p256dh || !pushEndpointOk(sub.endpoint)) throw new HttpError(400, 'Неверная подписка');
   await prisma.pushSubscription.deleteMany({ where: { endpoint: sub.endpoint } });
   await prisma.pushSubscription.create({ data: { endpoint: sub.endpoint, keys: JSON.stringify(sub.keys), visitorKey: 'cust-' + req.customer.cid } });
   res.json({ ok: true });

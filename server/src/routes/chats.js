@@ -56,7 +56,7 @@ const push = express.Router();
 push.get('/key', ah(async (req, res) => res.json({ key: (await getVapid()).publicKey })));
 push.post('/subscribe', ah(async (req, res) => {
   const sub = req.body;
-  if (!sub?.endpoint || !sub?.keys?.p256dh) throw new HttpError(400, 'Неверная подписка');
+  if (!sub?.endpoint || !sub?.keys?.p256dh || !require('../notify').pushEndpointOk(sub.endpoint)) throw new HttpError(400, 'Неверная подписка');
   await prisma.pushSubscription.deleteMany({ where: { endpoint: sub.endpoint } });
   await prisma.pushSubscription.create({ data: { endpoint: sub.endpoint, keys: JSON.stringify(sub.keys), userId: req.user.id } });
   res.json({ ok: true });

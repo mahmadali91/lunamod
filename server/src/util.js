@@ -163,4 +163,26 @@ async function fillImages(products) {
   return products;
 }
 
-module.exports = { fillImages, articleOf, idOfArticle, ah, HttpError, ean13CheckDigit, isValidEan13, generateEan13, detectBarcodeType, changeStock, nextNumber, num, int, str, like };
+/**
+ * IP покупателя/сотрудника. За прокси хостинга адрес клиента — последний публичный в X-Forwarded-For
+ * (прокси дописывает его в конец). Значения, которые прислал сам клиент, стоят раньше и не учитываются.
+ */
+const PRIVATE_IP = /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|::1$|f[cd][0-9a-f]{2}:|fe80:|::ffff:(10|127|192\.168|172\.(1[6-9]|2\d|3[01]))\.)/i;
+function clientIp(req) {
+  const chain = String(req.headers['x-forwarded-for'] || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const pub = chain.filter((ip) => !PRIVATE_IP.test(ip));
+  return (pub[pub.length - 1] || req.headers['x-real-ip'] || req.socket?.remoteAddress || '').toString().replace(/^::ffff:/, '');
+}
+
+/** Простой счётчик попыток в памяти: { hit, count, reset } по ключу за окно времени */
+function limiter(windowMs) {
+  const m = new Map();
+  const clean = () => { const now = Date.now(); for (const [k, v] of m) if (v.until < now) m.delete(k); };
+  return {
+    count: (k) => { const v = m.get(k); return v && v.until > Date.now() ? v.n : 0; },
+    hit: (k) => { if (m.size > 5000) clean(); const v = m.get(k); const now = Date.now(); if (!v || v.until < now) m.set(k, { n: 1, until: now + windowMs }); else v.n++; },
+    reset: (k) => m.delete(k),
+  };
+}
+
+module.exports = { clientIp, limiter, fillImages, articleOf, idOfArticle, ah, HttpError, ean13CheckDigit, isValidEan13, generateEan13, detectBarcodeType, changeStock, nextNumber, num, int, str, like };

@@ -1,14 +1,28 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const prisma = require('../db');
-const { ah, HttpError, str } = require('../util');
+const { ah, HttpError, str, clientIp, limiter } = require('../util');
+const captcha = require('../captcha');
 const { sign, requireAuth, requireAdmin } = require('../auth');
 
 const r = express.Router();
 
+// Защита входа от подбора пароля: после 3 ошибок (по логину или с адреса) — капча на каждую попытку,
+// после 30 ошибок с одного адреса — пауза 15 минут. Логин не блокируем совсем, чтобы чужие попытки не закрыли вход владельцу.
+const fails = limiter(15 * 60e3);
 r.post('/login', ah(async (req, res) => {
+  const login = String(req.body.login || '').trim().toLowerCase().slice(0, 100);
+  const ip = clientIp(req), kIp = 'ip:' + ip, kLogin = 'login:' + login;
+  if (fails.count(kIp) >= 30) throw new HttpError(429, 'Слишком много неудачных попыток. Попробуйте через 15 минут.');
+  if (Math.max(fails.count(kLogin), fails.count(kIp)) >= 3 && !captcha.check(req)) {
+    return res.status(428).json({ error: 'Подтвердите, что вы не робот', captcha: true });
+  }
   const u = await prisma.user.findUnique({ where: { login: String(req.body.login || '').trim() } });
-  if (!u || !(await bcrypt.compare(String(req.body.password || ''), u.password))) throw new HttpError(401, 'Неверный логин или пароль');
+  if (!u || !(await bcrypt.compare(String(req.body.password || ''), u.password))) {
+    fails.hit(kLogin); fails.hit(kIp);
+    return res.status(401).json({ error: 'Неверный логин или пароль', captcha: Math.max(fails.count(kLogin), fails.count(kIp)) >= 3 });
+  }
+  fails.reset(kLogin);
   res.json({ token: sign(u), user: { id: u.id, login: u.login, name: u.name, role: u.role } });
 }));
 

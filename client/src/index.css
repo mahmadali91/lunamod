@@ -5,12 +5,31 @@
 }
 
 html, body, #root { height: 100%; }
+
+/* ---------- Светлая тема ----------
+   Серые чуть плотнее стандартных: страница — мягкий серый, карточки — белые с заметной границей,
+   второстепенный текст и рамки полей контрастнее (чтобы не «слепило» и были видны границы блоков). */
+@layer base {
+  :root:not(.dark) {
+    --color-slate-50: #f1f3f7;
+    --color-slate-100: #e8ebf0;
+    --color-slate-200: #dbe0e7;
+    --color-slate-300: #c3cad5;
+    --color-slate-400: #8791a1;
+    --color-slate-500: #5b6678;
+    --shadow-card: 0 1px 2px rgb(16 24 40 / .05), 0 1px 3px rgb(16 24 40 / .07);
+    --shadow-card-hover: 0 4px 12px rgb(16 24 40 / .08), 0 2px 4px rgb(16 24 40 / .05);
+  }
+  .dark { --shadow-card: none; --shadow-card-hover: 0 0 0 1px var(--color-slate-300); }
+}
 body { @apply bg-slate-50 text-slate-800 antialiased; }
 
 @layer components {
   .input { @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 disabled:bg-slate-100; }
   .label { @apply mb-1 block text-xs font-medium text-slate-500; }
-  .card { @apply rounded-2xl border border-slate-200/70 bg-white shadow-sm; }
+  .card { @apply rounded-2xl border border-slate-200 bg-white; box-shadow: var(--shadow-card); }
+  /* белый блок на сером фоне витрины */
+  .panel { @apply rounded-2xl border border-slate-200 bg-white; box-shadow: var(--shadow-card); }
   .th { @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500; }
   .td { @apply px-4 py-3 text-sm; }
 }
@@ -42,11 +61,12 @@ body { @apply bg-slate-50 text-slate-800 antialiased; }
     --color-indigo-600: #5b5cf0;
   }
 }
-.dark :is(.bg-white, .card, .input) { background-color: var(--surface); }
+.dark :is(.bg-white, .card, .panel, .input) { background-color: var(--surface); }
 .dark .recharts-cartesian-grid line { stroke: #29354b; }
 .dark .recharts-default-tooltip { background-color: var(--surface) !important; border-color: #29354b !important; }
 .dark .recharts-text { fill: #94a3b8; }
 .dark .bg-white\/90 { background-color: color-mix(in srgb, var(--surface) 90%, transparent); }
+.dark .bg-white\/95 { background-color: color-mix(in srgb, var(--surface) 95%, transparent); }
 .dark .bg-white\/80 { background-color: color-mix(in srgb, var(--surface) 80%, transparent); }
 .dark .ring-white { --tw-ring-color: var(--surface); }
 .dark .border-white { border-color: var(--surface); }
@@ -75,3 +95,9 @@ html { transition: none; }
 .seo-prerender nav ul { display: flex; flex-wrap: wrap; gap: .5rem 1rem; }
 .seo-prerender img { width: 100%; height: auto; aspect-ratio: 3/4; object-fit: cover; border-radius: .75rem; background: var(--color-slate-100); }
 .seo-prerender a { color: inherit; }
+
+/* прокрутка без видимой полосы (колонка миниатюр, ленты) */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
