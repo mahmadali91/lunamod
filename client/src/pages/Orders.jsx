@@ -58,6 +58,27 @@ function OrderModal({ id, onClose, onChange }) {
         <div><div className="label">Оплата</div>{PAY_METHOD[o.paymentMethod]}<div><Badge color={PAY_STATUS[o.paymentStatus][1]}>{PAY_STATUS[o.paymentStatus][0]}</Badge></div></div>
       </div>
       {o.comment && <div className="mb-4 rounded-lg bg-amber-50 p-3 text-sm"><b>Комментарий покупателя:</b> {o.comment}</div>}
+      {/* на телефоне — списком, без горизонтальной прокрутки */}
+      <div className="divide-y divide-slate-100 border-y border-slate-100 sm:hidden">
+        {o.items.map((i) => {
+          const stock = i.product.stocks.reduce((a, s) => a + s.quantity, 0);
+          return (
+            <Link key={i.id} to={`/products/${i.productId}`} className="flex gap-3 py-2.5 text-sm">
+              <Thumb src={i.product.images[0]?.path} size={44} />
+              <div className="min-w-0 flex-1">
+                <div className="leading-snug">{i.name}</div>
+                <div className="font-mono text-xs text-slate-400">{i.product.sku}</div>
+                <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3 text-xs text-slate-500">
+                  <span>{fmtNum(i.quantity)} × {money(i.price)}</span>
+                  <span className={stock < i.quantity ? 'text-rose-600' : ''}>на складе {fmtNum(stock)}</span>
+                  <span className="text-sm font-semibold text-slate-900">{money(i.price * i.quantity)}</span>
+                </div>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+      <div className="hidden sm:block">
       <table className="w-full text-sm">
         <thead><tr className="border-b border-slate-100"><th className="th pl-0">Товар</th><th className="th text-right">Кол-во</th><th className="th text-right">Цена</th><th className="th text-right">Сумма</th><th className="th text-right">На складе</th></tr></thead>
         <tbody className="divide-y divide-slate-100">
@@ -73,6 +94,7 @@ function OrderModal({ id, onClose, onChange }) {
           })}
         </tbody>
       </table>
+      </div>
       <div className="mt-3 space-y-0.5 text-right text-sm">
         <div className="text-slate-500">Товары: {money(o.subtotal)}</div>
         {o.delivery !== 'pickup' && <div className="text-slate-500">Доставка: {o.deliveryPrice ? money(o.deliveryPrice) : 'бесплатно'}</div>}

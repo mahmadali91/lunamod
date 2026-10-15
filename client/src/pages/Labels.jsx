@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { Printer, Trash2, Tags, RotateCw } from 'lucide-react';
@@ -59,6 +59,17 @@ export default function Labels() {
   const [params] = useSearchParams();
   const [items, setItems] = useState([]); // [{ product, qty }]
   const [o, setO] = useState(() => ({ ...defaults, ...JSON.parse(localStorage.getItem(LS) || '{}') }));
+  // предпросмотр: ×1.5, но не шире области (на телефоне уменьшаем, чтобы ценник не вылезал)
+  const box = useRef(null);
+  const [boxW, setBoxW] = useState(0);
+  useEffect(() => {
+    const el = box.current; if (!el) return;
+    const ro = new ResizeObserver(() => setBoxW(el.clientWidth));
+    ro.observe(el); setBoxW(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+  const MM = 96 / 25.4;
+  const scale = boxW ? Math.max(0.3, Math.min(1.5, (boxW - 32 - 8) / (o.w * MM))) : 1.5;
   const money = useMoney();
   const { storeName } = useSettings();
   const toast = useToast();
@@ -145,11 +156,11 @@ export default function Labels() {
 
         <div className="card p-5 lg:col-span-3">
           <h2 className="mb-1 font-semibold">Предпросмотр</h2>
-          <p className="mb-4 text-xs text-slate-500">Масштаб ×1.5 · реальный размер {o.w}×{o.h} мм</p>
-          <div className="flex flex-wrap gap-4 rounded-xl bg-slate-100 p-4">
+          <p className="mb-4 text-xs text-slate-500">Масштаб ×{+scale.toFixed(2)} · реальный размер {o.w}×{o.h} мм</p>
+          <div ref={box} className="flex flex-wrap gap-4 overflow-hidden rounded-xl bg-slate-100 p-4">
             {items.map((it) => (
-              <div key={it.product.id} className="relative" style={{ width: `${o.w * 1.5}mm`, height: `${o.h * 1.5}mm` }}>
-                <div className="origin-top-left shadow-md ring-1 ring-slate-300" style={{ transform: 'scale(1.5)', width: `${o.w}mm` }}>
+              <div key={it.product.id} className="relative" style={{ width: `${o.w * scale}mm`, height: `${o.h * scale}mm` }}>
+                <div className="origin-top-left shadow-md ring-1 ring-slate-300" style={{ transform: `scale(${scale})`, width: `${o.w}mm` }}>
                   <Label p={it.product} o={o} money={money} storeName={storeName} />
                 </div>
                 {Number(it.qty) > 1 && <span className="absolute -top-2 -right-2 rounded-full bg-indigo-600 px-2 py-0.5 text-xs font-bold text-white">×{it.qty}</span>}
