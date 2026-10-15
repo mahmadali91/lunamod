@@ -807,3 +807,15 @@ test('безопасность: подделка уведомления Т-Ба�
   assert.equal(h.headers.get('x-frame-options'), 'SAMEORIGIN');
   assert.equal(h.headers.get('x-content-type-options'), 'nosniff');
 });
+
+test('избранное: товар, снятый с сайта, пропадает из избранного', async () => {
+  const p = await ok('/products', { method: 'POST', body: { name: 'Избранное ' + U, price: 100, showInShop: true } });
+  const ph = '79' + String(Date.now() + 3).slice(-9);
+  const rc = await shop('/auth/request-code', { method: 'POST', body: { captcha: await cap(), phone: ph } });
+  const t = (await shop('/auth/verify', { method: 'POST', body: { phone: ph, code: rc.data.testCode, consent: true } })).data.token;
+  const sh = (path, opt = {}) => fetch(BASE + '/api/shop' + path, { ...opt, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t } }).then((r) => r.json());
+  await sh('/favorites/' + p.id, { method: 'POST' });
+  assert.deepEqual((await sh('/favorites')).ids, [p.id]);
+  await ok('/products/' + p.id, { method: 'PUT', body: { ...(await ok('/products/' + p.id)), showInShop: false } });
+  assert.deepEqual((await sh('/favorites')).ids, [], 'скрытый товар убран');
+});

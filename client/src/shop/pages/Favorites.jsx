@@ -13,7 +13,7 @@ export default function Favorites() {
     document.title = 'Избранное';
     if (!fav.ids.length) { setItems([]); return; }
     // порядок — как добавляли (последние сверху); показываем и то, чего нет в наличии
-    shopApi('/products?limit=60&ids=' + key).then((r) => setItems(r.items)).catch(() => setItems([]));
+    shopApi('/products?limit=60&ids=' + key).then((r) => { setItems(r.items); if (fav.ids.length <= 60) fav.keep(r.items.map((p) => p.id)); }).catch(() => setItems([]));
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="mx-auto max-w-7xl px-4 pt-8">

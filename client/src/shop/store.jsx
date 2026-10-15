@@ -32,6 +32,15 @@ export function ShopProvider({ children }) {
     if (!me) return;
     shopApi('/favorites/sync', { method: 'POST', body: { ids: readFav() } }).then((r) => setFavIds(r.ids)).catch(() => {});
   }, [me?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // у гостя избранное только в браузере: при загрузке убираем товары, которых больше нет на сайте
+  useEffect(() => {
+    const ids = readFav();
+    if (shopToken.get() || !ids.length || ids.length > 60) return; // вошедшему — сверка через аккаунт
+    shopApi('/products?limit=60&ids=' + ids.join(',')).then((r) => {
+      const alive = new Set(r.items.map((p) => p.id));
+      setFavIds((f) => (f.some((x) => !alive.has(x)) ? f.filter((x) => alive.has(x)) : f));
+    }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const notify = useCallback((text, type = 'ok') => { setToast({ text, type, id: Math.random() }); }, []);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t); }, [toast]);
@@ -77,6 +86,8 @@ export function ShopProvider({ children }) {
 
   const fav = {
     ids: favIds,
+    // оставить только товары, которые сайт реально показал (остальные сняты с продажи)
+    keep(alive) { const set = new Set(alive); setFavIds((f) => (f.some((x) => !set.has(x)) ? f.filter((x) => set.has(x)) : f)); },
     count: favIds.length,
     has: (id) => favIds.includes(id),
     toggle(id) {

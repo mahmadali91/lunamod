@@ -496,16 +496,19 @@ r.post('/tbank/notify', ah(async (req, res) => {
 }));
 
 // ---------- избранное ----------
-r.get('/favorites', customerAuth(), ah(async (req, res) => {
-  const fav = await prisma.favorite.findMany({ where: { customerId: req.customer.cid }, orderBy: { id: 'desc' }, select: { productId: true } });
-  res.json({ ids: fav.map((f) => f.productId) });
-}));
+// избранное: только товары, которые сейчас есть на сайте; скрытые, архивные и удалённые убираем
+async function liveFavorites(cid) {
+  const fav = await prisma.favorite.findMany({ where: { customerId: cid }, orderBy: { id: 'desc' }, select: { productId: true, product: { select: { active: true, showInShop: true, parentId: true } } } });
+  const dead = fav.filter((f) => !f.product || !f.product.active || !f.product.showInShop || f.product.parentId).map((f) => f.productId);
+  if (dead.length) await prisma.favorite.deleteMany({ where: { customerId: cid, productId: { in: dead } } });
+  return fav.filter((f) => !dead.includes(f.productId)).map((f) => f.productId);
+}
+r.get('/favorites', customerAuth(), ah(async (req, res) => res.json({ ids: await liveFavorites(req.customer.cid) })));
 r.post('/favorites/sync', customerAuth(), ah(async (req, res) => {
   const ids = [...new Set((req.body.ids || []).map(Number).filter(Number.isInteger))].slice(0, 300);
-  const ok = await prisma.product.findMany({ where: { id: { in: ids }, parentId: null }, select: { id: true } });
+  const ok = await prisma.product.findMany({ where: { id: { in: ids }, parentId: null, active: true, showInShop: true }, select: { id: true } });
   for (const { id } of ok) await prisma.favorite.upsert({ where: { customerId_productId: { customerId: req.customer.cid, productId: id } }, update: {}, create: { customerId: req.customer.cid, productId: id } });
-  const fav = await prisma.favorite.findMany({ where: { customerId: req.customer.cid }, orderBy: { id: 'desc' }, select: { productId: true } });
-  res.json({ ids: fav.map((f) => f.productId) });
+  res.json({ ids: await liveFavorites(req.customer.cid) });
 }));
 r.post('/favorites/:id', customerAuth(), ah(async (req, res) => {
   const p = await prisma.product.findFirst({ where: { id: Number(req.params.id), parentId: null } });
