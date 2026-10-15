@@ -2,40 +2,29 @@ import { useState } from 'react';
 import { FileSpreadsheet, Download, Upload, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { api } from '../api';
 import { Button, Field, Modal, RefSelect, useToast } from '../ui';
+import { norm, readTable } from '../excel';
 
 // Колонки шаблона: заголовок → поле. Характеристики идут в attributes.
-const COLUMNS = [
+export const COLUMNS = [
   ['Название', 'name', 'Футболка базовая'], ['Артикул', 'sku', 'TS-001'], ['Штрихкод', 'barcode', ''], ['Категория', 'category', 'Футболки, майки, поло, топы'],
   ['Цена', 'price', 1490], ['Старая цена', 'oldPrice', ''], ['Закупочная цена', 'costPrice', 650], ['Ед. изм.', 'unit', 'шт'],
   ['Мин. остаток', 'minStock', 5], ['Количество', 'quantity', 20],
   ['Размер', 'attr:Размер', 'M'], ['Цвет', 'attr:Цвет', 'Белый'], ['Материал', 'attr:Материал', 'Хлопок 100%'], ['Бренд', 'attr:Бренд', ''],
   ['Описание', 'description', ''],
 ];
-const ALIASES = { 'наименование': 'name', 'товар': 'name', 'название товара': 'name', 'артикул': 'sku', 'код': 'sku', 'штрих-код': 'barcode', 'штрихкод': 'barcode', 'баркод': 'barcode', 'ean': 'barcode',
+const ALIASES = { 'id': 'id', 'наименование': 'name', 'товар': 'name', 'название товара': 'name', 'артикул': 'sku', 'код': 'sku', 'штрих-код': 'barcode', 'штрихкод': 'barcode', 'баркод': 'barcode', 'ean': 'barcode',
   'цена продажи': 'price', 'розничная цена': 'price', 'себестоимость': 'costPrice', 'закупка': 'costPrice', 'остаток': 'quantity', 'кол-во': 'quantity', 'единица': 'unit' };
 
-const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+// Информационные колонки выгрузки — при загрузке пропускаются
+const IGNORE = new Set(['всего на складах', 'доп. штрихкоды', 'фото']);
+
 function mapHeader(h) {
   const n = norm(h);
+  if (IGNORE.has(n)) return null;
   const col = COLUMNS.find(([title]) => norm(title) === n);
   if (col) return col[1];
   if (ALIASES[n]) return ALIASES[n];
   return n ? 'attr:' + String(h).trim() : null; // неизвестная колонка → характеристика
-}
-
-function parseCsv(text) {
-  const sep = (text.split('\n')[0].match(/;/g) || []).length >= (text.split('\n')[0].match(/,/g) || []).length ? ';' : ',';
-  const rows = []; let row = [], cell = '', q = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (q) { if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (c === '"') q = false; else cell += c; }
-    else if (c === '"') q = true;
-    else if (c === sep) { row.push(cell); cell = ''; }
-    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
-    else cell += c;
-  }
-  if (cell || row.length) { row.push(cell); rows.push(row); }
-  return rows;
 }
 
 function toProducts(table) {
@@ -85,15 +74,9 @@ export default function ImportProducts({ open, onClose, onDone }) {
     if (!file) return;
     setReport(null);
     try {
-      let table;
-      if (/\.csv$/i.test(file.name)) table = parseCsv(await file.text());
-      else {
-        const { readSheet } = await import('read-excel-file/browser');
-        table = await readSheet(file);
-      }
-      const p = toProducts(table);
+      const p = toProducts(await readTable(file));
       if (!p.rows.length) throw new Error('В файле нет строк с товарами');
-      if (!p.columns.includes('name') && !p.columns.includes('sku') && !p.columns.includes('barcode')) throw new Error('Не найдены колонки «Название», «Артикул» или «Штрихкод». Скачайте шаблон.');
+      if (!['id', 'name', 'sku', 'barcode'].some((k) => p.columns.includes(k))) throw new Error('Не найдены колонки «Название», «Артикул» или «Штрихкод». Скачайте шаблон.');
       setParsed(p); setFileName(file.name);
     } catch (err) { toast(err.message || 'Не удалось прочитать файл', 'error'); }
   };
@@ -152,7 +135,7 @@ export default function ImportProducts({ open, onClose, onDone }) {
                   <RefSelect path="/warehouses" value={warehouseId} onChange={setWarehouseId} filter={(w) => w.active} placeholder="Выберите склад" />
                 </Field>
               )}
-              <p className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-800"><AlertTriangle size={14} className="mt-0.5 shrink-0" /> Если товар с таким штрихкодом или артикулом уже есть — он будет обновлён (заполненными полями), иначе создан новый.</p>
+              <p className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-800"><AlertTriangle size={14} className="mt-0.5 shrink-0" /> Если товар с таким ID, штрихкодом или артикулом уже есть — он будет обновлён (заполненными полями), иначе создан новый.</p>
               <div>
                 <div className="label">Предпросмотр: {parsed.rows.length} строк, первые 5</div>
                 <div className="max-h-64 overflow-auto rounded-lg border border-slate-200">

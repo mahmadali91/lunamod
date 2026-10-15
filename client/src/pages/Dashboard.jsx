@@ -60,7 +60,7 @@ export default function Dashboard() {
         </div>
         <div className="flex max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
           {periods.map(([d, l]) => (
-            <button key={d} onClick={() => setDays(d)} className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium whitespace-nowrap transition ${days === d ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:bg-slate-100'}`}>{l}</button>
+            <button key={d} onClick={() => setDays(d)} className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium whitespace-nowrap transition ${d === 90 ? 'hidden sm:block' : ''} ${days === d ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:bg-slate-100'}`}>{l}</button>
           ))}
         </div>
       </div>

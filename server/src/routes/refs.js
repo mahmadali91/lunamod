@@ -27,7 +27,11 @@ const counterparties = crud('counterparty', {
 const categories = crud('category', {
   pick: (b) => ({ name: str(b.name) }),
   orderBy: { name: 'asc' },
-  include: { _count: { select: { products: true } } },
+  // кол-во товаров и фото первого товара — для карточек категорий
+  include: {
+    _count: { select: { products: { where: { active: true } } } },
+    products: { where: { active: true, images: { some: {} } }, take: 1, select: { images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } },
+  },
 });
 
 module.exports = { warehouses, channels, counterparties, categories };

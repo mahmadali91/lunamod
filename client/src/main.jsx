@@ -14,6 +14,8 @@ import Receipts, { ReceiptForm } from './pages/Receipts';
 import Sales from './pages/Sales';
 import Pos from './pages/Pos';
 import Consignment from './pages/Consignment';
+import Categories from './pages/Categories';
+import Stats from './pages/Stats';
 import Labels from './pages/Labels';
 import { Warehouses, Channels, Counterparties } from './pages/Refs';
 import SettingsPage from './pages/Settings';
@@ -33,6 +35,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="consignment" element={<Consignment />} />
             <Route path="products" element={<Products />} />
             <Route path="products/new" element={<ProductForm />} />
+            <Route path="categories" element={<Categories />} />
+            <Route path="stats" element={<Stats />} />
             <Route path="products/:id" element={<ProductForm />} />
             <Route path="stock" element={<Stock />} />
             <Route path="receipts" element={<Receipts />} />

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Package, Boxes, ShoppingCart, Receipt, Warehouse, Radio, Users, Tags, Settings, LogOut, Menu, X, ScanBarcode, PackagePlus, HandCoins,
+  LayoutDashboard, Package, Boxes, ShoppingCart, Receipt, Warehouse, Radio, Users, Tags, Settings, LogOut, Menu, X, ScanBarcode, PackagePlus, HandCoins, FolderTree, BarChart3,
 } from 'lucide-react';
 import { api } from './api';
 import { SettingsCtx, useToast } from './ui';
@@ -12,8 +12,10 @@ const nav = [
   { to: '/pos', icon: ShoppingCart, label: 'Новая продажа' },
   { to: '/sales', icon: Receipt, label: 'Продажи' },
   { to: '/consignment', icon: HandCoins, label: 'Реализация' },
+  { to: '/stats', icon: BarChart3, label: 'Статистика' },
   { group: 'Товары' },
   { to: '/products', icon: Package, label: 'Товары' },
+  { to: '/categories', icon: FolderTree, label: 'Категории' },
   { to: '/stock', icon: Boxes, label: 'Остатки' },
   { to: '/receipts', icon: PackagePlus, label: 'Приход товара' },
   { to: '/labels', icon: Tags, label: 'Ценники и этикетки' },

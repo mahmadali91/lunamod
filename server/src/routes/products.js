@@ -52,6 +52,16 @@ r.get('/', ah(async (req, res) => {
   res.json({ items: list, total, page, limit });
 }));
 
+// Все товары для выгрузки в Excel
+r.get('/export', ah(async (req, res) => {
+  const list = await prisma.product.findMany({
+    where: { active: true, ...(req.query.categoryId ? { categoryId: Number(req.query.categoryId) } : {}) },
+    include: { barcodes: { orderBy: [{ isPrimary: 'desc' }, { id: 'asc' }] }, attributes: { orderBy: { id: 'asc' } }, category: true, stocks: true },
+    orderBy: [{ categoryId: 'asc' }, { name: 'asc' }],
+  });
+  res.json(list.map(withTotals));
+}));
+
 // Самые продаваемые товары (для подсказки в кассе)
 r.get('/popular', ah(async (req, res) => {
   const limit = Math.min(30, Number(req.query.limit) || 10);
@@ -183,7 +193,8 @@ r.post('/import', ah(async (req, res) => {
         const barcode = str(row.barcode)?.replace(/\s/g, '');
         const sku = str(row.sku);
         let existing = null;
-        if (barcode) existing = await tx.product.findFirst({ where: { barcodes: { some: { code: barcode } } } });
+        if (row.id) existing = await tx.product.findUnique({ where: { id: Number(row.id) } });
+        if (!existing && barcode) existing = await tx.product.findFirst({ where: { barcodes: { some: { code: barcode } } } });
         if (!existing && sku) existing = await tx.product.findUnique({ where: { sku } });
         if (!existing && !str(row.name)) throw new HttpError(400, 'не указано название');
 

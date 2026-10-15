@@ -121,6 +121,18 @@ model SalesChannel {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   sales     Sale[]
+  expenses  ChannelExpense[]
+}
+
+// Расходы на канал продаж (реклама, комиссии) — для сквозной аналитики
+model ChannelExpense {
+  id        Int          @id @default(autoincrement())
+  channelId Int
+  date      DateTime // месяц/дата расхода
+  amount    Float
+  note      String?      @db.Text
+  createdAt DateTime     @default(now())
+  channel   SalesChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
 }
 
 model Counterparty {

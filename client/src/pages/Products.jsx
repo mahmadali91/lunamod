@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Search, Package, Tags, Pencil, Archive, List, LayoutGrid, FileSpreadsheet, ZoomIn } from 'lucide-react';
+import { Plus, Search, Package, Tags, Pencil, Archive, List, LayoutGrid, FileSpreadsheet, ZoomIn, Download } from 'lucide-react';
 import { api, fileUrl, qs } from '../api';
 import { Badge, Button, Empty, PageHeader, RefSelect, Spinner, Thumb, fmtNum, useLoad, useMoney } from '../ui';
 import Lightbox from '../components/Lightbox';
 import ImportProducts from '../components/ImportProducts';
 import { CameraButton } from '../components/CameraScanner';
+import { downloadXlsx, today } from '../excel';
 
 const VIEW_KEY = 'products_view';
 const readView = () => { try { return localStorage.getItem(VIEW_KEY) || 'list'; } catch { return 'list'; } };
@@ -13,7 +14,7 @@ const readView = () => { try { return localStorage.getItem(VIEW_KEY) || 'list'; 
 export default function Products() {
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState(params.get('q') || '');
-  const [categoryId, setCategoryId] = useState(null);
+  const [categoryId, setCategoryId] = useState(params.get('category') ? Number(params.get('category')) : null);
   const [archived, setArchived] = useState(false);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState([]);
@@ -37,6 +38,33 @@ export default function Products() {
 
   const { data, loading, reload } = useLoad('/products' + qs({ q: debounced, categoryId, page, limit: 50, archived }));
 
+  const [exporting, setExporting] = useState(false);
+  const exportXlsx = async () => {
+    setExporting(true);
+    try {
+      const list = await api('/products/export' + qs({ categoryId }));
+      const attrs = [...new Set(list.flatMap((p) => p.attributes.map((a) => a.name)))];
+      const order = ['Размер', 'Цвет', 'Материал', 'Бренд'];
+      attrs.sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
+      await downloadXlsx(`tovary-${today()}.xlsx`, [
+        { title: 'ID', value: (p) => p.id, width: 7 },
+        { title: 'Название', value: (p) => p.name, width: 42 },
+        { title: 'Артикул', value: (p) => p.sku, width: 16 },
+        { title: 'Штрихкод', value: (p) => p.barcodes[0]?.code, width: 16 },
+        { title: 'Доп. штрихкоды', value: (p) => p.barcodes.slice(1).map((b) => b.code).join(', '), width: 16 },
+        { title: 'Категория', value: (p) => p.category?.name, width: 28 },
+        { title: 'Цена', value: (p) => p.price, width: 11 },
+        { title: 'Старая цена', value: (p) => p.oldPrice, width: 12 },
+        { title: 'Закупочная цена', value: (p) => p.costPrice, width: 15 },
+        { title: 'Ед. изм.', value: (p) => p.unit, width: 9 },
+        { title: 'Мин. остаток', value: (p) => p.minStock, width: 12 },
+        ...attrs.map((a) => ({ title: a, value: (p) => p.attributes.find((x) => x.name === a)?.value, width: 16 })),
+        { title: 'Описание', value: (p) => p.description, width: 40 },
+        { title: 'Всего на складах', value: (p) => p.totalStock, width: 16 },
+      ], list);
+    } catch (e) { alert(e.message); } finally { setExporting(false); }
+  };
+
   const openCode = async (code) => {
     try { const p = await api('/products/lookup/' + encodeURIComponent(code)); navigate('/products/' + p.id); } catch { setQ(code); }
   };
@@ -52,7 +80,8 @@ export default function Products() {
         {selected.length > 0 && (
           <Button variant="secondary" icon={Tags} onClick={() => navigate('/labels?ids=' + selected.join(','))}>Печать этикеток ({selected.length})</Button>
         )}
-        <Button variant="secondary" icon={FileSpreadsheet} onClick={() => setImportOpen(true)}>Импорт из Excel</Button>
+        <Button variant="secondary" icon={Download} loading={exporting} onClick={exportXlsx}>Выгрузить в Excel</Button>
+        <Button variant="secondary" icon={FileSpreadsheet} onClick={() => setImportOpen(true)}>Загрузить из Excel</Button>
         <Button icon={Plus} onClick={() => navigate('/products/new')}>Добавить товар</Button>
       </PageHeader>
 

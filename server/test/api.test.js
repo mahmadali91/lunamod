@@ -205,6 +205,51 @@ test('импорт товаров из Excel', async () => {
   assert.equal(p2.stocks.find((s) => s.warehouseId === w1.id).quantity, 10);
 });
 
+test('статистика: сквозная аналитика, расходы, ABC', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const range = `from=${today}&to=${today}`;
+  const st = await ok(`/stats?${range}&groupBy=channel`);
+  assert.ok(st.totals.revenue > 0, 'есть выручка за сегодня');
+  const sumRows = st.rows.reduce((a, r) => a + r.revenue, 0);
+  assert.ok(Math.abs(sumRows - st.totals.revenue) < 1, 'сумма по каналам = итог');
+  // расход на канал → чистая прибыль и ROMI
+  await ok('/stats/expenses', { method: 'POST', body: { channelId: ch.id, amount: 100, date: today } });
+  const st2 = await ok(`/stats?${range}&groupBy=channel`);
+  const row = st2.rows.find((r) => r.id === ch.id);
+  assert.equal(row.expense, 100);
+  assert.equal(row.netProfit, Math.round((row.profit - 100) * 100) / 100);
+  assert.equal(st2.totals.expense, st.totals.expense + 100);
+  for (const g of ['category', 'product', 'counterparty', 'warehouse', 'payment']) assert.ok((await ok(`/stats?${range}&groupBy=${g}`)).rows.length > 0, g);
+  const tr = await ok(`/stats/trend?${range}`);
+  assert.equal(tr.points.length, 1);
+  const abc = await ok(`/stats/abc?${range}&by=product&metric=revenue`);
+  const shares = abc.rows.reduce((a, r) => a + r.share, 0);
+  assert.ok(Math.abs(shares - 100) < 0.5, 'доли в сумме 100%');
+  assert.equal(abc.rows[0].abc, 'A', 'лидер всегда в группе A');
+  assert.ok(abc.rows.every((r, i) => i === 0 || abc.rows[i - 1].revenue >= r.revenue), 'сортировка по убыванию');
+  assert.equal(abc.summary.A.count + abc.summary.B.count + abc.summary.C.count, abc.rows.length);
+  assert.ok((await ok(`/stats/abc?${range}&by=category&metric=profit`)).rows.length > 0);
+  assert.equal((await api('/stats?from=2030-01-02&to=2030-01-01')).status, 400);
+});
+
+test('выгрузка товаров и загрузка обратно по ID', async () => {
+  const list = await ok('/products/export');
+  const p = list.find((x) => x.id === product.id);
+  assert.ok(p && p.barcodes.length >= 1 && 'totalStock' in p);
+  const r = await ok('/products/import', { method: 'POST', body: { rows: [{ id: p.id, name: p.name + ' (изм.)', price: 1234 }] } });
+  assert.equal(r.updated, 1);
+  const after = await ok('/products/' + p.id);
+  assert.equal(after.price, 1234);
+  assert.equal(after.sku, p.sku, 'артикул не затронут');
+  await ok('/products/import', { method: 'POST', body: { rows: [{ id: p.id, name: p.name }] } });
+});
+
+test('категории: количество товаров', async () => {
+  const cats = await ok('/categories');
+  const c = cats.find((x) => x.name === 'Импорт ' + U);
+  assert.ok(c && c._count.products === 1);
+});
+
 test('демо-данные: загрузка и удаление', async () => {
   const before = (await ok('/products?limit=1')).total;
   assert.equal((await api('/admin/demo', { method: 'POST', body: {} , auth: false })).status, 401);

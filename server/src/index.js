@@ -43,6 +43,7 @@ app.use('/api/receipts', receipts);
 app.use('/api/sales', require('./routes/sales'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/stats', require('./routes/stats'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 

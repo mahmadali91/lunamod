@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Search, ClipboardCheck, ArrowLeftRight, PackagePlus, Download, Pencil, Save, X } from 'lucide-react';
+import { Search, ClipboardCheck, ArrowLeftRight, PackagePlus, Download, Pencil, Save, X, Upload, FileSpreadsheet, AlertTriangle } from 'lucide-react';
 import { api, qs } from '../api';
 import ItemsEditor from '../components/ItemsEditor';
+import { downloadXlsx, norm, readTable, today } from '../excel';
 import { Button, Field, Modal, PageHeader, RefSelect, Spinner, Thumb, fmtNum, useLoad, useMoney, useToast } from '../ui';
 
 function AdjustModal({ open, onClose, onDone }) {
@@ -68,6 +69,84 @@ function TransferModal({ open, onClose, onDone }) {
   );
 }
 
+/** Загрузка остатков из Excel: колонки-склады по названию, товар — по ID, штрихкоду или артикулу */
+function StockImport({ data, onClose, onDone }) {
+  const [plan, setPlan] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+
+  const onFile = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const table = await readTable(file);
+      const h = table.findIndex((r) => r.some((c) => String(c ?? '').trim()));
+      const head = table[h].map(norm);
+      const col = (...names) => head.findIndex((x) => names.includes(x));
+      const iId = col('id'), iSku = col('артикул'), iBc = col('штрихкод', 'штрих-код', 'баркод');
+      const whCols = data.warehouses.map((w) => ({ w, i: head.indexOf(norm(w.name)) })).filter((x) => x.i >= 0);
+      if (!whCols.length) throw new Error('В файле нет колонок с названиями складов. Выгрузите остатки и отредактируйте этот файл.');
+      const byId = new Map(data.rows.map((r) => [r.id, r]));
+      const bySku = new Map(data.rows.filter((r) => r.sku).map((r) => [String(r.sku).toLowerCase(), r]));
+      const byBc = new Map(data.rows.filter((r) => r.barcode).map((r) => [String(r.barcode), r]));
+      const items = [], unknown = [];
+      for (let i = h + 1; i < table.length; i++) {
+        const r = table[i];
+        if (!r.some((c) => String(c ?? '').trim())) continue;
+        const row = (iId >= 0 && byId.get(Number(r[iId]))) || (iBc >= 0 && byBc.get(String(r[iBc] ?? '').trim())) || (iSku >= 0 && bySku.get(String(r[iSku] ?? '').trim().toLowerCase()));
+        if (!row) { unknown.push(i + 1); continue; }
+        for (const { w, i: c } of whCols) {
+          const v = r[c];
+          if (v === null || v === undefined || String(v).trim() === '') continue;
+          const q = Number(String(v).replace(/\s/g, '').replace(',', '.'));
+          if (isNaN(q)) { unknown.push(i + 1); continue; }
+          if (q !== (row.byWh[w.id] || 0)) items.push({ productId: row.id, warehouseId: w.id, quantity: q, name: row.name, wh: w.name, from: row.byWh[w.id] || 0 });
+        }
+      }
+      setPlan({ items, unknown, file: file.name, warehouses: whCols.map((x) => x.w.name) });
+    } catch (err) { toast(err.message || 'Не удалось прочитать файл', 'error'); }
+  };
+
+  const apply = async () => {
+    setBusy(true);
+    try {
+      const r = await api('/stock/bulk', { method: 'POST', body: { items: plan.items, note: 'Загрузка остатков из Excel' } });
+      toast(`Остатки обновлены: ${r.changed}`); onDone(); onClose();
+    } catch (err) { toast(err.message, 'error'); } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal open onClose={onClose} title="Загрузка остатков из Excel" wide
+      footer={<><Button variant="secondary" onClick={onClose}>Отмена</Button><Button icon={Upload} loading={busy} disabled={!plan?.items.length} onClick={apply}>Обновить {plan ? plan.items.length : ''} остатков</Button></>}>
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600">Выгрузите остатки кнопкой «Выгрузить в Excel», исправьте количество в колонках складов и загрузите файл. Товары узнаются по ID, штрихкоду или артикулу. Пустая ячейка — без изменений.</p>
+        <label className="flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed border-slate-300 p-4 hover:border-indigo-400 hover:bg-indigo-50/30">
+          <FileSpreadsheet className="text-indigo-600" />
+          <span className="text-sm font-medium text-indigo-600">{plan?.file || 'Выбрать файл .xlsx или .csv'}</span>
+          <input type="file" accept=".xlsx,.csv" hidden onChange={onFile} />
+        </label>
+        {plan && (
+          <>
+            <div className="text-sm text-slate-600">Склады в файле: <b>{plan.warehouses.join(', ')}</b> · изменений: <b>{plan.items.length}</b></div>
+            {plan.unknown.length > 0 && <p className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-800"><AlertTriangle size={14} className="mt-0.5 shrink-0" /> Не распознаны строки: {plan.unknown.slice(0, 30).join(', ')}{plan.unknown.length > 30 ? '…' : ''} — они будут пропущены.</p>}
+            {plan.items.length > 0 ? (
+              <div className="max-h-72 overflow-auto rounded-lg border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-slate-50"><tr><th className="th">Товар</th><th className="th">Склад</th><th className="th text-right">Было</th><th className="th text-right">Станет</th></tr></thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {plan.items.map((it, k) => <tr key={k}><td className="px-4 py-2">{it.name}</td><td className="px-4 py-2 text-slate-600">{it.wh}</td><td className="px-4 py-2 text-right text-slate-400">{fmtNum(it.from)}</td><td className="px-4 py-2 text-right font-semibold">{fmtNum(it.quantity)}</td></tr>)}
+                  </tbody>
+                </table>
+              </div>
+            ) : <p className="text-sm text-slate-500">Изменений нет — все остатки в файле совпадают с текущими.</p>}
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 export default function Stock() {
   const [q, setQ] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -108,14 +187,15 @@ export default function Stock() {
     cells[cells.indexOf(e.target) + 1]?.focus();
   };
 
-  const exportCsv = () => {
-    const head = ['Товар', 'Артикул', 'Штрихкод', ...data.warehouses.map((w) => w.name), 'Итого', 'Цена'];
-    const lines = rows.map((r) => [r.name, r.sku || '', r.barcode || '', ...data.warehouses.map((w) => r.byWh[w.id] || 0), r.total, r.price]);
-    const csv = '﻿' + [head, ...lines].map((l) => l.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\n');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    a.download = 'ostatki.csv'; a.click();
-  };
+  const exportXlsx = () => downloadXlsx(`ostatki-${today()}.xlsx`, [
+    { title: 'ID', value: (r) => r.id, width: 7 },
+    { title: 'Товар', value: (r) => r.name, width: 42 },
+    { title: 'Артикул', value: (r) => r.sku, width: 16 },
+    { title: 'Штрихкод', value: (r) => r.barcode, width: 16 },
+    ...data.warehouses.map((w) => ({ title: w.name, value: (r) => r.byWh[w.id] || 0, width: Math.max(12, w.name.length + 2) })),
+    { title: 'Всего на складах', value: (r) => r.total, width: 16 },
+    { title: 'Цена', value: (r) => r.price, width: 11 },
+  ], rows);
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -128,7 +208,8 @@ export default function Stock() {
         ) : (
           <Button icon={Pencil} onClick={() => setEdit({})} disabled={!data}>Редактировать остатки</Button>
         )}
-        <Button variant="secondary" icon={Download} onClick={exportCsv} disabled={!data}>Excel (CSV)</Button>
+        <Button variant="secondary" icon={Download} onClick={exportXlsx} disabled={!data}>Выгрузить в Excel</Button>
+        <Button variant="secondary" icon={Upload} onClick={() => setModal('import')} disabled={!data || !!edit}>Загрузить из Excel</Button>
         <Button variant="secondary" icon={ArrowLeftRight} onClick={() => setModal('transfer')}>Перемещение</Button>
         <Button variant="secondary" icon={ClipboardCheck} onClick={() => setModal('adjust')}>Инвентаризация</Button>
         <Button variant="secondary" icon={PackagePlus} onClick={() => navigate('/receipts/new')}>Приход</Button>
@@ -192,6 +273,7 @@ export default function Stock() {
       </div>
       <AdjustModal open={modal === 'adjust'} onClose={() => setModal(null)} onDone={reload} />
       <TransferModal open={modal === 'transfer'} onClose={() => setModal(null)} onDone={reload} />
+      {modal === 'import' && data && <StockImport data={data} onClose={() => setModal(null)} onDone={reload} />}
     </div>
   );
 }

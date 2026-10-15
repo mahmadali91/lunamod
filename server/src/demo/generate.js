@@ -75,7 +75,7 @@ async function generateDemo({ perCategory = 5, days = 365 } = {}) {
       created.channels.push(c.id); channels.push(c);
     }
   }
-  const chWeights = channels.map((c) => ({ retail: 5, online: 3, marketplace: 3, wholesale: 1 }[c.type] || 1));
+  const chWeights = channels.map((c) => ({ retail: 6, online: 3, marketplace: 3, wholesale: 0.4 }[c.type] || 1));
   const wholesale = channels.find((c) => c.type === 'wholesale') || channels[0];
   const pickChannel = () => { let r = Math.random() * chWeights.reduce((a, b) => a + b, 0); for (let i = 0; i < channels.length; i++) { r -= chWeights[i]; if (r <= 0) return channels[i]; } return channels[0]; };
 
@@ -218,17 +218,17 @@ async function generateDemo({ perCategory = 5, days = 365 } = {}) {
       const channel = pickChannel();
       const wid = channel.type === 'retail' && wShop && Math.random() < 0.6 ? wShop.id : wMain.id;
       const lines = [];
-      for (let j = 0, cnt = channel.type === 'wholesale' ? irnd(3, 6) : Math.random() < 0.7 ? 1 : irnd(2, 3); j < cnt; j++) {
+      for (let j = 0, cnt = channel.type === 'wholesale' ? irnd(2, 4) : Math.random() < 0.7 ? 1 : irnd(2, 3); j < cnt; j++) {
         const p = pickProduct();
-        if (!lines.some((l) => l.p.id === p.id)) lines.push({ p, q: channel.type === 'wholesale' ? irnd(3, 10) : 1 });
+        if (!lines.some((l) => l.p.id === p.id)) lines.push({ p, q: channel.type === 'wholesale' ? irnd(2, 5) : 1 });
       }
       sell(atHour(date, irnd(10, 20)), { wid, channel, counterparty: Math.random() < 0.08 ? pick(regulars) : null, lines });
     }
     // Реализация: раз в ~6 дней партнёру уходит партия товара
-    if (d % 6 === 3) {
+    if (d % 9 === 3) {
       const partner = pick(partners);
       const lines = [];
-      for (let j = 0, cnt = irnd(3, 7); j < cnt; j++) { const p = pickProduct(); if (!lines.some((l) => l.p.id === p.id)) lines.push({ p, q: irnd(2, 6) }); }
+      for (let j = 0, cnt = irnd(3, 6); j < cnt; j++) { const p = pickProduct(); if (!lines.some((l) => l.p.id === p.id)) lines.push({ p, q: irnd(2, 4) }); }
       consignments.push({ ...sell(atHour(date, irnd(11, 17)), { wid: wMain.id, channel: wholesale, counterparty: partner, consign: true, priceK: 0.75, lines }), age: d });
     }
   }
