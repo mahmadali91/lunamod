@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Package, Boxes, ShoppingCart, Receipt, Warehouse, Radio, Users, Tags, Settings, LogOut, Menu, X, ScanBarcode, PackagePlus, HandCoins, FolderTree, BarChart3, ShoppingBag, Globe,
+  LayoutDashboard, Package, Boxes, ShoppingCart, Receipt, Warehouse, Radio, Users, Tags, Settings, LogOut, Menu, X, ScanBarcode, PackagePlus, HandCoins, FolderTree, BarChart3, ShoppingBag, Globe, MessageCircle,
 } from 'lucide-react';
 import { api } from './api';
 import { SettingsCtx, useToast } from './ui';
@@ -11,6 +11,7 @@ const nav = [
   { to: '/', icon: LayoutDashboard, label: 'Дашборд', end: true },
   { to: '/pos', icon: ShoppingCart, label: 'Новая продажа' },
   { to: '/orders', icon: ShoppingBag, label: 'Заказы', badge: 'orders' },
+  { to: '/chats', icon: MessageCircle, label: 'Чаты', badge: 'chats' },
   { to: '/sales', icon: Receipt, label: 'Продажи' },
   { to: '/consignment', icon: HandCoins, label: 'Реализация' },
   { to: '/stats', icon: BarChart3, label: 'Статистика' },
@@ -61,10 +62,14 @@ export default function Layout() {
   const loadSettings = () => api('/settings').then(setSettings).catch(() => {});
   useEffect(() => { loadSettings(); }, []);
   const [newOrders, setNewOrders] = useState(0);
+  const [unreadChats, setUnreadChats] = useState(0);
   useEffect(() => {
-    const load = () => api('/orders/count').then((r) => setNewOrders(r.new)).catch(() => {});
+    const load = () => {
+      api('/orders/count').then((r) => setNewOrders(r.new)).catch(() => {});
+      api('/chats/unread').then((r) => setUnreadChats(r.unread)).catch(() => {});
+    };
     load();
-    const t = setInterval(load, 60000);
+    const t = setInterval(load, 20000);
     return () => clearInterval(t);
   }, []);
 
@@ -86,7 +91,7 @@ export default function Layout() {
           <NavLink key={n.to} to={n.to} end={n.end} onClick={() => setMobile(false)}
             className={({ isActive }) => `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${isActive ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}>
             <n.icon size={18} /> {n.label}
-            {n.badge === 'orders' && newOrders > 0 && <span className="ml-auto rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] leading-none font-semibold text-white">{newOrders}</span>}
+            {(n.badge === 'orders' ? newOrders : n.badge === 'chats' ? unreadChats : 0) > 0 && <span className="ml-auto rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] leading-none font-semibold text-white">{n.badge === 'orders' ? newOrders : unreadChats}</span>}
           </NavLink>
         ))}
       </nav>

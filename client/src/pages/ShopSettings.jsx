@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Save, ExternalLink, AlertTriangle, CreditCard, MessageSquare, Truck, Store, ShieldCheck } from 'lucide-react';
+import { Save, ExternalLink, AlertTriangle, CreditCard, MessageSquare, Truck, Store, ShieldCheck, FileText, Bell, MessagesSquare, Plus, Trash2, RotateCcw, ChevronDown } from 'lucide-react';
+import PushToggle from '../components/PushToggle';
 import { api } from '../api';
 import { Button, Field, PageHeader, RefSelect, Spinner, useToast } from '../ui';
 
@@ -18,15 +19,24 @@ export default function ShopSettings() {
   const [s, setS] = useState(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [tpl, setTpl] = useState(null);
+  const [methods, setMethods] = useState([]);
+  const [doc, setDoc] = useState('privacy');
   const toast = useToast();
-  useEffect(() => { api('/orders/settings').then(setS).catch((e) => toast(e.message, 'error')); }, [toast]);
-  if (!s) return <Spinner />;
+  useEffect(() => {
+    api('/orders/settings').then(setS).catch((e) => toast(e.message, 'error'));
+    api('/orders/settings/templates').then((t) => { setTpl(t); setMethods(t.methods); }).catch(() => {});
+  }, [toast]);
+  if (!s || !tpl) return <Spinner />;
+  const setM = (i, patch) => setMethods(methods.map((m, j) => (i === j ? { ...m, ...patch } : m)));
+  const addMethod = (carrier) => setMethods([...methods, { id: carrier + '_' + Date.now().toString(36), carrier, name: tpl.carriers[carrier].name, enabled: true, price: 0, markupFixed: 0, markupPercent: 0, freeFrom: 0, days: '', description: '' }]);
+  const testTelegram = async () => { try { await api('/orders/settings', { method: 'PUT', body: s }); const r = await api('/orders/settings/test-telegram', { method: 'POST' }); toast(r.message); } catch (e) { toast(e.message, 'error'); } };
   const f = (k) => (v) => setS({ ...s, [k]: v });
   const inp = (k, props = {}) => <input className="input" value={s[k] ?? ''} onChange={(e) => f(k)(e.target.value)} {...props} />;
 
   const save = async () => {
     setSaving(true);
-    try { setS(await api('/orders/settings', { method: 'PUT', body: s })); toast('Настройки магазина сохранены'); } catch (e) { toast(e.message, 'error'); } finally { setSaving(false); }
+    try { setS(await api('/orders/settings', { method: 'PUT', body: { ...s, deliveryMethods: JSON.stringify(methods.map(({ needs, api: _a, ...m }) => ({ ...m, price: Number(m.price) || 0, markupFixed: Number(m.markupFixed) || 0, markupPercent: Number(m.markupPercent) || 0, freeFrom: Number(m.freeFrom) || 0 }))) } })); toast('Настройки магазина сохранены'); } catch (e) { toast(e.message, 'error'); } finally { setSaving(false); }
   };
   const testTbank = async () => {
     setTesting(true);
@@ -64,16 +74,53 @@ export default function ShopSettings() {
         <p className="text-xs text-slate-500">Скрыть отдельный товар из магазина можно в его карточке — флажок «Показывать в интернет-магазине».</p>
       </Section>
 
-      <Section icon={Truck} title="Получение заказа">
-        <Check v={s.pickupEnabled} set={f('pickupEnabled')} label="Самовывоз" />
-        {s.pickupEnabled === '1' && <Field label="Адрес самовывоза">{inp('pickupAddress')}</Field>}
-        <Check v={s.courierEnabled} set={f('courierEnabled')} label="Доставка курьером" />
-        {s.courierEnabled === '1' && (
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Стоимость доставки">{inp('courierPrice', { type: 'number', min: 0 })}</Field>
-            <Field label="Бесплатно от суммы (0 — никогда)">{inp('courierFreeFrom', { type: 'number', min: 0 })}</Field>
-          </div>
-        )}
+      <Section icon={Truck} title="Доставка" hint="Цена для покупателя = тариф (фиксированный или рассчитанный службой) + наценка в % + наценка в ₽. «Бесплатно от» — порог суммы заказа.">
+        <div className="space-y-3">
+          {methods.map((m, i) => {
+            const c = tpl.carriers[m.carrier];
+            return (
+              <details key={m.id} className={`rounded-xl border ${m.enabled ? 'border-slate-200' : 'border-dashed border-slate-200 opacity-70'}`}>
+                <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3">
+                  <input type="checkbox" checked={m.enabled} onClick={(e) => e.stopPropagation()} onChange={(e) => setM(i, { enabled: e.target.checked })} />
+                  <span className="flex-1 font-medium">{m.name}</span>
+                  <span className="text-xs text-slate-500">{c.api ? 'расчёт по API' : `${Number(m.price) || 0} ₽`}{Number(m.markupPercent) ? ` +${m.markupPercent}%` : ''}{Number(m.markupFixed) ? ` +${m.markupFixed} ₽` : ''}</span>
+                  <ChevronDown size={16} className="text-slate-400" />
+                </summary>
+                <div className="grid grid-cols-2 gap-3 border-t border-slate-100 p-4 sm:grid-cols-4">
+                  <Field label="Название для покупателя" className="col-span-2"><input className="input" value={m.name} onChange={(e) => setM(i, { name: e.target.value })} /></Field>
+                  <Field label="Срок (текст)"><input className="input" value={m.days || ''} onChange={(e) => setM(i, { days: e.target.value })} placeholder="2–5 дней" /></Field>
+                  <Field label="Бесплатно от, ₽"><input className="input" type="number" min="0" value={m.freeFrom || ''} onChange={(e) => setM(i, { freeFrom: e.target.value })} placeholder="0 — нет" /></Field>
+                  {!c.api && <Field label="Тариф, ₽"><input className="input" type="number" min="0" value={m.price} onChange={(e) => setM(i, { price: e.target.value })} /></Field>}
+                  <Field label="Наценка, %"><input className="input" type="number" step="any" value={m.markupPercent || ''} onChange={(e) => setM(i, { markupPercent: e.target.value })} placeholder="0" /></Field>
+                  <Field label="Наценка, ₽"><input className="input" type="number" step="any" value={m.markupFixed || ''} onChange={(e) => setM(i, { markupFixed: e.target.value })} placeholder="0" /></Field>
+                  <Field label={m.carrier === 'pickup' ? 'Адрес самовывоза' : 'Подсказка покупателю'} className="col-span-2 sm:col-span-4"><input className="input" value={m.description || ''} onChange={(e) => setM(i, { description: e.target.value })} /></Field>
+                  <div className="col-span-2 flex items-center justify-between sm:col-span-4">
+                    <span className="text-xs text-slate-500">{c.api ? 'Стоимость считается службой доставки по адресу и весу заказа.' : ['pek', 'avito', 'ozon', 'fivepost'].includes(m.carrier) ? 'Фиксированный тариф: автоматический расчёт подключается после договора со службой (нужны ключи API).' : ''}</span>
+                    <button type="button" onClick={() => setMethods(methods.filter((_, j) => j !== i))} className="flex items-center gap-1 text-xs text-rose-600"><Trash2 size={14} /> Удалить</button>
+                  </div>
+                </div>
+              </details>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select className="input w-auto" value="" onChange={(e) => e.target.value && addMethod(e.target.value)}>
+            <option value="">+ Добавить способ доставки…</option>
+            {Object.entries(tpl.carriers).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
+          </select>
+          <Button size="sm" variant="ghost" icon={RotateCcw} onClick={() => confirm('Вернуть стандартный список способов доставки?') && setMethods(tpl.defaultMethods)}>Стандартный набор</Button>
+        </div>
+        <div className="grid grid-cols-1 gap-4 rounded-xl bg-slate-50 p-4 sm:grid-cols-2">
+          <div className="sm:col-span-2 text-sm font-medium">Параметры отправки</div>
+          <Field label="Вес товара по умолчанию, г"><input className="input" type="number" value={s.defaultWeight} onChange={(e) => f('defaultWeight')(e.target.value)} /></Field>
+          <Field label="Почта России: индекс отделения отправки">{inp('pochtaFromIndex', { placeholder: 'например, 125009', inputMode: 'numeric' })}</Field>
+          <Field label="Почта России: вид отправления"><select className="input" value={s.pochtaObject} onChange={(e) => f('pochtaObject')(e.target.value)}><option value="4030">Посылка (розничный тариф)</option><option value="23030">Посылка онлайн (по договору)</option><option value="27030">Посылка стандарт (по договору)</option></select></Field>
+          <Field label="СДЭК: код города отправки">{inp('cdekFromCityCode', { placeholder: 'Москва — 44', inputMode: 'numeric' })}</Field>
+          <Field label="СДЭК: Client ID (Account)">{inp('cdekClientId', { autoComplete: 'off', placeholder: s.cdekTest === '1' ? 'тестовый режим' : '' })}</Field>
+          <Field label="СДЭК: Client Secret">{inp('cdekClientSecret', { type: 'password', autoComplete: 'new-password' })}</Field>
+          <div className="sm:col-span-2"><Check v={s.cdekTest} set={f('cdekTest')} label="СДЭК: тестовая среда (без договора, цены условные) — выключите, когда введёте боевые ключи" /></div>
+          <p className="text-xs text-slate-500 sm:col-span-2">Ключи СДЭК — в личном кабинете lk.cdek.ru → Интеграция. Коды городов: Москва 44, Санкт-Петербург 137, Казань 424, Екатеринбург 250, Новосибирск 270.</p>
+        </div>
       </Section>
 
       <Section icon={CreditCard} title="Оплата" hint="Покупатель выбирает способ оплаты при оформлении заказа.">
@@ -96,6 +143,50 @@ export default function ShopSettings() {
             <Button variant="secondary" size="sm" icon={ShieldCheck} loading={testing} onClick={testTbank}>Проверить ключи</Button>
           </div>
         )}
+      </Section>
+
+      <Section icon={FileText} title="Продавец и документы" hint="Реквизиты показываются в подвале сайта и подставляются в документы. Тексты — типовые шаблоны: проверьте их у юриста под ваш бизнес.">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Продавец (ИП Иванов И.И. / ООО «…»)">{inp('sellerName')}</Field>
+          <Field label="ИНН">{inp('sellerInn', { inputMode: 'numeric' })}</Field>
+          <Field label="ОГРН / ОГРНИП">{inp('sellerOgrn', { inputMode: 'numeric' })}</Field>
+          <Field label="Юридический адрес">{inp('sellerAddress')}</Field>
+          <Field label="Email для обращений и претензий">{inp('sellerEmail')}</Field>
+          <Field label="Телефон для обращений">{inp('sellerPhone')}</Field>
+          <Field label="Адрес для возврата товара">{inp('returnAddress')}</Field>
+          <Field label="Дата редакции документов">{inp('legalDate', { placeholder: new Date().toLocaleDateString('ru-RU') })}</Field>
+        </div>
+        <div className="rounded-xl border border-slate-200">
+          <div className="flex flex-wrap gap-1 border-b border-slate-100 p-2">
+            {Object.entries(tpl.docs).map(([k, t]) => <button key={k} onClick={() => setDoc(k)} className={`rounded-lg px-3 py-1.5 text-sm ${doc === k ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{t}</button>)}
+          </div>
+          <div className="space-y-2 p-3">
+            <textarea className="input font-mono text-xs" rows={14} value={s['legal_' + doc] || tpl.legal[doc]} onChange={(e) => f('legal_' + doc)(e.target.value)} />
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+              <span>«## » — заголовок. Переменные: {'{{sellerName}} {{sellerInn}} {{sellerOgrn}} {{sellerAddress}} {{sellerEmail}} {{sellerPhone}} {{site}} {{date}}'}</span>
+              <div className="flex gap-2">
+                <a href={`/legal/${doc}`} target="_blank" rel="noreferrer" className="text-indigo-600">Посмотреть на сайте</a>
+                <button onClick={() => f('legal_' + doc)('')} className="flex items-center gap-1 text-slate-600"><RotateCcw size={12} /> Вернуть шаблон</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-900"><AlertTriangle size={14} className="mt-0.5 shrink-0" /> Обработка персональных данных требует уведомить Роскомнадзор (pd.rkn.gov.ru) до начала обработки, если вы ещё не подавали уведомление.</p>
+      </Section>
+
+      <Section icon={MessagesSquare} title="Чат на сайте">
+        <Check v={s.chatEnabled} set={f('chatEnabled')} label="Показывать кнопку чата на сайте" />
+        <Field label="Приветствие в чате">{inp('chatGreeting')}</Field>
+      </Section>
+
+      <Section icon={Bell} title="Уведомления о заказах и сообщениях" hint="Пуш-уведомления приходят в браузер или на телефон, где вы их включили. Telegram — надёжный запасной канал.">
+        <PushToggle />
+        <div className="grid grid-cols-1 gap-4 rounded-xl bg-slate-50 p-4 sm:grid-cols-2">
+          <Field label="Telegram: токен бота">{inp('tgBotToken', { type: 'password', autoComplete: 'new-password', placeholder: '123456:ABC…' })}</Field>
+          <Field label="Telegram: ID чата">{inp('tgChatId', { placeholder: 'например, 123456789' })}</Field>
+          <p className="text-xs text-slate-500 sm:col-span-2">Создайте бота у @BotFather и скопируйте токен. Напишите своему боту /start, затем узнайте свой ID у @userinfobot. Для уведомлений в группу добавьте бота в группу и укажите ID группы.</p>
+          <div><Button size="sm" variant="secondary" onClick={testTelegram}>Проверить Telegram</Button></div>
+        </div>
       </Section>
 
       <Section icon={MessageSquare} title="SMS для входа покупателей" hint="Покупатель вводит номер телефона и получает код по SMS.">

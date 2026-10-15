@@ -103,6 +103,7 @@ function pickProduct(b) {
   return {
     name: str(b.name), sku: str(b.sku), description: str(b.description), unit: b.unit || 'шт',
     price: num(b.price), oldPrice: b.oldPrice ? num(b.oldPrice) : null, costPrice: num(b.costPrice), minStock: num(b.minStock),
+    weight: b.weight === '' || b.weight === null || b.weight === undefined ? null : num(b.weight),
     categoryId: int(b.categoryId), active: b.active === undefined ? true : Boolean(b.active),
     showInShop: b.showInShop === undefined ? true : Boolean(b.showInShop),
   };

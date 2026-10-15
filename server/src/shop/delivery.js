@@ -21,9 +21,9 @@ function defaultMethods(s = {}) {
   return [
     m('pickup', 'pickup', { enabled: s.pickupEnabled !== '0', description: s.pickupAddress || '', days: 'в день заказа' }),
     m('courier', 'courier', { enabled: s.courierEnabled !== '0', price: Number(s.courierPrice || 300), freeFrom: Number(s.courierFreeFrom || 0), days: '1–2 дня' }),
-    m('pochta', 'pochta', { days: 'по расчёту' }),
-    m('cdek_pvz', 'cdek_pvz', { days: 'по расчёту' }),
-    m('cdek_door', 'cdek_door', { days: 'по расчёту' }),
+    m('pochta', 'pochta'),
+    m('cdek_pvz', 'cdek_pvz'),
+    m('cdek_door', 'cdek_door'),
     m('pek', 'pek', { price: 600, days: '3–7 дней' }),
     m('avito', 'avito', { price: 250, days: '3–6 дней', description: 'Укажите адрес пункта выдачи Авито' }),
     m('ozon', 'ozon', { price: 200, days: '3–7 дней', description: 'Укажите адрес пункта выдачи Ozon' }),

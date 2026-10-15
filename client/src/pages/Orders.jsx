@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ShoppingBag, Search, Phone, MapPin, Store, Truck, CheckCircle2, XCircle, Wallet, ExternalLink } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api, qs } from '../api';
 import { Badge, Button, Empty, Modal, PageHeader, Spinner, Thumb, fmtDate, fmtNum, useLoad, useMoney, useToast } from '../ui';
 
@@ -54,7 +54,7 @@ function OrderModal({ id, onClose, onChange }) {
       </div>
       <div className="mb-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-3">
         <div><div className="label">Покупатель</div><div className="font-medium">{o.name || '—'}</div><a href={`tel:+${o.phone}`} className="inline-flex items-center gap-1 text-indigo-600"><Phone size={12} />{fmtPhone(o.phone)}</a></div>
-        <div><div className="label">Получение</div>{o.delivery === 'courier' ? <><div className="flex items-center gap-1"><Truck size={14} /> Курьер</div><div className="flex items-start gap-1 text-slate-600"><MapPin size={14} className="mt-0.5 shrink-0" />{o.address}</div></> : <div className="flex items-center gap-1"><Store size={14} /> Самовывоз</div>}</div>
+        <div><div className="label">Получение</div><div className="flex items-center gap-1">{o.delivery === 'pickup' ? <Store size={14} /> : <Truck size={14} />} {o.deliveryName || o.delivery}</div>{o.address && <div className="flex items-start gap-1 text-slate-600"><MapPin size={14} className="mt-0.5 shrink-0" />{o.address}</div>}{(() => { try { const i = JSON.parse(o.deliveryInfo || '{}'); return <div className="text-xs text-slate-500">{[i.pointCode && `пункт ${i.pointCode}`, i.postcode && `индекс ${i.postcode}`, i.days && `срок ${i.days}`].filter(Boolean).join(' · ')}</div>; } catch { return null; } })()}</div>
         <div><div className="label">Оплата</div>{PAY_METHOD[o.paymentMethod]}<div><Badge color={PAY_STATUS[o.paymentStatus][1]}>{PAY_STATUS[o.paymentStatus][0]}</Badge></div></div>
       </div>
       {o.comment && <div className="mb-4 rounded-lg bg-amber-50 p-3 text-sm"><b>Комментарий покупателя:</b> {o.comment}</div>}
@@ -75,7 +75,7 @@ function OrderModal({ id, onClose, onChange }) {
       </table>
       <div className="mt-3 space-y-0.5 text-right text-sm">
         <div className="text-slate-500">Товары: {money(o.subtotal)}</div>
-        {o.delivery === 'courier' && <div className="text-slate-500">Доставка: {o.deliveryPrice ? money(o.deliveryPrice) : 'бесплатно'}</div>}
+        {o.delivery !== 'pickup' && <div className="text-slate-500">Доставка: {o.deliveryPrice ? money(o.deliveryPrice) : 'бесплатно'}</div>}
         <div className="text-xl font-bold">Итого: {money(o.total)}</div>
       </div>
       <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-500">
@@ -91,7 +91,8 @@ function OrderModal({ id, onClose, onChange }) {
 export default function Orders() {
   const [status, setStatus] = useState('active');
   const [q, setQ] = useState('');
-  const [view, setView] = useState(null);
+  const [params] = useSearchParams();
+  const [view, setView] = useState(params.get('open') ? Number(params.get('open')) : null);
   const { data, reload, loading } = useLoad('/orders' + qs({ status, q }));
   const money = useMoney();
   const c = data?.counts || {};
@@ -120,7 +121,7 @@ export default function Orders() {
                     <td className="td"><div className="font-medium">{o.number}</div><Badge color={ORDER_STATUS[o.status][1]}>{ORDER_STATUS[o.status][0]}</Badge></td>
                     <td className="td text-slate-500">{fmtDate(o.createdAt)}</td>
                     <td className="td"><div>{o.name || '—'}</div><div className="text-xs text-slate-500">{fmtPhone(o.phone)}</div></td>
-                    <td className="td text-sm">{o.delivery === 'courier' ? <span title={o.address}>Курьер</span> : 'Самовывоз'}</td>
+                    <td className="td text-sm"><span title={o.address || ''}>{o.deliveryName || o.delivery}</span></td>
                     <td className="td text-sm"><div>{PAY_METHOD[o.paymentMethod]}</div><Badge color={PAY_STATUS[o.paymentStatus][1]}>{PAY_STATUS[o.paymentStatus][0]}</Badge></td>
                     <td className="td text-right font-semibold">{money(o.total)}<div className="text-xs font-normal text-slate-500">{fmtNum(o._count.items)} поз.</div></td>
                   </tr>

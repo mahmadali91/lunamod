@@ -271,6 +271,7 @@ export default function ProductForm() {
 
           <Section title="Остатки">
             <Field label="Минимальный остаток (уведомление)" className="mb-4"><input className="input" type="number" step="any" min="0" value={form.minStock} onChange={set('minStock')} /></Field>
+            <Field label="Вес, г (для расчёта доставки)" className="mb-4"><input className="input" type="number" step="any" min="0" value={form.weight ?? ''} onChange={set('weight')} placeholder="по умолчанию из настроек магазина" /></Field>
             {isNew ? (
               <div className="space-y-2">
                 <p className="text-xs text-slate-500">Начальный остаток по складам:</p>
