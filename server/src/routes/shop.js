@@ -53,7 +53,7 @@ const sizeRank = (x) => { const i = SIZE_ORDER.indexOf(String(x).toUpperCase());
 function publicProduct(p, s, full) {
   const vs = (p.variants || []).filter((v) => v.active !== false).map((v) => {
     const st = Math.max(0, sumStock(v.stocks, s));
-    return { id: v.id, color: v.color, size: v.size, price: v.price, oldPrice: (v.oldPrice ?? p.oldPrice) > v.price ? (v.oldPrice ?? p.oldPrice) : null, stock: st, inStock: st > 0 };
+    return { id: v.id, color: v.color, size: v.size, sizeRu: v.sizeRu || null, price: v.price, oldPrice: (v.oldPrice ?? p.oldPrice) > v.price ? (v.oldPrice ?? p.oldPrice) : null, stock: st, inStock: st > 0 };
   });
   vs.sort((x, y) => String(x.color || '').localeCompare(String(y.color || '')) || sizeRank(x.size) - sizeRank(y.size));
   const stock = p.hasVariants ? vs.reduce((a, v) => a + v.stock, 0) : Math.max(0, sumStock(p.stocks, s));

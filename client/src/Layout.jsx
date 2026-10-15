@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Package, Boxes, ShoppingCart, Receipt, Warehouse, Radio, Users, Tags, Settings, LogOut, Menu, X, ScanBarcode, PackagePlus, HandCoins, FolderTree, BarChart3, ShoppingBag, Globe, MessageCircle, Star,
+  LayoutDashboard, Package, Boxes, ShoppingCart, Receipt, Warehouse, Radio, Users, Tags, Settings, LogOut, Menu, X, ScanBarcode, PackagePlus, HandCoins, FolderTree, BarChart3, ShoppingBag, Globe, MessageCircle, Star, Store,
 } from 'lucide-react';
 import { api } from './api';
 import { SettingsCtx, useToast } from './ui';
@@ -28,6 +28,7 @@ const nav = [
   { to: '/channels', icon: Radio, label: 'Каналы продаж' },
   { to: '/counterparties', icon: Users, label: 'Контрагенты' },
   { to: '/shop-settings', icon: Globe, label: 'Интернет-магазин' },
+  { to: '/wildberries', icon: Store, label: 'Wildberries' },
   { to: '/settings', icon: Settings, label: 'Настройки' },
 ];
 

@@ -521,6 +521,19 @@ test('импорт из Excel: строки с одним артикулом и 
   assert.equal((await ok('/products/' + card[0].id)).variants.length, 2);
 });
 
+test('Wildberries: токен проверяется, без токена загрузка невозможна', async () => {
+  const st = await ok('/wb');
+  assert.equal(typeof st.connected, 'boolean');
+  assert.equal((await api('/wb/token', { method: 'PUT', body: { token: 'abc' } })).status, 400, 'не токен WB');
+  // токен с истёкшим сроком (подпись не важна — до WB запрос не доходит)
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const expired = [b64({ alg: 'ES256' }), b64({ exp: 1000000000, s: 2 }), 'x'].join('.');
+  assert.match((await api('/wb/token', { method: 'PUT', body: { token: expired } })).data.error, /истёк/);
+  const noContent = [b64({ alg: 'ES256' }), b64({ exp: 4000000000, s: 1 << 5 }), 'x'].join('.');
+  assert.match((await api('/wb/token', { method: 'PUT', body: { token: noContent } })).data.error, /Контент/);
+  if (!st.connected) assert.equal((await api('/wb/import', { method: 'POST', body: {} })).status, 400);
+});
+
 test('SEO: страницы магазина, robots.txt, sitemap.xml, Метрика и соцсети', async () => {
   await ok('/orders/settings', { method: 'PUT', body: { metrikaId: '12345678', yandexVerification: 'abc123', socialTelegram: '@botmi_shop', socialWhatsapp: '8 900 111-22-33', socialInstagram: 'javascript:alert(1)' } });
   const p = await ok('/products', { method: 'POST', body: { name: 'SEO <платье> ' + U, price: 1990, description: 'Лёгкое летнее платье', showInShop: true, initialStock: [{ warehouseId: w1.id, quantity: 3 }] } });

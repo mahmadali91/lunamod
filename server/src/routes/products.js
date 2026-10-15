@@ -158,6 +158,7 @@ function pickProduct(b) {
     categoryId: int(b.categoryId), active: b.active === undefined ? true : Boolean(b.active),
     showInShop: b.showInShop === undefined ? true : Boolean(b.showInShop),
     brand: str(b.brand), modelInfo: str(b.modelInfo), sizeChartId: int(b.sizeChartId), color: str(b.color),
+    packLength: b.packLength ? num(b.packLength) : null, packWidth: b.packWidth ? num(b.packWidth) : null, packHeight: b.packHeight ? num(b.packHeight) : null,
   };
 }
 
@@ -186,7 +187,7 @@ async function saveVariants(tx, parent, list, warehouseId) {
   const shared = Object.fromEntries(SHARED.map((k) => [k, parent[k]]));
   const keep = new Set();
   for (const v of rows) {
-    const data = { ...shared, name: variantName(parent.name, v.color, v.size), color: v.color, size: v.size, sort: v.sort,
+    const data = { ...shared, name: variantName(parent.name, v.color, v.size), color: v.color, size: v.size, sizeRu: str(v.sizeRu), sort: v.sort,
       price: v.price === '' || v.price === undefined || v.price === null ? parent.price : num(v.price),
       costPrice: v.costPrice === '' || v.costPrice === undefined || v.costPrice === null ? parent.costPrice : num(v.costPrice), active: parent.active };
     let child = v.id ? existing.find((e) => e.id === Number(v.id)) : null;
@@ -487,7 +488,7 @@ r.post('/:id/duplicate', ah(async (req, res) => {
     if (color && src.color && data.name.toLowerCase().includes(src.color.toLowerCase())) data.name = data.name.replace(new RegExp(src.color, 'i'), color.toLowerCase());
     data.slug = slugify(data.name) || null;
     const card = await tx.product.create({ data: { ...data, attributes: { create: src.attributes.map((a) => ({ name: a.name, value: a.value })) } } });
-    if (src.hasVariants) await saveVariants(tx, card, src.variants.map((v) => ({ size: v.size, price: v.price, costPrice: v.costPrice })));
+    if (src.hasVariants) await saveVariants(tx, card, src.variants.map((v) => ({ size: v.size, sizeRu: v.sizeRu, price: v.price, costPrice: v.costPrice })));
     else await tx.barcode.create({ data: { productId: card.id, code: await generateEan13(tx), type: 'EAN13', isPrimary: true, generated: true } });
     return card;
   }, { timeout: 30000 });

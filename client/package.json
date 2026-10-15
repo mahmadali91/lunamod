@@ -13,6 +13,7 @@
   "license": "ISC",
   "dependencies": {
     "@zxing/browser": "^0.2.1",
+    "hls.js": "^1.5.20",
     "jsbarcode": "^3.12.3",
     "lucide-react": "^1.57.0",
     "qrcode-generator": "^2.0.4",

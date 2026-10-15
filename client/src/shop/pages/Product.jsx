@@ -61,7 +61,14 @@ export default function Product() {
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (auth.me) shopApi('/waitlist').then(setWaiting).catch(() => {}); }, [auth.me?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const media = useMemo(() => (p ? p.media : []), [p]);
+  // как на WB: главное фото, затем видео, затем остальные фото
+  const media = useMemo(() => {
+    if (!p) return [];
+    const img = p.media.filter((m) => m.kind !== 'video'), vid = p.media.filter((m) => m.kind === 'video');
+    return [...img.slice(0, 1), ...vid, ...img.slice(1)];
+  }, [p]);
+  const [allAttrs, setAllAttrs] = useState(false);
+  const [fullDesc, setFullDesc] = useState(false);
 
   if (err) return <div className="py-24 text-center"><h1 className="text-2xl font-bold">{err}</h1><Link to="/" className="mt-4 inline-block underline">В каталог</Link></div>;
   if (!p) return <div className="py-24 text-center text-slate-400">Загрузка…</div>;
@@ -105,9 +112,10 @@ export default function Product() {
             {p.sku && <span>Артикул: {p.sku}</span>}
             {p.reviews.count > 0 && <a href="#reviews" className="flex items-center gap-1 text-slate-600"><Stars value={p.reviews.avg} size={14} /> {p.reviews.avg} · {p.reviews.count} отзыв.</a>}
           </div>
-          <div className="mt-5 flex items-baseline gap-3">
-            <span className="text-3xl font-extrabold">{hasV && !variant && p.priceFrom ? 'от ' : ''}{money(price)}</span>
+          <div className="mt-5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="text-3xl font-extrabold text-rose-600">{hasV && !variant && p.priceFrom ? 'от ' : ''}{money(price)}</span>
             {oldPrice && <span className="text-lg text-slate-400 line-through">{money(oldPrice)}</span>}
+            {oldPrice && <span className="rounded-full bg-rose-50 px-2 py-0.5 text-sm font-semibold text-rose-600">−{Math.round((1 - price / oldPrice) * 100)}%</span>}
           </div>
 
           {(p.color || p.groupCards.length > 1) && (
@@ -117,7 +125,7 @@ export default function Product() {
                 <div className="flex flex-wrap gap-2">
                   {p.groupCards.map((g) => (
                     <Link key={g.id} to={g.url} replace title={g.color || ''} aria-current={g.id === p.id ? 'true' : undefined}
-                      className={`relative h-[72px] w-14 overflow-hidden rounded-xl bg-slate-100 ${g.id === p.id ? 'ring-2 ring-slate-900 ring-offset-2' : 'opacity-80 hover:opacity-100'} ${g.inStock ? '' : 'grayscale'}`}>
+                      className={`relative h-[72px] w-14 overflow-hidden rounded-xl bg-slate-100 ${g.id === p.id ? 'ring-2 ring-slate-900 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}>
                       {g.image ? <img src={g.image} alt={g.color || ''} className="h-full w-full object-cover" /> : <span className="flex h-full items-center justify-center text-[10px] text-slate-500">{g.color}</span>}
                     </Link>
                   ))}
@@ -137,7 +145,8 @@ export default function Product() {
                   return (
                     <button key={s} onClick={() => { setSize(s); setNeedSize(false); setQty(1); }} aria-pressed={s === size} title={v?.inStock ? (v.stock <= 3 ? `Осталось ${v.stock} шт.` : 'В наличии') : 'Нет в наличии — можно подписаться'}
                       className={`relative min-w-[3rem] rounded-xl border px-3 py-2.5 text-sm font-medium ${s === size ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 hover:border-slate-900'} ${v?.inStock ? '' : 'text-slate-400'}`}>
-                      <span className={v?.inStock ? '' : 'line-through'}>{s}</span>
+                      <span className={`block ${v?.inStock ? '' : 'line-through'}`}>{s}</span>
+                      {v?.sizeRu && <span className={`block text-[11px] font-normal ${s === size ? 'text-white/70' : 'text-slate-400'}`}>{v.sizeRu}</span>}
                       {v?.inStock && v.stock <= 2 && <span className="absolute -top-1.5 -right-1.5 h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-white" />}
                     </button>
                   );
@@ -169,11 +178,27 @@ export default function Product() {
           {inCart && <Link to="/cart" className="mt-3 flex items-center gap-2 text-sm text-emerald-700"><Check size={16} /> В корзине {inCart.quantity} шт. — перейти в корзину</Link>}
 
           {p.attributes.length > 0 && (
-            <dl className="mt-8 divide-y divide-slate-100 border-y border-slate-100 text-sm">
-              {p.attributes.map((a) => <div key={a.name} className="flex justify-between gap-4 py-3"><dt className="text-slate-500">{a.name}</dt><dd className="text-right font-medium">{a.value}</dd></div>)}
-            </dl>
+            <section className="mt-8">
+              <h2 className="mb-2 text-lg font-bold">О товаре</h2>
+              <dl className="text-sm">
+                {(allAttrs ? p.attributes : p.attributes.slice(0, 6)).map((a) => (
+                  <div key={a.name} className="flex items-baseline gap-2 py-1.5">
+                    <dt className="shrink-0 text-slate-500">{a.name}</dt>
+                    <span className="mb-1 flex-1 border-b border-dotted border-slate-300" aria-hidden="true" />
+                    <dd className="max-w-[55%] text-right font-medium">{a.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              {p.attributes.length > 6 && <button onClick={() => setAllAttrs(!allAttrs)} className="mt-1 text-sm font-medium text-indigo-600">{allAttrs ? 'Свернуть' : `Все характеристики (${p.attributes.length})`}</button>}
+            </section>
           )}
-          {p.description && <p className="mt-6 leading-relaxed whitespace-pre-line text-slate-600">{p.description}</p>}
+          {p.description && (
+            <section className="mt-6">
+              <h2 className="mb-2 text-lg font-bold">Описание</h2>
+              <p className={`leading-relaxed whitespace-pre-line text-slate-600 ${fullDesc ? '' : 'line-clamp-5'}`}>{p.description}</p>
+              {p.description.length > 300 && <button onClick={() => setFullDesc(!fullDesc)} className="mt-1 text-sm font-medium text-indigo-600">{fullDesc ? 'Свернуть' : 'Читать полностью'}</button>}
+            </section>
+          )}
         </div>
       </div>
       <Shelf title="С этим носят" items={p.look} />

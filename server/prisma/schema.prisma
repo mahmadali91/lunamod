@@ -42,6 +42,7 @@ model Category {
 // Объединённая карточка: модель, в которой каждая расцветка — отдельная карточка товара
 model ProductGroup {
   id        Int       @id @default(autoincrement())
+  wbImtId   Int?      @unique // модель на Wildberries
   createdAt DateTime  @default(now())
   products  Product[]
 }
@@ -80,7 +81,14 @@ model Product {
   groupId     Int?
   group       ProductGroup?      @relation(fields: [groupId], references: [id], onDelete: SetNull)
   color       String?
-  size        String?
+  size        String? // размер продавца (S, 44, oversize)
+  sizeRu      String? // российский размер (42-48) — как «Рос. размер» на WB
+  // Wildberries: артикул WB (nmID) карточки и id модели (imtID)
+  wbNmId      Int?               @unique
+  wbImtId     Int?
+  packLength  Float? // габариты упаковки, см
+  packWidth   Float?
+  packHeight  Float?
   sort        Int                @default(0) // порядок варианта
   brand       String?
   slug        String? // короткий адрес в магазине: /product/12-plate-leto

@@ -21,6 +21,7 @@ import Orders from './pages/Orders';
 import ShopSettings from './pages/ShopSettings';
 import Chats from './pages/Chats';
 import Reviews from './pages/Reviews';
+import Wildberries from './pages/Wildberries';
 import Labels from './pages/Labels';
 import { Warehouses, Channels, Counterparties } from './pages/Refs';
 import SettingsPage from './pages/Settings';
@@ -45,6 +46,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="orders" element={<Orders />} />
             <Route path="chats" element={<Chats />} />
             <Route path="reviews" element={<Reviews />} />
+            <Route path="wildberries" element={<Wildberries />} />
             <Route path="shop-settings" element={<ShopSettings />} />
             <Route path="products/:id" element={<ProductForm />} />
             <Route path="stock" element={<Stock />} />

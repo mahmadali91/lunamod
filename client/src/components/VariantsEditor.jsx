@@ -40,10 +40,11 @@ export default function VariantsEditor({ value, onChange, price, costPrice, isNe
 
       {value.length > 0 && (
         <div className="-mx-5 overflow-x-auto px-5">
-          <table className="w-full min-w-[560px] text-sm">
+          <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="text-left text-xs text-slate-500">
                 <th className="py-2 pr-2 font-medium">Размер</th>
+                <th className="py-2 pr-2 font-medium">Рос. размер</th>
                 <th className="py-2 pr-2 font-medium">Штрихкод</th>
                 <th className="py-2 pr-2 font-medium">Цена <button type="button" className="text-indigo-600" onClick={() => fillAll('price', price)} title="Всем — цена карточки">↓</button></th>
                 <th className="py-2 pr-2 font-medium">Закупка <button type="button" className="text-indigo-600" onClick={() => fillAll('costPrice', costPrice)} title="Всем — закупочная карточки">↓</button></th>
@@ -54,6 +55,8 @@ export default function VariantsEditor({ value, onChange, price, costPrice, isNe
               {value.map((v, i) => (
                 <tr key={v.id || 'n' + i}>
                   <td className="py-1.5 pr-2"><input className="input w-24 py-1.5 font-medium" value={v.size || ''} onChange={(e) => set(i, { size: e.target.value })} placeholder="M" list="size-presets" /></td>
+                  <td className="py-1.5 pr-2"><input className="input w-20 py-1.5" value={v.sizeRu || ''} onChange={(e) => set(i, { sizeRu: e.target.value })} placeholder="42-44" /></td>
+                  <td className="py-1.5 pr-2"><input className="input w-20 py-1.5" value={v.sizeRu || ''} onChange={(e) => set(i, { sizeRu: e.target.value })} placeholder="42-44" /></td>
                   <td className="py-1.5 pr-2">
                     <div className="relative flex items-center gap-1">
                       <input className="input w-40 py-1.5 pr-8 font-mono text-xs" value={v.barcode || ''} onChange={(e) => set(i, { barcode: e.target.value.replace(/\s/g, '') })} placeholder="авто EAN-13" />

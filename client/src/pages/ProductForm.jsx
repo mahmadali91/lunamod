@@ -45,7 +45,8 @@ export default function ProductForm() {
       ...empty, ...p, sku: p.sku || '', description: p.description || '', oldPrice: p.oldPrice ?? '',
       barcodes: p.barcodes.map((b) => b.code), attributes: p.attributes.map((a) => ({ name: a.name, value: a.value })),
       brand: p.brand || '', color: p.color || '', modelInfo: p.modelInfo || '',
-      variants: p.variants.map((v) => ({ id: v.id, size: v.size || '', barcode: v.barcodes[0]?.code || '', price: v.price, costPrice: v.costPrice, stock: v.stocks.reduce((a, x) => a + x.quantity, 0) })),
+      packLength: p.packLength ?? '', packWidth: p.packWidth ?? '', packHeight: p.packHeight ?? '',
+      variants: p.variants.map((v) => ({ id: v.id, size: v.size || '', sizeRu: v.sizeRu || '', barcode: v.barcodes[0]?.code || '', price: v.price, costPrice: v.costPrice, stock: v.stocks.reduce((a, x) => a + x.quantity, 0) })),
       looks: p.looks.map((l) => l.linked),
     });
     setVariantsOn(p.hasVariants);
@@ -170,8 +171,44 @@ export default function ProductForm() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
+      {/* Раскладка как в кабинете WB: модель (цвета) · фото · поля карточки */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[250px_300px_minmax(0,1fr)]">
+        <div className="space-y-6 xl:contents">
+          <div className="space-y-6 xl:sticky xl:top-0 xl:self-start">
+            {!isNew && <ModelPanel product={product} onChanged={load} />}
+          </div>
+          <div className="space-y-6 xl:sticky xl:top-0 xl:self-start">
+            <Section title="Фотографии">
+              <div className="grid grid-cols-3 gap-2">
+                {images.map((img, i) => (
+                  <div key={img.id} className="group relative aspect-square overflow-hidden rounded-xl border border-slate-200">
+                    {img.kind === 'video' ? <video src={img.url} muted className="h-full w-full object-cover" /> : <img src={img.url} alt="" className="h-full w-full object-cover" />}
+                    {img.kind === 'video' && <PlayCircle size={22} className="pointer-events-none absolute right-1 bottom-1 text-white drop-shadow" />}
+                    {i === 0 && <span className="absolute top-1 left-1 rounded bg-indigo-600 px-1.5 text-[10px] font-medium text-white">Главное</span>}
+                    <div className="absolute inset-0 flex items-center justify-center gap-1 bg-slate-900/50 opacity-0 transition group-hover:opacity-100">
+                      {!isNew && i > 0 && <button type="button" title="Сделать главным" onClick={() => makeMainImage(img.id)} className="rounded-lg bg-white/90 p-1.5 text-amber-500"><Star size={14} /></button>}
+                      <button type="button" title="Удалить" onClick={() => (isNew ? setPendingFiles((s) => s.filter((_, j) => j !== i)) : deleteImage(img.id))} className="rounded-lg bg-white/90 p-1.5 text-rose-600"><Trash2 size={14} /></button>
+                    </div>
+                  </div>
+                ))}
+                <button type="button" onClick={() => fileRef.current.click()} disabled={progress !== null} className="flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-slate-300 text-xs text-slate-500 hover:border-indigo-400 hover:text-indigo-600">
+                  <ImagePlus size={22} /> Фото
+                </button>
+                <button type="button" onClick={() => videoRef.current.click()} disabled={progress !== null} className="flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-slate-300 text-xs text-slate-500 hover:border-indigo-400 hover:text-indigo-600">
+                  <Video size={22} /> Видео
+                </button>
+              </div>
+              {progress !== null && (
+                <div className="mt-3"><div className="mb-1 flex justify-between text-xs text-slate-500"><span>Загрузка…</span><span>{progress}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-indigo-600 transition-all" style={{ width: progress + '%' }} /></div></div>
+              )}
+              <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/avif" multiple hidden onChange={onFiles} />
+              <input ref={videoRef} type="file" accept="video/mp4,video/webm,video/quicktime" hidden onChange={onVideo} />
+              <p className="mt-2 text-xs text-slate-400">Фото — до 10 МБ, видео — MP4/MOV до 50 МБ (лучше вертикальное, 10–30 секунд). Первое фото — главное, видео показывается в галерее магазина.</p>
+            </Section>
+          </div>
+        </div>
+        <div className="min-w-0 space-y-6">
+          {!isNew && product.wbNmId && <WbInfo product={product} />}
           <Section title="Основное">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Название *" className="sm:col-span-2"><input className="input" required value={form.name} onChange={set('name')} autoFocus={isNew} /></Field>
@@ -285,38 +322,6 @@ export default function ProductForm() {
               )}
             </Section>
           )}
-        </div>
-
-        <div className="space-y-6">
-          {!isNew && <ModelPanel product={product} onChanged={load} />}
-          <Section title="Фотографии">
-            <div className="grid grid-cols-3 gap-2">
-              {images.map((img, i) => (
-                <div key={img.id} className="group relative aspect-square overflow-hidden rounded-xl border border-slate-200">
-                  {img.kind === 'video' ? <video src={img.url} muted className="h-full w-full object-cover" /> : <img src={img.url} alt="" className="h-full w-full object-cover" />}
-                  {img.kind === 'video' && <PlayCircle size={22} className="pointer-events-none absolute right-1 bottom-1 text-white drop-shadow" />}
-                  {i === 0 && <span className="absolute top-1 left-1 rounded bg-indigo-600 px-1.5 text-[10px] font-medium text-white">Главное</span>}
-                  <div className="absolute inset-0 flex items-center justify-center gap-1 bg-slate-900/50 opacity-0 transition group-hover:opacity-100">
-                    {!isNew && i > 0 && <button type="button" title="Сделать главным" onClick={() => makeMainImage(img.id)} className="rounded-lg bg-white/90 p-1.5 text-amber-500"><Star size={14} /></button>}
-                    <button type="button" title="Удалить" onClick={() => (isNew ? setPendingFiles((s) => s.filter((_, j) => j !== i)) : deleteImage(img.id))} className="rounded-lg bg-white/90 p-1.5 text-rose-600"><Trash2 size={14} /></button>
-                  </div>
-                </div>
-              ))}
-              <button type="button" onClick={() => fileRef.current.click()} disabled={progress !== null} className="flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-slate-300 text-xs text-slate-500 hover:border-indigo-400 hover:text-indigo-600">
-                <ImagePlus size={22} /> Фото
-              </button>
-              <button type="button" onClick={() => videoRef.current.click()} disabled={progress !== null} className="flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-slate-300 text-xs text-slate-500 hover:border-indigo-400 hover:text-indigo-600">
-                <Video size={22} /> Видео
-              </button>
-            </div>
-            {progress !== null && (
-              <div className="mt-3"><div className="mb-1 flex justify-between text-xs text-slate-500"><span>Загрузка…</span><span>{progress}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-indigo-600 transition-all" style={{ width: progress + '%' }} /></div></div>
-            )}
-            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/avif" multiple hidden onChange={onFiles} />
-            <input ref={videoRef} type="file" accept="video/mp4,video/webm,video/quicktime" hidden onChange={onVideo} />
-            <p className="mt-2 text-xs text-slate-400">Фото — до 10 МБ, видео — MP4/MOV до 50 МБ (лучше вертикальное, 10–30 секунд). Первое фото — главное, видео показывается в галерее магазина.</p>
-          </Section>
-
           {!variantsOn && <Section title="Штрихкоды" action={
             <div className="flex gap-1">
               <Button type="button" size="sm" variant="secondary" icon={Wand2} onClick={() => genBarcode()} title="Сгенерировать EAN-13" />
@@ -343,9 +348,12 @@ export default function ProductForm() {
               {form.barcodes.length === 0 && <p className="text-sm text-slate-500">При сохранении будет сгенерирован EAN-13 автоматически.</p>}
             </div>
           </Section>}
-
           <Section title="Остатки">
             <Field label="Минимальный остаток (уведомление)" className="mb-4"><input className="input" type="number" step="any" min="0" value={form.minStock} onChange={set('minStock')} /></Field>
+            <div className="mb-4">
+              <div className="label">Габариты упаковки, см (длина × ширина × высота)</div>
+              <div className="flex gap-2">{['packLength', 'packWidth', 'packHeight'].map((k) => <input key={k} className="input" type="number" step="any" min="0" value={form[k] ?? ''} onChange={set(k)} placeholder={{ packLength: 'Д', packWidth: 'Ш', packHeight: 'В' }[k]} />)}</div>
+            </div>
             <Field label="Вес, г (для расчёта доставки)" className="mb-4"><input className="input" type="number" step="any" min="0" value={form.weight ?? ''} onChange={set('weight')} placeholder="по умолчанию из настроек магазина" /></Field>
             {variantsOn ? <p className="text-sm text-slate-500">Остатки ведутся по каждому размеру — см. «Баркод, размер и цена». Всего: <b>{fmtNum(form.variants.reduce((a, v) => a + (v.stock || Number(v.quantity) || 0), 0))} {form.unit}</b></p> : isNew ? (
               <div className="space-y-2">
@@ -479,7 +487,7 @@ function ModelPanel({ product, onChanged }) {
   const join = async (other) => { try { await api(`/products/${product.id}/group`, { method: 'POST', body: { productId: other.id } }); toast('Карточки объединены'); setMode(null); setQ(''); onChanged(); } catch (e) { toast(e.message, 'error'); } };
   const leave = async () => { if (!confirm('Отвязать эту карточку от модели? Она станет отдельным товаром.')) return; await api(`/products/${product.id}/group`, { method: 'DELETE' }); toast('Карточка отвязана'); onChanged(); };
   return (
-    <Section title={<span className="flex items-center gap-2"><Palette size={18} /> Модель · цвета</span>} action={<span className="text-sm text-slate-400">{cards.length} из 30</span>}>
+    <Section title={<span className="flex items-center gap-2"><Palette size={18} /> Варианты</span>} action={<span className="text-sm text-slate-400">{cards.length} из 30</span>}>
       <div className="space-y-2">
         {cards.map((c) => (
           <button type="button" key={c.id} onClick={() => c.id !== product.id && navigate('/products/' + c.id)}
@@ -514,5 +522,17 @@ function ModelPanel({ product, onChanged }) {
         </div>
       )}
     </Section>
+  );
+}
+
+// Связь с Wildberries: артикул WB, модель, габариты упаковки
+function WbInfo({ product: p }) {
+  return (
+    <div className="card flex flex-wrap items-center gap-x-6 gap-y-2 p-4 text-sm">
+      <span className="rounded-md bg-fuchsia-600 px-2 py-0.5 text-xs font-bold text-white">WB</span>
+      <span>Артикул WB: <a href={`https://www.wildberries.ru/catalog/${p.wbNmId}/detail.aspx`} target="_blank" rel="noreferrer" className="font-mono font-semibold text-indigo-600 hover:underline">{p.wbNmId}</a></span>
+      {p.wbImtId && <span className="text-slate-500">Модель WB: <span className="font-mono">{p.wbImtId}</span></span>}
+      {(p.packLength || p.packWidth || p.packHeight) && <span className="text-slate-500">Упаковка: {p.packLength}×{p.packWidth}×{p.packHeight} см</span>}
+    </div>
   );
 }

@@ -1,6 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, X, ImageOff, Play } from 'lucide-react';
 
+// Видео: обычный файл или поток HLS (.m3u8, как у Wildberries) — в Safari играет сам, в остальных через hls.js
+function Video({ src, className }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !/\.m3u8($|\?)/.test(src) || el.canPlayType('application/vnd.apple.mpegurl')) return undefined;
+    let hls;
+    import('hls.js').then(({ default: Hls }) => { if (Hls.isSupported()) { hls = new Hls(); hls.loadSource(src); hls.attachMedia(el); } });
+    return () => hls?.destroy();
+  }, [src]);
+  const isHls = /\.m3u8($|\?)/.test(src);
+  return <video ref={ref} src={isHls ? undefined : src} controls playsInline autoPlay muted loop className={className} />;
+}
+
 /**
  * Галерея товара: свайп на телефоне, стрелки и миниатюры на компьютере, видео.
  * Нажатие — полноэкранный просмотр: двойное нажатие/колесо — увеличение, два пальца — масштаб, перетаскивание — сдвиг.
@@ -22,10 +36,10 @@ export default function Gallery({ media, alt }) {
   if (!n) return <div className="flex aspect-[3/4] items-center justify-center rounded-3xl bg-slate-100 text-slate-300"><ImageOff size={48} /></div>;
   const cur = media[i];
   return (
-    <div>
-      <div className="relative aspect-[3/4] overflow-hidden rounded-3xl bg-slate-100" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+    <div className="sm:flex sm:flex-row-reverse sm:gap-3">
+      <div className="relative aspect-[3/4] overflow-hidden rounded-3xl bg-slate-100 sm:flex-1" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
         {cur.kind === 'video'
-          ? <video key={cur.path} src={cur.path} controls playsInline className="h-full w-full object-cover" />
+          ? <Video key={cur.path} src={cur.path} className="h-full w-full bg-black object-contain" />
           : <button type="button" onClick={() => setFull(true)} className="h-full w-full cursor-zoom-in" aria-label="Открыть фото во весь экран"><img src={cur.path} alt={alt} className="h-full w-full object-cover" /></button>}
         {n > 1 && <>
           <button onClick={() => go(-1)} className="absolute top-1/2 left-3 hidden -translate-y-1/2 rounded-full bg-white/90 p-2 text-slate-900 shadow sm:block" aria-label="Предыдущее фото"><ChevronLeft /></button>
@@ -34,10 +48,10 @@ export default function Gallery({ media, alt }) {
         </>}
       </div>
       {n > 1 && (
-        <div className="mt-3 hidden gap-2 overflow-x-auto sm:flex">
+        <div className="hidden max-h-[min(80vh,720px)] w-16 shrink-0 flex-col gap-2 overflow-y-auto sm:flex">
           {media.map((m, k) => (
-            <button key={k} onClick={() => setI(k)} aria-label={`Фото ${k + 1}`} className={`relative h-20 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-100 ${k === i ? 'ring-2 ring-slate-900' : 'opacity-60 hover:opacity-100'}`}>
-              {m.kind === 'video' ? <><video src={m.path} muted preload="metadata" className="h-full w-full object-cover" /><Play size={18} className="absolute inset-0 m-auto text-white drop-shadow" /></> : <img src={m.path} alt="" className="h-full w-full object-cover" />}
+            <button key={k} onClick={() => setI(k)} onMouseEnter={() => m.kind !== 'video' && setI(k)} aria-label={m.kind === 'video' ? 'Видео' : `Фото ${k + 1}`} className={`relative h-20 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-100 ${k === i ? 'ring-2 ring-slate-900' : 'opacity-70 hover:opacity-100'}`}>
+              {m.kind === 'video' ? <span className="flex h-full w-full items-center justify-center bg-slate-800"><Play size={20} className="text-white" fill="currentColor" /></span> : <img src={m.path} alt="" loading="lazy" className="h-full w-full object-cover" />}
             </button>
           ))}
         </div>
