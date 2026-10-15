@@ -48,6 +48,8 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/stats', require('./routes/stats'));
 app.use('/api/orders', require('./routes/orders'));
+app.use('/api/chats', require('./routes/chats').chats);
+app.use('/api/push', require('./routes/chats').push);
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 

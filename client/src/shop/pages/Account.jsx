@@ -22,7 +22,7 @@ export default function Account() {
       <div className="grid gap-8 lg:grid-cols-3">
         <div className="space-y-3 lg:col-span-2">
           {!orders ? <div className="text-slate-400">Загрузка…</div> : orders.length === 0 ? (
-            <div className="rounded-3xl bg-slate-50 p-10 text-center"><Package className="mx-auto text-slate-300" size={40} /><p className="mt-3 text-slate-500">Заказов пока нет</p><Link to="/catalog" className="mt-4 inline-block underline">В каталог</Link></div>
+            <div className="rounded-3xl bg-slate-50 p-10 text-center"><Package className="mx-auto text-slate-300" size={40} /><p className="mt-3 text-slate-500">Заказов пока нет</p><Link to="/" className="mt-4 inline-block underline">В каталог</Link></div>
           ) : orders.map((o) => (
             <Link key={o.id} to={`/order/${o.id}`} className="block rounded-2xl border border-slate-200 p-4 hover:border-slate-400">
               <div className="flex items-center justify-between">

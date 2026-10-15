@@ -13,14 +13,14 @@ export default function Product() {
   const [i, setI] = useState(0);
   const [qty, setQty] = useState(1);
   useEffect(() => { setP(null); setI(0); setQty(1); shopApi('/products/' + id).then((r) => { setP(r); document.title = r.name; }).catch((e) => setErr(e.message)); }, [id]);
-  if (err) return <div className="py-24 text-center"><h1 className="text-2xl font-bold">{err}</h1><Link to="/catalog" className="mt-4 inline-block underline">В каталог</Link></div>;
+  if (err) return <div className="py-24 text-center"><h1 className="text-2xl font-bold">{err}</h1><Link to="/" className="mt-4 inline-block underline">В каталог</Link></div>;
   if (!p) return <div className="py-24 text-center text-slate-400">Загрузка…</div>;
   const inCart = cart.items.find((x) => x.id === p.id);
   const n = p.images.length;
 
   return (
     <div className="mx-auto max-w-7xl px-4 pt-6">
-      <nav className="mb-4 text-sm text-slate-500"><Link to="/catalog" className="hover:text-slate-900">Каталог</Link>{p.category && <> / <Link to={`/catalog?category=${p.category.id}`} className="hover:text-slate-900">{p.category.name}</Link></>}</nav>
+      <nav className="mb-4 text-sm text-slate-500"><Link to="/" className="hover:text-slate-900">Каталог</Link>{p.category && <> / <Link to={`/?category=${p.category.id}`} className="hover:text-slate-900">{p.category.name}</Link></>}</nav>
       <div className="grid gap-8 md:grid-cols-2 lg:gap-14">
         <div>
           <div className="relative aspect-[3/4] overflow-hidden rounded-3xl bg-slate-100">

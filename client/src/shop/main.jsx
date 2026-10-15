@@ -4,7 +4,6 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import '../index.css';
 import { ShopProvider } from './store';
 import ShopLayout from './ShopLayout';
-import Home from './pages/Home';
 import Catalog from './pages/Catalog';
 import Product from './pages/Product';
 import Cart from './pages/Cart';
@@ -12,6 +11,7 @@ import Checkout from './pages/Checkout';
 import Account from './pages/Account';
 import Order from './pages/Order';
 import About from './pages/About';
+import Legal from './pages/Legal';
 
 // Старые адреса программы учёта (до переноса на /admin) — перенаправляем
 const ADMIN_PATHS = ['login', 'pos', 'sales', 'orders', 'consignment', 'stats', 'products', 'categories', 'stock', 'receipts', 'labels', 'warehouses', 'channels', 'counterparties', 'settings', 'shop-settings'];
@@ -29,7 +29,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <BrowserRouter>
         <Routes>
           <Route element={<ShopLayout />}>
-            <Route index element={<Home />} />
+            <Route index element={<Catalog />} />
             <Route path="catalog" element={<Catalog />} />
             <Route path="product/:id" element={<Product />} />
             <Route path="cart" element={<Cart />} />
@@ -37,6 +37,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="account" element={<Account />} />
             <Route path="order/:id" element={<Order />} />
             <Route path="about" element={<About />} />
+            <Route path="legal/:doc" element={<Legal />} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>

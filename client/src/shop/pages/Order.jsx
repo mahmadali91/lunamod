@@ -63,7 +63,7 @@ export default function Order() {
           <span className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS[o.status][1]}`}>{STATUS[o.status][0]}</span>
         </div>
         <div className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
-          <div className="flex gap-2">{o.delivery === 'courier' ? <Truck size={18} /> : <Store size={18} />}<div>{o.delivery === 'courier' ? `Курьером: ${o.address}` : `Самовывоз${config.delivery.pickupAddress ? ': ' + config.delivery.pickupAddress : ''}`}</div></div>
+          <div className="flex gap-2">{o.delivery === 'pickup' ? <Store size={18} /> : <Truck size={18} />}<div>{o.deliveryName || 'Доставка'}{o.address ? `: ${o.address}` : o.delivery === 'pickup' && config.pickupAddress ? `: ${config.pickupAddress}` : ''}{(() => { try { const d = JSON.parse(o.deliveryInfo || '{}').days; return d ? ` (${d})` : ''; } catch { return ''; } })()}</div></div>
           <div className="flex gap-2"><CreditCard size={18} /><div>{o.paymentMethod === 'tbank' ? 'Онлайн, Т-Банк' : 'При получении'} — {PAY[o.paymentStatus]}</div></div>
         </div>
         <div className="mt-5 divide-y divide-slate-100">
@@ -76,7 +76,7 @@ export default function Order() {
           ))}
         </div>
         <div className="mt-3 space-y-1 border-t border-slate-100 pt-3 text-right text-sm">
-          {o.delivery === 'courier' && <div className="text-slate-500">Доставка: {o.deliveryPrice ? money(o.deliveryPrice) : 'бесплатно'}</div>}
+          {o.delivery !== 'pickup' && <div className="text-slate-500">Доставка: {o.deliveryPrice ? money(o.deliveryPrice) : 'бесплатно'}</div>}
           <div className="text-lg font-bold">Итого: {money(o.total)}</div>
         </div>
         {o.status === 'new' && o.paymentStatus !== 'paid' && <button onClick={cancel} className="mt-4 text-sm text-slate-500 underline">Отменить заказ</button>}

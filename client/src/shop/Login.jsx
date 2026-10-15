@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Phone, Loader2, ShieldCheck } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { shopApi, fmtPhone } from './api';
 import { useShop } from './store';
 
@@ -27,6 +28,7 @@ export default function LoginModal() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [wait, setWait] = useState(0);
+  const [consent, setConsent] = useState(false);
   const codeRef = useRef(null);
 
   useEffect(() => { if (loginOpen) { setStep('phone'); setCode(''); setError(''); setTestCode(null); } }, [loginOpen]);
@@ -46,7 +48,7 @@ export default function LoginModal() {
   const verify = async (value = code) => {
     setBusy(true); setError('');
     try {
-      const r = await shopApi('/auth/verify', { method: 'POST', body: { phone, code: value } });
+      const r = await shopApi('/auth/verify', { method: 'POST', body: { phone, code: value, consent } });
       auth.login(r.token, r.customer);
       notify('Вы вошли');
       const then = loginOpen.then;
@@ -71,10 +73,13 @@ export default function LoginModal() {
                 className="w-full rounded-2xl border border-slate-300 py-3.5 pr-4 pl-11 text-lg tracking-wide outline-none focus:border-slate-900" />
             </div>
             {error && <p className="text-sm text-rose-600">{error}</p>}
-            <button disabled={busy || phone.replace(/\D/g, '').length !== 11} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 py-3.5 font-semibold text-white disabled:opacity-40">
+            <label className="flex items-start gap-2.5 text-sm text-slate-600">
+              <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-slate-900" />
+              <span>Даю <Link to="/legal/consent" target="_blank" className="underline">согласие на обработку персональных данных</Link> и принимаю <Link to="/legal/privacy" target="_blank" className="underline">политику конфиденциальности</Link></span>
+            </label>
+            <button disabled={busy || !consent || phone.replace(/\D/g, '').length !== 11} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 py-3.5 font-semibold text-white disabled:opacity-40">
               {busy && <Loader2 size={18} className="animate-spin" />} Получить код
             </button>
-            <p className="text-center text-xs text-slate-400">Нажимая кнопку, вы соглашаетесь на обработку персональных данных</p>
           </form>
         ) : (
           <div className="space-y-4">

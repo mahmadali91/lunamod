@@ -20,8 +20,18 @@ const DEFAULTS = {
   warehouseId: '',            // склад, по которому показываем наличие и списываем заказы (пусто = все склады / основной)
   showOutOfStock: '0',        // показывать товары, которых нет в наличии
   allowBackorder: '0',        // разрешить заказывать больше остатка
+  // доставка (список способов — JSON, см. shop/delivery.js)
+  deliveryMethods: '', defaultWeight: '500',
+  pochtaFromIndex: '', pochtaObject: '4030',
+  cdekTest: '1', cdekClientId: '', cdekClientSecret: '', cdekFromCityCode: '', cdekFromCity: '',
+  // продавец и документы
+  sellerName: '', sellerInn: '', sellerOgrn: '', sellerAddress: '', sellerEmail: '', sellerPhone: '', returnAddress: '', legalDate: '',
+  legal_privacy: '', legal_consent: '', legal_offer: '', legal_returns: '', legal_terms: '',
+  // чат и уведомления
+  chatEnabled: '1', chatGreeting: 'Здравствуйте! Напишите нам — ответим в течение рабочего дня.',
+  tgBotToken: '', tgChatId: '',
 };
-const SECRET = ['tbankPassword', 'smsruApiId'];
+const SECRET = ['tbankPassword', 'smsruApiId', 'cdekClientSecret', 'tgBotToken'];
 
 async function getShopSettings() {
   const rows = await prisma.setting.findMany({ where: { key: { startsWith: 'shop_' } } });

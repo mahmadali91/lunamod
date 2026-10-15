@@ -11,7 +11,7 @@ export default function Cart() {
         <ShoppingBag size={48} className="mx-auto text-slate-300" />
         <h1 className="mt-4 text-2xl font-bold">Корзина пуста</h1>
         <p className="mt-2 text-slate-500">Добавьте товары из каталога</p>
-        <Link to="/catalog" className="mt-6 inline-block rounded-full bg-slate-900 px-6 py-3 font-semibold text-white">В каталог</Link>
+        <Link to="/" className="mt-6 inline-block rounded-full bg-slate-900 px-6 py-3 font-semibold text-white">В каталог</Link>
       </div>
     );
   }

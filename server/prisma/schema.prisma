@@ -47,6 +47,7 @@ model Product {
   oldPrice    Float? // старая цена (для ценника)
   costPrice   Float              @default(0) // закупочная цена
   minStock    Float              @default(0) // порог низкого остатка
+  weight      Float? // вес, г — для расчёта доставки
   categoryId  Int?
   category    Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   active      Boolean            @default(true)
@@ -233,7 +234,9 @@ model Customer {
   address   String?  @db.Text
   createdAt DateTime @default(now())
   lastLogin DateTime?
+  consentAt DateTime? // согласие на обработку персональных данных
   orders    Order[]
+  chats     Conversation[]
 }
 
 model SmsCode {
@@ -260,7 +263,9 @@ model Order {
   paymentStatus String      @default("unpaid")
   paymentId     String? // PaymentId в Т-Банке
   paymentUrl    String?     @db.Text
-  delivery      String      @default("pickup") // pickup | courier
+  delivery      String      @default("pickup") // id способа доставки
+  deliveryName  String? // название способа на момент заказа
+  deliveryInfo  String?     @db.Text // JSON: город, пункт выдачи, индекс, срок
   address       String?     @db.Text
   name          String?
   phone         String
@@ -270,6 +275,7 @@ model Order {
   total         Float       @default(0)
   saleId        Int? // продажа, созданная при выдаче заказа
   adminNote     String?     @db.Text
+  agreedAt      DateTime? // принял оферту и условия возврата
   paidAt        DateTime?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -286,4 +292,49 @@ model OrderItem {
   quantity  Float
   order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product   Product @relation(fields: [productId], references: [id])
+}
+
+// ---------- Чат с покупателями ----------
+
+model Conversation {
+  id             Int           @id @default(autoincrement())
+  visitorKey     String        @unique // идентификатор посетителя (в браузере)
+  customerId     Int?
+  name           String?
+  phone          String?
+  status         String        @default("open") // open | closed
+  unreadAdmin    Int           @default(0)
+  unreadCustomer Int           @default(0)
+  lastMessageAt  DateTime      @default(now())
+  lastText       String?       @db.Text
+  createdAt      DateTime      @default(now())
+  customer       Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  messages       ChatMessage[]
+
+  @@index([lastMessageAt])
+}
+
+model ChatMessage {
+  id             Int          @id @default(autoincrement())
+  conversationId Int
+  sender         String // customer | admin
+  userId         Int? // сотрудник, ответивший из админки
+  text           String?      @db.Text
+  image          String? // /uploads/chat/...
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, id])
+}
+
+// Подписки на пуш-уведомления браузера (Web Push)
+model PushSubscription {
+  id         Int      @id @default(autoincrement())
+  endpoint   String   @db.VarChar(700)
+  keys       String   @db.Text // JSON { p256dh, auth }
+  userId     Int? // сотрудник (админка)
+  visitorKey String? // покупатель (чат)
+  createdAt  DateTime @default(now())
+
+  @@unique([endpoint(length: 500)])
 }

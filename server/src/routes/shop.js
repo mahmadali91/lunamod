@@ -7,6 +7,10 @@ const { ah, HttpError, nextNumber, num, str, like } = require('../util');
 const { getShopSettings, tbankReady } = require('../shop/settings');
 const { sendSms } = require('../shop/sms');
 const tbank = require('../shop/tbank');
+const delivery = require('../shop/delivery');
+const legal = require('../shop/legal');
+const { notifyAdmins, getVapid } = require('../notify');
+const chat = require('../chat');
 
 const r = express.Router();
 const SECRET = (process.env.JWT_SECRET || 'change-me-please') + ':customer'; // токены покупателей не подходят к админке
@@ -53,7 +57,12 @@ r.get('/config', ah(async (req, res) => {
   res.json({
     enabled: s.enabled === '1', title: s.title || g.storeName || 'Интернет-магазин', tagline: s.tagline, currency: g.currency || '₽',
     phone: s.phone, email: s.email, address: s.address, workHours: s.workHours,
-    delivery: { pickup: s.pickupEnabled === '1', pickupAddress: s.pickupAddress, courier: s.courierEnabled === '1', courierPrice: num(s.courierPrice), courierFreeFrom: num(s.courierFreeFrom) },
+    deliveryMethods: delivery.getMethods(s).filter((m) => m.enabled).map((m) => ({ id: m.id, carrier: m.carrier, name: m.name, needs: m.needs, api: m.api, price: m.api ? null : delivery.applyMarkup(m, Number(m.price || 0), 0), freeFrom: Number(m.freeFrom || 0), days: m.days, description: m.description })),
+    pickupAddress: delivery.getMethods(s).find((m) => m.carrier === 'pickup' && m.enabled)?.description || s.pickupAddress,
+    seller: { name: s.sellerName, inn: s.sellerInn, ogrn: s.sellerOgrn, address: s.sellerAddress, email: s.sellerEmail || s.email, phone: s.sellerPhone || s.phone },
+    legal: Object.entries(legal.DOCS).map(([id, title]) => ({ id, title })),
+    chat: { enabled: s.chatEnabled === '1', greeting: s.chatGreeting },
+    vapidKey: (await getVapid()).publicKey,
     payments: { cash: s.cashEnabled === '1', tbank: tbankReady(s) || (s.tbankEnabled === '1' && s.smsMode === 'test') },
     testMode: s.smsMode === 'test', allowBackorder: s.allowBackorder === '1',
   });
@@ -109,6 +118,39 @@ r.get('/products/:id', ah(async (req, res) => {
   res.json({ ...publicProduct(p, s), related: related.map((x) => publicProduct(x, s)) });
 }));
 
+// ---------- юридические документы ----------
+r.get('/legal/:doc', ah(async (req, res) => {
+  const id = req.params.doc;
+  if (!legal.DOCS[id]) throw new HttpError(404, 'Документ не найден');
+  const s = await getShopSettings();
+  res.json({ id, title: legal.DOCS[id], text: legal.render(s['legal_' + id] || legal.TEMPLATES[id], s) });
+}));
+
+// ---------- доставка ----------
+r.get('/delivery/cdek/cities', ah(async (req, res) => res.json(await delivery.cdekCities(await getShopSettings(), String(req.query.q || '')))));
+r.get('/delivery/cdek/points', ah(async (req, res) => res.json(await delivery.cdekPoints(await getShopSettings(), req.query.cityCode))));
+
+async function cartInfo(tx, s, lines) {
+  const items = []; let weight = 0;
+  for (const l of lines) {
+    const p = await tx.product.findFirst({ where: { id: l.productId, active: true, showInShop: true }, include: { stocks: true } });
+    if (!p || p.price <= 0) throw new HttpError(400, 'Товар больше не продаётся — обновите корзину');
+    items.push({ p, quantity: l.quantity });
+    weight += (p.weight || num(s.defaultWeight) || 500) * l.quantity;
+  }
+  return { items, weight, subtotal: round(items.reduce((a, i) => a + i.p.price * i.quantity, 0)) };
+}
+const parseLines = (raw) => (raw || []).map((i) => ({ productId: Number(i.productId), quantity: Math.floor(num(i.quantity)) })).filter((i) => i.productId && i.quantity > 0);
+
+r.post('/delivery/quote', ah(async (req, res) => {
+  const s = await getShopSettings();
+  const lines = parseLines(req.body.items);
+  if (!lines.length) throw new HttpError(400, 'Корзина пуста');
+  const c = await cartInfo(prisma, s, lines);
+  const q = await delivery.quote(s, String(req.body.methodId), req.body.to || {}, { subtotal: c.subtotal, weight: c.weight });
+  res.json({ price: q.price, days: q.days, name: q.name });
+}));
+
 // ---------- вход по SMS ----------
 r.post('/auth/request-code', ah(async (req, res) => {
   const phone = normPhone(req.body.phone);
@@ -130,13 +172,20 @@ r.post('/auth/verify', ah(async (req, res) => {
   const code = String(req.body.code || '').replace(/\D/g, '');
   const rec = await prisma.smsCode.findFirst({ where: { phone, used: false }, orderBy: { id: 'desc' } });
   if (!rec || rec.expiresAt < new Date()) throw new HttpError(400, 'Код устарел. Запросите новый.');
+  if (rec.codeHash === hashCode(phone, code) && !req.body.consent && !(await prisma.customer.findUnique({ where: { phone } }))?.consentAt) throw new HttpError(400, 'Подтвердите согласие на обработку персональных данных');
   if (rec.attempts >= 5) throw new HttpError(429, 'Слишком много неверных попыток. Запросите новый код.');
   if (rec.codeHash !== hashCode(phone, code)) {
     await prisma.smsCode.update({ where: { id: rec.id }, data: { attempts: { increment: 1 } } });
     throw new HttpError(400, 'Неверный код');
   }
+  const existing = await prisma.customer.findUnique({ where: { phone } });
+  if (!req.body.consent && !existing?.consentAt) throw new HttpError(400, 'Подтвердите согласие на обработку персональных данных');
   await prisma.smsCode.update({ where: { id: rec.id }, data: { used: true } });
-  const customer = await prisma.customer.upsert({ where: { phone }, update: { lastLogin: new Date() }, create: { phone, name: str(req.body.name), lastLogin: new Date() } });
+  const customer = await prisma.customer.upsert({
+    where: { phone },
+    update: { lastLogin: new Date(), ...(req.body.consent && !existing?.consentAt ? { consentAt: new Date() } : {}) },
+    create: { phone, name: str(req.body.name), lastLogin: new Date(), consentAt: new Date() },
+  });
   res.json({ token: jwt.sign({ cid: customer.id, phone }, SECRET, { expiresIn: '90d' }), customer });
 }));
 
@@ -172,36 +221,35 @@ async function startPayment(s, order) {
 r.post('/orders', customerAuth(), ah(async (req, res) => {
   const s = await getShopSettings();
   const b = req.body;
-  const lines = (b.items || []).map((i) => ({ productId: Number(i.productId), quantity: Math.floor(num(i.quantity)) })).filter((i) => i.productId && i.quantity > 0);
+  const lines = parseLines(b.items);
   if (!lines.length) throw new HttpError(400, 'Корзина пуста');
   if (lines.length > 100) throw new HttpError(400, 'Слишком много позиций');
+  if (!b.agree) throw new HttpError(400, 'Подтвердите согласие с условиями продажи и возврата');
   const method = b.paymentMethod === 'tbank' ? 'tbank' : 'cash';
   if (method === 'cash' && s.cashEnabled !== '1') throw new HttpError(400, 'Оплата при получении недоступна');
-  const delivery = b.delivery === 'courier' ? 'courier' : 'pickup';
-  if (delivery === 'courier' && s.courierEnabled !== '1') throw new HttpError(400, 'Доставка курьером недоступна');
-  if (delivery === 'pickup' && s.pickupEnabled !== '1') throw new HttpError(400, 'Самовывоз недоступен');
-  if (delivery === 'courier' && !str(b.address)) throw new HttpError(400, 'Укажите адрес доставки');
   const customer = await prisma.customer.findUnique({ where: { id: req.customer.cid } });
 
+  // проверка остатков и цен — по базе; доставка — пересчёт на сервере
+  const c = await cartInfo(prisma, s, lines);
+  for (const { p, quantity } of c.items) {
+    const stock = p.stocks.filter((x) => !s.warehouseId || x.warehouseId === Number(s.warehouseId)).reduce((a, x) => a + x.quantity, 0);
+    if (s.allowBackorder !== '1' && quantity > stock) throw new HttpError(400, stock > 0 ? `«${p.name}»: в наличии только ${stock} шт.` : `«${p.name}» закончился`);
+  }
+  const q = await delivery.quote(s, String(b.delivery || ''), b.deliveryTo || {}, { subtotal: c.subtotal, weight: c.weight });
+
   const order = await prisma.$transaction(async (tx) => {
-    const items = [];
-    for (const l of lines) {
-      const p = await tx.product.findFirst({ where: { id: l.productId, active: true, showInShop: true }, include: { stocks: true } });
-      if (!p || p.price <= 0) throw new HttpError(400, 'Товар больше не продаётся — обновите корзину');
-      const stock = p.stocks.filter((x) => !s.warehouseId || x.warehouseId === Number(s.warehouseId)).reduce((a, x) => a + x.quantity, 0);
-      if (s.allowBackorder !== '1' && l.quantity > stock) throw new HttpError(400, stock > 0 ? `«${p.name}»: в наличии только ${stock} шт.` : `«${p.name}» закончился`);
-      items.push({ productId: p.id, name: p.name, price: p.price, quantity: l.quantity }); // цена — всегда из базы, не от клиента
-    }
-    const subtotal = round(items.reduce((a, i) => a + i.price * i.quantity, 0));
-    const deliveryPrice = delivery === 'courier' && !(num(s.courierFreeFrom) > 0 && subtotal >= num(s.courierFreeFrom)) ? num(s.courierPrice) : 0;
     const number = await nextNumber(tx, 'order_seq', 'Z-');
     return tx.order.create({ data: {
-      number, customerId: customer.id, paymentMethod: method, delivery, address: delivery === 'courier' ? str(b.address) : null,
-      name: str(b.name) || customer.name, phone: customer.phone, comment: str(b.comment),
-      subtotal, deliveryPrice, total: round(subtotal + deliveryPrice), items: { create: items },
+      number, customerId: customer.id, paymentMethod: method,
+      delivery: q.methodId, deliveryName: q.name, deliveryInfo: JSON.stringify(q.info), address: q.address,
+      name: str(b.name) || customer.name, phone: customer.phone, comment: str(b.comment), agreedAt: new Date(),
+      subtotal: c.subtotal, deliveryPrice: q.price, total: round(c.subtotal + q.price),
+      items: { create: c.items.map(({ p, quantity }) => ({ productId: p.id, name: p.name, price: p.price, quantity })) },
     }, include: orderInclude });
   });
-  if (!customer.name && str(b.name)) await prisma.customer.update({ where: { id: customer.id }, data: { name: str(b.name), ...(delivery === 'courier' ? { address: str(b.address) } : {}) } });
+  if (str(b.name) && !customer.name) await prisma.customer.update({ where: { id: customer.id }, data: { name: str(b.name) } });
+  if (q.address && !customer.address && !['pickup'].includes(q.methodId)) await prisma.customer.update({ where: { id: customer.id }, data: { address: q.address } }).catch(() => {});
+  notifyAdmins({ title: `Новый заказ ${order.number}`, body: `${order.name || '+' + order.phone} — ${order.total.toLocaleString('ru-RU')} ₽, ${order.items.length} поз., ${q.name}`, url: '/admin/orders', tag: 'order' });
 
   let paymentUrl = null;
   if (method === 'tbank') {
@@ -271,6 +319,62 @@ r.post('/tbank/notify', ah(async (req, res) => {
   const o = await prisma.order.findFirst({ where: { OR: [{ paymentId: String(req.body.PaymentId) }, { number }] } });
   if (o) await applyPaymentStatus(o.id, req.body.Status);
   res.send('OK');
+}));
+
+// ---------- чат с магазином ----------
+// Посетитель определяется ключом из браузера (X-Visitor); если вошёл — чат привязывается к покупателю
+const visitorOf = (req) => { const v = String(req.headers['x-visitor'] || ''); if (!/^[a-f0-9]{32}$/.test(v)) throw new HttpError(400, 'Нет ключа посетителя'); return v; };
+const chatRate = new Map(); // защита от спама: не более 20 сообщений в минуту
+function rateOk(key) {
+  const now = Date.now(); const arr = (chatRate.get(key) || []).filter((t) => now - t < 60e3);
+  arr.push(now); chatRate.set(key, arr);
+  return arr.length <= 20;
+}
+
+async function myConversation(req, create) {
+  const visitorKey = visitorOf(req);
+  let c = await prisma.conversation.findUnique({ where: { visitorKey } });
+  if (!c && create) c = await prisma.conversation.create({ data: { visitorKey } });
+  if (c && req.customer && c.customerId !== req.customer.cid) {
+    const cust = await prisma.customer.findUnique({ where: { id: req.customer.cid } });
+    c = await prisma.conversation.update({ where: { id: c.id }, data: { customerId: cust.id, phone: cust.phone, name: c.name || cust.name } });
+  }
+  return c;
+}
+
+r.get('/chat', customerAuth(false), ah(async (req, res) => {
+  const c = await myConversation(req, false);
+  if (!c) return res.json({ conversation: null, messages: [] });
+  const after = Number(req.query.after) || 0;
+  const messages = await prisma.chatMessage.findMany({ where: { conversationId: c.id, id: { gt: after } }, orderBy: { id: 'asc' }, take: 200, select: { id: true, sender: true, text: true, image: true, createdAt: true } });
+  res.json({ conversation: { id: c.id, unread: c.unreadCustomer }, messages });
+}));
+
+r.post('/chat', customerAuth(false), chat.upload.single('image'), ah(async (req, res) => {
+  const s = await getShopSettings();
+  if (s.chatEnabled !== '1') throw new HttpError(403, 'Чат отключён');
+  const key = visitorOf(req);
+  if (!rateOk(key + ipOf(req))) throw new HttpError(429, 'Слишком много сообщений, подождите минуту');
+  const c = await myConversation(req, true);
+  if (!c.name && str(req.body.name)) await prisma.conversation.update({ where: { id: c.id }, data: { name: str(req.body.name).slice(0, 100) } });
+  const msg = await chat.addMessage(c.id, { sender: 'customer', text: req.body.text, image: req.file ? '/uploads/chat/' + req.file.filename : null });
+  notifyAdmins({ title: `Сообщение в чате: ${c.name || (c.phone ? '+' + c.phone : 'посетитель')}`, body: msg.text || '📷 Фото', url: `/admin/chats?c=${c.id}`, tag: 'chat-' + c.id });
+  res.status(201).json(msg);
+}));
+
+r.post('/chat/read', ah(async (req, res) => {
+  await prisma.conversation.updateMany({ where: { visitorKey: visitorOf(req) }, data: { unreadCustomer: 0 } });
+  res.json({ ok: true });
+}));
+
+// Пуш-уведомления посетителю об ответах в чате
+r.post('/push/subscribe', ah(async (req, res) => {
+  const visitorKey = visitorOf(req);
+  const sub = req.body;
+  if (!sub?.endpoint || !sub?.keys?.p256dh) throw new HttpError(400, 'Неверная подписка');
+  await prisma.pushSubscription.deleteMany({ where: { endpoint: sub.endpoint } });
+  await prisma.pushSubscription.create({ data: { endpoint: sub.endpoint, keys: JSON.stringify(sub.keys), visitorKey } });
+  res.json({ ok: true });
 }));
 
 module.exports = { router: r, normPhone, applyPaymentStatus };

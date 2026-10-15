@@ -98,4 +98,22 @@ r.post('/settings/test-tbank', requireAdmin, ah(async (req, res) => {
   res.json({ ok: true, message: 'Ключи верные: Т-Банк принял тестовый запрос' });
 }));
 
+r.post('/settings/test-telegram', requireAdmin, ah(async (req, res) => {
+  const s = await getShopSettings();
+  if (!s.tgBotToken || !s.tgChatId) throw new HttpError(400, 'Укажите токен бота и ID чата');
+  const { telegram } = require('../notify');
+  const raw = await telegram(s.tgBotToken, s.tgChatId, '✅ Уведомления магазина подключены');
+  let ok = false; try { ok = JSON.parse(raw).ok; } catch { /* ignore */ }
+  if (!ok) throw new HttpError(400, 'Telegram не принял сообщение: проверьте токен, ID чата и что вы написали боту /start');
+  res.json({ ok: true, message: 'Сообщение отправлено в Telegram' });
+}));
+
+// Шаблоны документов и способов доставки (для кнопки «вернуть шаблон»)
+r.get('/settings/templates', requireAdmin, ah(async (req, res) => {
+  const legal = require('../shop/legal');
+  const delivery = require('../shop/delivery');
+  const s = await getShopSettings();
+  res.json({ docs: legal.DOCS, legal: legal.TEMPLATES, carriers: delivery.CARRIERS, methods: delivery.getMethods(s), defaultMethods: delivery.defaultMethods(s) });
+}));
+
 module.exports = r;

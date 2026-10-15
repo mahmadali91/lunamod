@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { Store, Truck, Banknote, CreditCard, Loader2 } from 'lucide-react';
+import { Banknote, CreditCard, Loader2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import DeliveryPicker from '../DeliveryPicker';
 import { shopApi, fmtPhone } from '../api';
 import { useShop } from '../store';
 
@@ -15,22 +17,25 @@ function Option({ active, onClick, icon: Icon, title, sub }) {
 export default function Checkout() {
   const { config, cart, money, auth, notify } = useShop();
   const navigate = useNavigate();
-  const d = config.delivery, pay = config.payments;
-  const [f, setF] = useState({ name: '', delivery: d.pickup ? 'pickup' : 'courier', address: '', paymentMethod: pay.tbank ? 'tbank' : 'cash', comment: '' });
+  const pay = config.payments;
+  const [f, setF] = useState({ name: '', paymentMethod: pay.tbank ? 'tbank' : 'cash', comment: '' });
+  const [dl, setDl] = useState({ ready: false });
+  const [agree, setAgree] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { if (auth.me) setF((x) => ({ ...x, name: x.name || auth.me.name || '', address: x.address || auth.me.address || '' })); }, [auth.me]);
+  useEffect(() => { if (auth.me) setF((x) => ({ ...x, name: x.name || auth.me.name || '' })); }, [auth.me]);
   if (!auth.me) return <Navigate to="/cart" replace />;
   if (!cart.items.length) return <Navigate to="/cart" replace />;
 
-  const deliveryPrice = f.delivery === 'courier' && !(d.courierFreeFrom > 0 && cart.total >= d.courierFreeFrom) ? d.courierPrice : 0;
-  const total = cart.total + deliveryPrice;
+  const deliveryPrice = dl.price ?? null;
+  const total = cart.total + (deliveryPrice || 0);
+  const lines = cart.items.map((i) => ({ productId: i.id, quantity: i.quantity }));
 
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true); setError('');
     try {
-      const r = await shopApi('/orders', { method: 'POST', body: { ...f, items: cart.items.map((i) => ({ productId: i.id, quantity: i.quantity })) } });
+      const r = await shopApi('/orders', { method: 'POST', body: { ...f, items: lines, delivery: dl.methodId, deliveryTo: dl.to, agree } });
       cart.clear();
       if (r.paymentUrl) { window.location.href = r.paymentUrl; return; }
       if (r.paymentError) notify(r.paymentError, 'error');
@@ -51,12 +56,8 @@ export default function Checkout() {
             </div>
           </section>
           <section>
-            <h2 className="mb-3 text-lg font-semibold">Получение</h2>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {d.pickup && <Option active={f.delivery === 'pickup'} onClick={() => setF({ ...f, delivery: 'pickup' })} icon={Store} title="Самовывоз" sub={d.pickupAddress || 'бесплатно'} />}
-              {d.courier && <Option active={f.delivery === 'courier'} onClick={() => setF({ ...f, delivery: 'courier' })} icon={Truck} title="Курьером" sub={d.courierFreeFrom > 0 && cart.total >= d.courierFreeFrom ? 'бесплатно' : `${money(d.courierPrice)}${d.courierFreeFrom > 0 ? `, бесплатно от ${money(d.courierFreeFrom)}` : ''}`} />}
-            </div>
-            {f.delivery === 'courier' && <textarea required rows={2} value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} placeholder="Город, улица, дом, квартира, подъезд" className="mt-3 w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900" />}
+            <h2 className="mb-3 text-lg font-semibold">Доставка</h2>
+            <DeliveryPicker items={lines} subtotal={cart.total} initialAddress={auth.me.address} onChange={setDl} />
           </section>
           <section>
             <h2 className="mb-3 text-lg font-semibold">Оплата</h2>
@@ -76,11 +77,15 @@ export default function Checkout() {
           </div>
           <div className="mt-4 space-y-1 border-t border-slate-200 pt-4 text-sm">
             <div className="flex justify-between"><span className="text-slate-600">Товары</span><span>{money(cart.total)}</span></div>
-            {f.delivery === 'courier' && <div className="flex justify-between"><span className="text-slate-600">Доставка</span><span>{deliveryPrice ? money(deliveryPrice) : 'бесплатно'}</span></div>}
+            <div className="flex justify-between"><span className="text-slate-600">Доставка{dl.days ? ` (${dl.days})` : ''}</span><span>{deliveryPrice === null ? '—' : deliveryPrice ? money(deliveryPrice) : 'бесплатно'}</span></div>
           </div>
           <div className="mt-3 flex justify-between text-lg font-bold"><span>Итого</span><span>{money(total)}</span></div>
+          <label className="mt-4 flex items-start gap-2.5 text-xs text-slate-600">
+            <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-slate-900" />
+            <span>Согласен с <Link to="/legal/offer" target="_blank" className="underline">условиями продажи</Link> и <Link to="/legal/returns" target="_blank" className="underline">условиями возврата</Link></span>
+          </label>
           {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
-          <button disabled={busy} className="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-slate-900 py-3.5 font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
+          <button disabled={busy || !agree || !dl.ready} className="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-slate-900 py-3.5 font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
             {busy && <Loader2 size={18} className="animate-spin" />}{f.paymentMethod === 'tbank' ? 'Перейти к оплате' : 'Подтвердить заказ'}
           </button>
         </div>
