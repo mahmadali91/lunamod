@@ -36,7 +36,10 @@ async function dumpDatabase(res) {
   await w('SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS = 0;\nSET UNIQUE_CHECKS = 0;\nSET SQL_MODE = \'NO_AUTO_VALUE_ON_ZERO\';\nSET time_zone = \'+00:00\';\n\n');
   for (const t of tables) {
     const [create] = await prisma.$queryRawUnsafe(`SHOW CREATE TABLE ${q(t)}`);
-    await w(`-- ${t}\nDROP TABLE IF EXISTS ${q(t)};\n${create['Create Table']};\n`);
+    // MariaDB и MySQL 8 называют колонку по-разному — берём ту, где текст CREATE TABLE
+    const ddl = Object.values(create || {}).map((v) => (Buffer.isBuffer(v) ? v.toString() : v)).find((v) => typeof v === 'string' && /^CREATE TABLE/i.test(v));
+    if (!ddl) throw new Error(`Не удалось прочитать структуру таблицы ${t}`);
+    await w(`-- ${t}\nDROP TABLE IF EXISTS ${q(t)};\n${ddl};\n`);
     const cols = (await prisma.$queryRawUnsafe(`SELECT COLUMN_NAME AS c, DATA_TYPE AS d FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION`, t));
     const pk = (await prisma.$queryRawUnsafe(`SELECT COLUMN_NAME AS c FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = 'PRIMARY' ORDER BY ORDINAL_POSITION`, t)).map((r) => r.c);
     // JSON и бинарные колонки читаем как текст/hex, чтобы ничего не исказить

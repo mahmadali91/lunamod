@@ -735,8 +735,25 @@ test('резервная копия: база (SQL) и файлы (tar) по о�
   assert.equal(r.status, 200);
   const sql = require('zlib').gunzipSync(Buffer.from(await r.arrayBuffer())).toString();
   assert.match(sql, /CREATE TABLE `Product`/);
+  assert.doesNotMatch(sql, /^undefined;/m);
   assert.match(sql, /INSERT INTO `_prisma_migrations`/);
   assert.match(sql, /SET FOREIGN_KEY_CHECKS = 1;\s*SET UNIQUE_CHECKS = 1;\s*$/);
+  // восстановление в отдельную базу (если есть клиент mysql): число строк совпадает
+  const dbUrl = process.env.DATABASE_URL || (require('fs').existsSync(path.join(__dirname, '..', '.env')) ? (require('fs').readFileSync(path.join(__dirname, '..', '.env'), 'utf8').match(/^DATABASE_URL="?([^"\n]+)"?/m) || [])[1] : '');
+  const u = new URL(dbUrl || 'mysql://none@localhost/none');
+  const my = (args, input) => execFileSync('mysql', ['-h', u.hostname === 'localhost' ? '127.0.0.1' : u.hostname, '-P', u.port || '3306', '-u', decodeURIComponent(u.username), ...args], { input, env: { ...process.env, MYSQL_PWD: decodeURIComponent(u.password) }, stdio: ['pipe', 'pipe', 'pipe'] }).toString();
+  let hasMysql = true; try { my(['-e', 'SELECT 1']); } catch { hasMysql = false; }
+  if (hasMysql) {
+    const rdb = u.pathname.slice(1) + '_restore_test';
+    try {
+      my(['-e', `DROP DATABASE IF EXISTS \`${rdb}\`; CREATE DATABASE \`${rdb}\` CHARACTER SET utf8mb4`]);
+      my([rdb], sql);
+      for (const t of ['Product', 'Barcode', 'Sale', '_prisma_migrations']) {
+        const n = (db) => my(['-N', '-e', `SELECT COUNT(*) FROM \`${db}\`.\`${t}\``]).trim();
+        assert.equal(n(rdb), n(u.pathname.slice(1)), 'строк в ' + t);
+      }
+    } finally { try { my(['-e', `DROP DATABASE IF EXISTS \`${rdb}\``]); } catch { /* нет прав */ } }
+  }
   // ссылка не годится для входа в программу и для другого вида копии
   const t = url.split('t=')[1];
   assert.equal((await fetch(BASE + '/api/products', { headers: { Authorization: 'Bearer ' + decodeURIComponent(t) } })).status, 401);
