@@ -1,12 +1,17 @@
 import { Link } from 'react-router-dom';
-import { Plus, ImageOff, Heart } from 'lucide-react';
+import { useState } from 'react';
+import { ImageOff, Heart, ShoppingCart } from 'lucide-react';
 import { useShop } from './store';
+import QuickBuy from './QuickBuy';
 
 export default function ProductCard({ p }) {
   const { money, cart, fav } = useShop();
   const discount = p.oldPrice ? Math.round((1 - p.price / p.oldPrice) * 100) : 0;
   const liked = fav.has(p.id);
   const url = p.url || `/product/${p.id}`;
+  const [quick, setQuick] = useState(false);
+  const inCart = cart.countOf(p.id);
+  const buy = () => (p.hasVariants ? setQuick(true) : cart.add({ ...p, cardId: p.id }, 1));
   return (
     <div className="group relative">
       <Link to={url} className="block">
@@ -36,12 +41,12 @@ export default function ProductCard({ p }) {
         className={`absolute top-3 right-3 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 shadow-sm transition hover:scale-110 ${liked ? 'text-rose-500' : 'text-slate-700'}`}>
         <Heart size={18} fill={liked ? 'currentColor' : 'none'} />
       </button>
-      {p.inStock && !p.hasVariants && (
-        <button onClick={() => cart.add(p)} aria-label="В корзину" title="В корзину"
-          className="absolute top-14 right-3 flex h-9 w-9 items-center justify-center rounded-full bg-white text-slate-900 shadow-md transition hover:bg-slate-900 hover:text-white sm:opacity-0 sm:group-hover:opacity-100">
-          <Plus size={18} />
-        </button>
-      )}
+      <button onClick={buy} disabled={!p.inStock && !p.hasVariants}
+        className="relative mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-500">
+        <ShoppingCart size={17} /> {p.inStock ? 'Купить' : p.hasVariants ? 'Выбрать размер' : 'Нет в наличии'}
+        {inCart > 0 && <span className="absolute -top-2 -right-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-rose-500 px-1 text-xs font-bold text-white">{inCart}</span>}
+      </button>
+      {quick && <QuickBuy card={p} onClose={() => setQuick(false)} />}
     </div>
   );
 }

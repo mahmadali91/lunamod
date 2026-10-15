@@ -50,11 +50,14 @@ export function ShopProvider({ children }) {
         if (next <= (ex?.quantity || 0)) { notify(`Больше нет в наличии: доступно ${p.stock} шт.`, 'error'); return c; }
         notify('Добавлено в корзину');
         ecommerce('add', [{ id: p.id, name: p.name, price: p.price, quantity: next - (ex?.quantity || 0) }]);
-        return ex ? c.map((i) => (i.id === p.id ? { ...i, quantity: next } : i)) : [...c, { id: p.id, name: p.name, price: p.price, image: p.images?.[0], stock: p.stock, url: p.url, quantity: next }];
+        return ex ? c.map((i) => (i.id === p.id ? { ...i, quantity: next } : i)) : [...c, { id: p.id, cardId: p.cardId ?? p.id, name: p.name, price: p.price, image: p.images?.[0], stock: p.stock, url: p.url, quantity: next }];
       });
     },
     set(id, q) { setCart((c) => c.map((i) => (i.id === id ? { ...i, quantity: Math.max(1, Math.min(q, config?.allowBackorder ? 999 : i.stock || 999)) } : i))); },
     remove(id) { setCart((c) => c.filter((i) => i.id !== id)); },
+    qty: (id) => cart.find((i) => i.id === id)?.quantity || 0,
+    // сколько штук этой карточки (всех размеров) уже в корзине — для значка на кнопке «Купить»
+    countOf: (cardId) => cart.filter((i) => (i.cardId ?? Number(String(i.url || '').match(/^\/product\/(\d+)/)?.[1] ?? i.id)) === cardId).reduce((a, i) => a + i.quantity, 0),
     clear() { setCart([]); },
     // сверка с сервером: убрать то, что больше не продаётся, обновить цены и доступное количество
     async check() {
