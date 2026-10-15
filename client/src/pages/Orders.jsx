@@ -13,7 +13,7 @@ const fmtPhone = (p) => (p ? `+${p[0]} ${p.slice(1, 4)} ${p.slice(4, 7)}-${p.sli
 
 // строки листа подбора: что и сколько взять, где лежит
 const pickRows = (o) => o.items.map((i) => ({
-  id: i.id, image: i.product.images[0]?.path, name: i.product.parent?.name || i.name, color: i.product.color, size: i.product.size ? `${i.product.size}${i.product.sizeRu ? ` (${i.product.sizeRu})` : ''}` : null,
+  id: i.id, image: i.product.images[0]?.path, name: i.product.parent?.name || i.name, color: i.product.color, size: i.product.size || null, sizeRu: i.product.sizeRu || null,
   article: i.product.article, sku: i.product.parent?.sku || i.product.sku, barcode: i.product.barcodes?.[0]?.code, quantity: i.quantity,
   stocks: i.product.stocks.filter((s) => s.quantity > 0 || i.product.stocks.length === 1).map((s) => ({ name: s.warehouse?.name || 'Склад', quantity: s.quantity })),
 }));
@@ -47,7 +47,7 @@ function PickList({ o, onClose }) {
               <Thumb src={r.image} size={52} />
               <div className="min-w-0 flex-1 text-sm">
                 <div className={`font-medium ${ok ? 'line-through' : ''}`}>{r.name}</div>
-                <div className="text-xs text-slate-500">{[r.color, r.size && <b key="s" className="text-slate-900">{r.size}</b>].filter(Boolean).reduce((a, x, i) => (i ? [...a, ' · ', x] : [x]), [])}</div>
+                <div className="text-xs text-slate-500">{[r.color, r.size && <b key="s" className="text-slate-900">{r.size}{r.sizeRu ? ` (${r.sizeRu})` : ''}</b>].filter(Boolean).reduce((a, x, i) => (i ? [...a, ' · ', x] : [x]), [])}</div>
                 <div className="font-mono text-xs text-slate-400">арт. {r.article}{r.sku ? ` · ${r.sku}` : ''}{r.barcode ? ` · ${r.barcode}` : ''}</div>
                 <div className={`text-xs ${low ? 'text-rose-600' : 'text-slate-500'}`}>{r.stocks.length ? r.stocks.map((s) => `${s.name}: ${fmtNum(s.quantity)}`).join(' · ') : 'нет на складе'}</div>
               </div>

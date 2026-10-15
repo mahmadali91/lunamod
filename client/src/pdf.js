@@ -145,7 +145,7 @@ export async function pickListPdf(order, rows, { money, storeName, fmtDate }) {
   }
   y += 3;
   // таблица
-  const cols = [['', 16], ['Товар', 62], ['Цвет / размер', 28], ['Штрихкод', 38], ['Остаток', 22], ['Кол-во', 12], ['', 8]];
+  const cols = [['', 16], ['Товар', 56], ['Цвет / размер', 34], ['Штрихкод', 38], ['Остаток', 22], ['Кол-во', 12], ['', 8]];
   const head = () => {
     doc.setFillColor(238, 242, 255); doc.rect(M, y, CW, 7, 'F');
     doc.setFont('DejaVu', 'bold'); doc.setFontSize(8);
@@ -169,7 +169,15 @@ export async function pickListPdf(order, rows, { money, storeName, fmtDate }) {
     doc.setTextColor(0);
     x += cols[1][1];
     if (r.color) lines(doc, r.color, x + 1.5, y + 1, cols[2][1] - 3, { size: 8, max: 1 });
-    if (r.size) { doc.setFont('DejaVu', 'bold'); doc.setFontSize(13); doc.text(String(r.size), x + 1.5, y + 12); }
+    // размер крупно, но не шире колонки; российский размер — строкой ниже
+    if (r.size) {
+      const cw = cols[2][1] - 3;
+      doc.setFont('DejaVu', 'bold');
+      const fs = fitSize(doc, String(r.size), cw, 13, 7);
+      doc.setFontSize(fs);
+      doc.text(doc.splitTextToSize(String(r.size), cw)[0], x + 1.5, y + 11);
+      if (r.sizeRu) lines(doc, `рос. ${r.sizeRu}`, x + 1.5, y + 12.5, cw, { size: 7.5, max: 1 });
+    }
     x += cols[2][1];
     if (!barcode(doc, r.barcode, x + 1.5, y + 2.5, cols[3][1] - 4, 13, { fontSize: 7 })) { doc.setFontSize(8); doc.text('—', x + 1.5, y + 6); }
     x += cols[3][1];
