@@ -80,6 +80,14 @@ jobs:
         if: env.HAS_KEY != 'true'
         run: echo "::warning::Секрет BEGET_SSH_KEY не задан. Запустите deploy/setup-autodeploy.sh на хостинге (см. README)."
 
+      - uses: actions/checkout@v4
+        if: env.HAS_KEY == 'true'
+
+      # код уходит на сервер архивом прямо в SSH-соединении — хостингу не нужен доступ к GitHub (репозиторий может быть закрытым)
+      - name: Архив с кодом
+        if: env.HAS_KEY == 'true'
+        run: git archive --format=tar.gz -o "$RUNNER_TEMP/app.tar.gz" "$GITHUB_SHA" && ls -lh "$RUNNER_TEMP/app.tar.gz"
+
       - name: Обновление сайта на хостинге
         if: env.HAS_KEY == 'true'
         env:
@@ -89,7 +97,7 @@ jobs:
           printf '%s\n' "$KEY" > ~/.ssh/beget && chmod 600 ~/.ssh/beget
           ssh-keyscan -H "$BEGET_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           # Ключ на хостинге ограничен: он может только запустить обновление до этой версии
-          ssh -i ~/.ssh/beget -o BatchMode=yes -o ServerAliveInterval=30 "$BEGET_USER@$BEGET_HOST" "$GITHUB_SHA" 2>&1 | tee deploy.log
+          ssh -i ~/.ssh/beget -o BatchMode=yes -o ServerAliveInterval=30 "$BEGET_USER@$BEGET_HOST" "$GITHUB_SHA" < "$RUNNER_TEMP/app.tar.gz" 2>&1 | tee deploy.log
           grep -q "Готово" deploy.log || { echo "::error::Скрипт деплоя завершился с ошибкой"; exit 1; }
 
       - name: Проверка сайта после деплоя

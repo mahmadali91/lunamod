@@ -4,6 +4,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/mahmadali91/sklad/main/deploy/beget.sh | bash
 # Повторный запуск = обновление до последней версии из GitHub (данные и фото сохраняются).
 # Ввести данные базы заново: ... | RESET=1 bash
+# Закрытый репозиторий: код приходит архивом (автодеплой присылает его сам), например вручную:
+#   tar xzf sklad.tar.gz -O deploy/beget.sh | ARCHIVE=$HOME/sklad.tar.gz bash   (подходит и .zip из GitHub)
 set -euo pipefail
 
 DOMAIN="${DOMAIN:-botmi.ru}"
@@ -44,8 +46,21 @@ fi
 export PATH="$NODE_DIR/bin:$PATH"
 echo "node $(node -v), npm $(npm -v)"
 
-step "2/7 Код из GitHub"
-if command -v git >/dev/null 2>&1; then
+step "2/7 Код"
+if [ -n "${ARCHIVE:-}" ]; then
+  # код из архива (закрытый репозиторий): .tar.gz от автодеплоя или .zip, скачанный с GitHub
+  [ -s "$ARCHIVE" ] || fail "Нет архива с кодом: $ARCHIVE"
+  rm -rf "$APP.new" "$APP.unpack" && mkdir -p "$APP.unpack"
+  case "$ARCHIVE" in
+    *.zip) unzip -q "$ARCHIVE" -d "$APP.unpack" ;;
+    *) tar xzf "$ARCHIVE" -C "$APP.unpack" ;;
+  esac
+  # в .zip с GitHub всё лежит в одной папке sklad-main/ — поднимаем её
+  if [ -d "$APP.unpack/server" ]; then mv "$APP.unpack" "$APP.new"; else mv "$APP.unpack"/*/ "$APP.new" && rm -rf "$APP.unpack"; fi
+  [ -f "$APP.new/server/package.json" ] || fail "В архиве нет папки server — это не тот архив"
+  echo "${COMMIT:-archive-$(date +%Y%m%d%H%M)}" > "$APP.new/server/VERSION"
+  rm -rf "$APP.old" && { [ -d "$APP" ] && mv "$APP" "$APP.old" || true; } && mv "$APP.new" "$APP" && rm -rf "$APP.old"
+elif command -v git >/dev/null 2>&1; then
   [ -d "$APP/.git" ] || { rm -rf "$APP"; git clone --depth 1 -b "$BRANCH" "$REPO" "$APP"; }
   # COMMIT — точная версия (передаёт автодеплой), иначе последняя в ветке
   git -C "$APP" fetch --depth 1 origin "${COMMIT:-$BRANCH}"

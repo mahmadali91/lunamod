@@ -59,6 +59,12 @@ tar czf sklad-uploads.tar.gz -C ~/botmi.ru uploads
 8. Проверьте `https://новый-домен.ru/api/health`. Должно вернуться `"db":"ok"`.
 9. Пройдите шаги из раздела 5 «После переезда».
 
+**Если репозиторий на GitHub закрытый**, команда `curl … raw.githubusercontent.com …` не сработает. Скачайте код (архив проекта или **Code → Download ZIP** на GitHub), загрузите его в домашнюю папку на Beget и запустите установку из архива:
+```bash
+unzip -p ~/sklad-main.zip sklad-main/deploy/beget.sh | ARCHIVE=$HOME/sklad-main.zip DOMAIN=новый-домен.ru bash
+```
+Автообновления после этого работают и с закрытым репозиторием: GitHub сам присылает код на сервер.
+
 **Автообновление из GitHub** для нового сайта:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mahmadali91/sklad/main/deploy/setup-autodeploy.sh | DOMAIN=новый-домен.ru bash

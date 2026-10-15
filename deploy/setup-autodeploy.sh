@@ -18,14 +18,23 @@ keygen "$SSH_DIR/sklad_local" "sklad-local"
 keygen "$SSH_DIR/sklad_github" "sklad-github-actions"
 
 # Скрипт, который выполняется при входе GitHub. Принимает только хэш коммита.
+# Код приходит архивом в этом же соединении (так работает и закрытый репозиторий: сервер в GitHub не ходит).
+# Если архива нет — по-старому скачивает с GitHub (только для открытого репозитория).
 cat > "$HOME/.sklad-deploy.sh" <<WRAP
 #!/bin/bash
 set -euo pipefail
 SHA="\$(printf '%s' "\${SSH_ORIGINAL_COMMAND:-}" | grep -oE '^[0-9a-f]{40}\$' || true)"
 REF="\${SHA:-main}"
-echo "Автодеплой версии \$REF"
-exec ssh -p 222 -i "$SSH_DIR/sklad_local" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR localhost \\
-  "COMMIT=\${SHA} DOMAIN=$DOMAIN bash -c 'curl -fsSL $REPO_RAW/\$REF/deploy/beget.sh | bash'"
+REL="\$HOME/.sklad-release.tar.gz"
+rm -f "\$REL"
+[ -n "\$SHA" ] && head -c 300000000 > "\$REL" || true
+SSHL="ssh -p 222 -i $SSH_DIR/sklad_local -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR localhost"
+if [ -s "\$REL" ]; then
+  echo "Автодеплой версии \$REF (архив \$(du -h "\$REL" | cut -f1))"
+  exec \$SSHL "COMMIT=\$SHA DOMAIN=$DOMAIN ARCHIVE=\\\$HOME/.sklad-release.tar.gz bash -c 'tar xzf \\\$ARCHIVE -O deploy/beget.sh | bash'"
+fi
+echo "Автодеплой версии \$REF (из GitHub)"
+exec \$SSHL "COMMIT=\${SHA} DOMAIN=$DOMAIN bash -c 'curl -fsSL $REPO_RAW/\$REF/deploy/beget.sh | bash'"
 WRAP
 chmod 700 "$HOME/.sklad-deploy.sh"
 
