@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Trash2, UserPlus, Save } from 'lucide-react';
 import { api } from '../api';
 import { Badge, Button, Field, PageHeader, useLoad, useSettings, useToast } from '../ui';
+import DemoData from '../components/DemoData';
 
 export default function SettingsPage() {
   const settings = useSettings();
@@ -71,6 +72,8 @@ export default function SettingsPage() {
           </form>
         </div>
       )}
+
+      {isAdmin && <DemoData />}
 
       <form className="card space-y-4 p-6" onSubmit={run(async () => { await api('/auth/password', { method: 'POST', body: pw }); setPw({ oldPassword: '', newPassword: '' }); }, 'Пароль изменён')}>
         <h2 className="font-semibold">Сменить пароль</h2>

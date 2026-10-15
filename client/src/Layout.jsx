@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { api } from './api';
 import { SettingsCtx, useToast } from './ui';
+import { CameraButton } from './components/CameraScanner';
 
 const nav = [
   { to: '/', icon: LayoutDashboard, label: 'Дашборд', end: true },
@@ -27,10 +28,7 @@ function GlobalSearch() {
   const [q, setQ] = useState('');
   const navigate = useNavigate();
   const toast = useToast();
-  const submit = async (e) => {
-    e.preventDefault();
-    const code = q.trim();
-    if (!code) return;
+  const find = async (code) => {
     try {
       const p = await api('/products/lookup/' + encodeURIComponent(code));
       navigate('/products/' + p.id);
@@ -40,10 +38,12 @@ function GlobalSearch() {
       navigate('/products?q=' + encodeURIComponent(code));
     }
   };
+  const submit = (e) => { e.preventDefault(); if (q.trim()) find(q.trim()); };
   return (
     <form onSubmit={submit} className="relative w-full max-w-md">
       <ScanBarcode size={18} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" />
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск по штрихкоду или артикулу…" className="input rounded-xl border-slate-200 bg-slate-50 pl-10 focus:bg-white" />
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск по штрихкоду или артикулу…" className="input rounded-xl border-slate-200 bg-slate-50 pr-11 pl-10 focus:bg-white" />
+      <CameraButton onResult={find} className="absolute top-1/2 right-2 -translate-y-1/2" />
     </form>
   );
 }
@@ -110,8 +110,8 @@ export default function Layout() {
             <button className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:hidden" onClick={() => setMobile(true)}><Menu size={20} /></button>
             <GlobalSearch />
             <div className="ml-auto">
-              <NavLink to="/pos" className="hidden items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 sm:inline-flex">
-                <ShoppingCart size={16} /> Продать
+              <NavLink to="/pos" title="Продать" className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 p-2.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 sm:px-4 sm:py-2">
+                <ShoppingCart size={16} /> <span className="hidden sm:inline">Продать</span>
               </NavLink>
             </div>
           </header>

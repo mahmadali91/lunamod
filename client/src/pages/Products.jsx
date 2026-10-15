@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Search, Package, Tags, Pencil, Archive } from 'lucide-react';
-import { api, qs } from '../api';
+import { Plus, Search, Package, Tags, Pencil, Archive, List, LayoutGrid, FileSpreadsheet, ZoomIn } from 'lucide-react';
+import { api, fileUrl, qs } from '../api';
 import { Badge, Button, Empty, PageHeader, RefSelect, Spinner, Thumb, fmtNum, useLoad, useMoney } from '../ui';
+import Lightbox from '../components/Lightbox';
+import ImportProducts from '../components/ImportProducts';
+import { CameraButton } from '../components/CameraScanner';
+
+const VIEW_KEY = 'products_view';
+const readView = () => { try { return localStorage.getItem(VIEW_KEY) || 'list'; } catch { return 'list'; } };
 
 export default function Products() {
   const [params, setParams] = useSearchParams();
@@ -11,6 +17,17 @@ export default function Products() {
   const [archived, setArchived] = useState(false);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState([]);
+  const [view, setView] = useState(readView);
+  const [zoom, setZoom] = useState(null); // { images, title }
+  const [importOpen, setImportOpen] = useState(false);
+  const changeView = (v) => { setView(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* приватный режим */ } };
+
+  // Крупный просмотр: сразу первое фото, затем подгружаем все фото товара
+  const openZoom = async (p) => {
+    if (!p.images[0]) return;
+    setZoom({ images: [p.images[0].path], title: p.name });
+    try { const full = await api('/products/' + p.id); if (full.images.length) setZoom({ images: full.images.map((i) => i.path), title: p.name }); } catch { /* оставляем одно фото */ }
+  };
   const navigate = useNavigate();
   const money = useMoney();
 
@@ -18,12 +35,12 @@ export default function Products() {
   const [debounced, setDebounced] = useState(q);
   useEffect(() => { const t = setTimeout(() => { setDebounced(q); setPage(1); }, 250); return () => clearTimeout(t); }, [q]);
 
-  const { data, loading } = useLoad('/products' + qs({ q: debounced, categoryId, page, limit: 50, archived }));
+  const { data, loading, reload } = useLoad('/products' + qs({ q: debounced, categoryId, page, limit: 50, archived }));
 
-  const onKeyDown = async (e) => {
-    if (e.key !== 'Enter' || !q.trim()) return;
-    try { const p = await api('/products/lookup/' + encodeURIComponent(q.trim())); navigate('/products/' + p.id); } catch { /* остаёмся на списке */ }
+  const openCode = async (code) => {
+    try { const p = await api('/products/lookup/' + encodeURIComponent(code)); navigate('/products/' + p.id); } catch { setQ(code); }
   };
+  const onKeyDown = (e) => { if (e.key === 'Enter' && q.trim()) openCode(q.trim()); };
 
   const toggle = (id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   const items = data?.items || [];
@@ -35,6 +52,7 @@ export default function Products() {
         {selected.length > 0 && (
           <Button variant="secondary" icon={Tags} onClick={() => navigate('/labels?ids=' + selected.join(','))}>Печать этикеток ({selected.length})</Button>
         )}
+        <Button variant="secondary" icon={FileSpreadsheet} onClick={() => setImportOpen(true)}>Импорт из Excel</Button>
         <Button icon={Plus} onClick={() => navigate('/products/new')}>Добавить товар</Button>
       </PageHeader>
 
@@ -42,17 +60,48 @@ export default function Products() {
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 p-4">
           <div className="relative min-w-60 flex-1">
             <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" />
-            <input className="input pl-9" placeholder="Название, артикул или штрихкод (Enter — открыть)" value={q}
+            <CameraButton onResult={openCode} className="absolute top-1/2 right-2 -translate-y-1/2" />
+            <input className="input pr-11 pl-9" placeholder="Название, артикул или штрихкод (Enter — открыть)" value={q}
               onChange={(e) => { setQ(e.target.value); setParams(e.target.value ? { q: e.target.value } : {}, { replace: true }); }} onKeyDown={onKeyDown} autoFocus />
           </div>
           <RefSelect path="/categories" value={categoryId} onChange={(v) => { setCategoryId(v); setPage(1); }} placeholder="Все категории" className="w-48" />
           <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> Архив</label>
+          <div className="ml-auto inline-flex rounded-lg border border-slate-200 p-0.5">
+            {[['list', List, 'Список'], ['grid', LayoutGrid, 'Плитка']].map(([v, Icon, l]) => (
+              <button key={v} title={l} onClick={() => changeView(v)} className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm ${view === v ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}><Icon size={16} /><span className="hidden sm:inline">{l}</span></button>
+            ))}
+          </div>
         </div>
 
         {!data ? <Spinner /> : items.length === 0 ? (
           <Empty icon={Package} title="Товары не найдены" text="Добавьте первый товар или измените условия поиска">
             <Button icon={Plus} onClick={() => navigate('/products/new')}>Добавить товар</Button>
           </Empty>
+        ) : view === 'grid' ? (
+          <div className={`grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 ${loading ? 'opacity-60' : ''}`}>
+            {items.map((p) => (
+              <div key={p.id} className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:border-indigo-200 hover:shadow-md">
+                <Link to={`/products/${p.id}`} className="block">
+                  <div className="aspect-square bg-slate-50">
+                    {p.images[0] ? <img src={fileUrl(p.images[0].path)} alt={p.name} loading="lazy" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-300"><Package size={40} /></div>}
+                  </div>
+                  <div className="p-3">
+                    <div className="line-clamp-2 min-h-[2.5rem] text-sm font-medium text-slate-900">{p.name}</div>
+                    <div className="mt-0.5 truncate font-mono text-xs text-slate-400">{p.sku || p.barcodes[0]?.code}</div>
+                    <div className="mt-2 flex items-end justify-between gap-2">
+                      <div>
+                        <div className="font-bold">{money(p.price)}</div>
+                        {p.oldPrice > p.price && <div className="text-xs text-slate-400 line-through">{money(p.oldPrice)}</div>}
+                      </div>
+                      <Badge color={p.totalStock <= 0 ? 'red' : p.totalStock <= p.minStock ? 'amber' : 'green'}>{fmtNum(p.totalStock)} {p.unit}</Badge>
+                    </div>
+                  </div>
+                </Link>
+                <input type="checkbox" checked={selected.includes(p.id)} onChange={() => toggle(p.id)} className="absolute top-2 left-2 h-4 w-4" title="Выбрать для печати этикеток" />
+                {p.images[0] && <button type="button" onClick={() => openZoom(p)} title="Увеличить фото" className="absolute top-2 right-2 rounded-lg bg-white/90 p-1.5 text-slate-600 opacity-0 shadow transition group-hover:opacity-100 hover:text-indigo-600 max-sm:opacity-100"><ZoomIn size={16} /></button>}
+              </div>
+            ))}
+          </div>
         ) : (
           <div className={`overflow-x-auto ${loading ? 'opacity-60' : ''}`}>
             <table className="w-full">
@@ -72,13 +121,16 @@ export default function Products() {
                   <tr key={p.id} className="hover:bg-slate-50/70">
                     <td className="td"><input type="checkbox" checked={selected.includes(p.id)} onChange={() => toggle(p.id)} /></td>
                     <td className="td">
-                      <Link to={`/products/${p.id}`} className="flex items-center gap-3">
-                        <Thumb src={p.images[0]?.path} />
-                        <div className="min-w-0">
+                      <div className="flex items-center gap-3">
+                        <button type="button" onClick={() => openZoom(p)} title={p.images[0] ? 'Увеличить фото' : ''} className={`group relative shrink-0 ${p.images[0] ? 'cursor-zoom-in' : 'cursor-default'}`}>
+                          <Thumb src={p.images[0]?.path} size={52} />
+                          {p.images[0] && <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-slate-900/40 text-white opacity-0 transition group-hover:opacity-100"><ZoomIn size={18} /></span>}
+                        </button>
+                        <Link to={`/products/${p.id}`} className="min-w-0">
                           <div className="font-medium text-slate-900 hover:text-indigo-600">{p.name}</div>
                           {p.category && <div className="text-xs text-slate-500">{p.category.name}</div>}
-                        </div>
-                      </Link>
+                        </Link>
+                      </div>
                     </td>
                     <td className="td font-mono text-xs text-slate-600">{p.sku || '—'}</td>
                     <td className="td font-mono text-xs text-slate-600">{p.barcodes[0]?.code}</td>
@@ -108,6 +160,8 @@ export default function Products() {
           </div>
         )}
       </div>
+      {zoom && <Lightbox images={zoom.images} title={zoom.title} onClose={() => setZoom(null)} />}
+      <ImportProducts open={importOpen} onClose={() => setImportOpen(false)} onDone={reload} />
       {archived && <p className="mt-3 flex items-center gap-1 text-xs text-slate-500"><Archive size={12} /> Показаны архивные товары (удалённые, по которым были документы)</p>}
     </div>
   );

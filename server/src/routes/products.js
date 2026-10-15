@@ -168,6 +168,89 @@ r.delete('/:id', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Импорт товаров: [{ name, sku, barcode, category, price, oldPrice, costPrice, unit, minStock, quantity, description, attributes: {Размер: 'M'} }]
+// Поиск существующего товара: по штрихкоду, затем по артикулу. Количество = фактический остаток на выбранном складе.
+r.post('/import', ah(async (req, res) => {
+  const rows = Array.isArray(req.body.rows) ? req.body.rows.slice(0, 5000) : [];
+  const warehouseId = int(req.body.warehouseId);
+  if (!rows.length) throw new HttpError(400, 'Файл пустой');
+  const report = { created: 0, updated: 0, skipped: 0, errors: [] };
+  const catCache = {};
+  for (const [i, row] of rows.entries()) {
+    const line = row._line || i + 2;
+    try {
+      const result = await prisma.$transaction(async (tx) => {
+        const barcode = str(row.barcode)?.replace(/\s/g, '');
+        const sku = str(row.sku);
+        let existing = null;
+        if (barcode) existing = await tx.product.findFirst({ where: { barcodes: { some: { code: barcode } } } });
+        if (!existing && sku) existing = await tx.product.findUnique({ where: { sku } });
+        if (!existing && !str(row.name)) throw new HttpError(400, 'не указано название');
+
+        let categoryId;
+        const cat = str(row.category);
+        if (cat) {
+          if (!catCache[cat]) catCache[cat] = (await tx.category.findUnique({ where: { name: cat } })) || (await tx.category.create({ data: { name: cat } }));
+          categoryId = catCache[cat].id;
+        }
+        const data = {};
+        if (str(row.name)) data.name = str(row.name);
+        if (sku) data.sku = sku;
+        if (str(row.description)) data.description = str(row.description);
+        if (str(row.unit)) data.unit = str(row.unit);
+        const LABEL = { price: 'Цена', costPrice: 'Закупочная цена', minStock: 'Мин. остаток', oldPrice: 'Старая цена' };
+        for (const k of ['price', 'costPrice', 'minStock', 'oldPrice']) {
+          if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== '') {
+            const v = Number(String(row[k]).replace(/\s/g, '').replace(',', '.'));
+            if (isNaN(v)) throw new HttpError(400, `неверное число в колонке «${LABEL[k]}»: ${row[k]}`);
+            data[k] = v;
+          }
+        }
+        if (categoryId) data.categoryId = categoryId;
+
+        let product;
+        if (existing) {
+          product = await tx.product.update({ where: { id: existing.id }, data: { ...data, active: true } });
+        } else {
+          product = await tx.product.create({ data });
+        }
+        // штрихкод: свой или автоматический EAN-13
+        if (barcode) {
+          const owner = await tx.barcode.findUnique({ where: { code: barcode } });
+          if (owner && owner.productId !== product.id) throw new HttpError(400, `штрихкод ${barcode} уже у другого товара`);
+          if (!owner) {
+            const hasPrimary = await tx.barcode.count({ where: { productId: product.id, isPrimary: true } });
+            await tx.barcode.create({ data: { productId: product.id, code: barcode, type: detectBarcodeType(barcode), isPrimary: !hasPrimary } });
+          }
+        } else if (!existing) {
+          await tx.barcode.create({ data: { productId: product.id, code: await generateEan13(tx), type: 'EAN13', isPrimary: true, generated: true } });
+        }
+        // характеристики: обновляем/добавляем указанные
+        for (const [name, value] of Object.entries(row.attributes || {})) {
+          if (!str(value)) continue;
+          const a = await tx.productAttribute.findFirst({ where: { productId: product.id, name } });
+          if (a) await tx.productAttribute.update({ where: { id: a.id }, data: { value: str(value) } });
+          else await tx.productAttribute.create({ data: { productId: product.id, name, value: str(value) } });
+        }
+        // остаток на складе
+        if (warehouseId && row.quantity !== undefined && row.quantity !== null && String(row.quantity).trim() !== '') {
+          const q = Number(String(row.quantity).replace(',', '.'));
+          if (isNaN(q)) throw new HttpError(400, `неверное количество: ${row.quantity}`);
+          const cur = await tx.stock.findUnique({ where: { productId_warehouseId: { productId: product.id, warehouseId } } });
+          const diff = q - (cur?.quantity || 0);
+          if (diff) await changeStock(tx, { productId: product.id, warehouseId, quantity: diff, type: 'ADJUST', note: 'Импорт из Excel' });
+        }
+        return existing ? 'updated' : 'created';
+      });
+      report[result]++;
+    } catch (e) {
+      report.errors.push({ line, name: row.name || row.sku || row.barcode || '', error: e.status ? e.message : e.code === 'P2002' ? 'артикул или штрихкод уже используется' : 'ошибка: ' + e.message.split('\n').pop() });
+      if (report.errors.length > 200) break;
+    }
+  }
+  res.json(report);
+}));
+
 // Сгенерировать новый свободный EAN-13 (для формы)
 r.post('/generate-barcode', ah(async (req, res) => {
   res.json({ code: await prisma.$transaction((tx) => generateEan13(tx)) });

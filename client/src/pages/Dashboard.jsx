@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { TrendingUp, TrendingDown, Wallet, ShoppingBag, Boxes, CircleDollarSign, AlertTriangle, Sun, ArrowRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, ShoppingBag, Boxes, CircleDollarSign, AlertTriangle, Sun, ArrowRight, ShoppingCart } from 'lucide-react';
 import { Badge, Spinner, Thumb, fmtDate, fmtNum, useLoad, useMoney } from '../ui';
 
-const periods = [[7, '7 дней'], [30, '30 дней'], [90, '90 дней'], [365, 'Год']];
+const periods = [[1, 'Сегодня'], [7, '7 дней'], [30, '30 дней'], [90, '90 дней'], [365, 'Год']];
 const compact = (v) => (v >= 1e6 ? fmtNum(v / 1e6, 1) + ' млн' : v >= 1e3 ? fmtNum(v / 1e3, 0) + ' тыс' : fmtNum(v, 0));
 
 function Kpi({ icon: Icon, label, value, sub, delta, tone = 'indigo' }) {
@@ -33,7 +33,7 @@ function ChartTooltip({ active, payload, money }) {
   const d = payload[0].payload;
   return (
     <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg">
-      <div className="mb-1 text-slate-500">{new Date(d.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', weekday: 'short' })}</div>
+      <div className="mb-1 text-slate-500">{d.hour !== undefined ? `${String(d.hour).padStart(2, '0')}:00–${String(d.hour + 1).padStart(2, '0')}:00` : new Date(d.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', weekday: 'short' })}</div>
       <div className="text-sm font-semibold text-slate-900">{money(d.revenue)}</div>
       <div className="text-slate-500">Продаж: {d.count}</div>
     </div>
@@ -58,15 +58,20 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Дашборд</h1>
           <p className="mt-1 text-sm text-slate-500">Сводка по продажам и складу</p>
         </div>
-        <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+        <div className="flex max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
           {periods.map(([d, l]) => (
-            <button key={d} onClick={() => setDays(d)} className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${days === d ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:bg-slate-100'}`}>{l}</button>
+            <button key={d} onClick={() => setDays(d)} className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium whitespace-nowrap transition ${days === d ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:bg-slate-100'}`}>{l}</button>
           ))}
         </div>
       </div>
 
+      {/* На телефоне — крупная кнопка продажи */}
+      <Link to="/pos" className="flex items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-semibold text-white shadow-lg shadow-indigo-600/25 active:bg-indigo-700 sm:hidden">
+        <ShoppingCart size={20} /> Новая продажа
+      </Link>
+
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <Kpi icon={Wallet} label="Выручка" value={money(k.revenue)} delta={delta} sub={delta !== null ? 'к прошлому периоду' : ''} />
+        <Kpi icon={Wallet} label={days === 1 ? 'Выручка сегодня' : 'Выручка'} value={money(k.revenue)} delta={delta} sub={delta !== null ? (days === 1 ? 'ко вчера' : 'к прошлому периоду') : ''} />
         <Kpi icon={CircleDollarSign} tone="green" label="Валовая прибыль" value={money(k.profit)} sub={k.revenue ? `маржа ${fmtNum((k.profit / k.revenue) * 100, 1)}%` : '—'} />
         <Kpi icon={ShoppingBag} tone="sky" label="Продаж" value={fmtNum(k.salesCount)} sub={`средний чек ${money(k.avgCheck)}`} />
         <Kpi icon={Sun} tone="amber" label="Сегодня" value={money(k.todayRevenue)} sub={`${k.todayCount} продаж`} />
@@ -76,7 +81,7 @@ export default function Dashboard() {
         <div className="card p-5 xl:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <h2 className="font-semibold text-slate-900">Выручка по дням</h2>
+              <h2 className="font-semibold text-slate-900">{data.hourly ? 'Выручка сегодня по часам' : 'Выручка по дням'}</h2>
               <p className="text-xs text-slate-500">Наведите на график, чтобы увидеть детали</p>
             </div>
           </div>
@@ -91,10 +96,10 @@ export default function Dashboard() {
                 </defs>
                 <CartesianGrid vertical={false} stroke="#eef0f3" />
                 <XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#64748b' }} minTickGap={24}
-                  tickFormatter={(d) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} />
+                  tickFormatter={(d) => (data.hourly ? d.slice(11, 16) : new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }))} />
                 <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={compact} width={64} />
                 <Tooltip content={<ChartTooltip money={money} />} cursor={{ stroke: '#94a3b8', strokeDasharray: '3 3' }} />
-                <Area type="monotone" dataKey="revenue" stroke="#2a78d6" strokeWidth={2} fill="url(#rev)" activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }} />
+                <Area type={data.hourly ? 'stepAfter' : 'monotone'} dataKey="revenue" stroke="#2a78d6" strokeWidth={2} fill="url(#rev)" activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }} />
               </AreaChart>
             </ResponsiveContainer>
           </div>

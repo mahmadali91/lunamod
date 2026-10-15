@@ -28,10 +28,15 @@ r.get('/', ah(async (req, res) => {
   const cost = sales.reduce((s, x) => s + x.items.reduce((a, i) => a + i.costPrice * (i.quantity - i.returned), 0), 0);
   const today = sales.filter((s) => s.date >= todayStart);
 
-  // График по дням
+  // График: за сегодня — по часам, иначе по дням
   const byDay = {};
-  for (let i = 0; i < days; i++) { const d = new Date(from); d.setDate(d.getDate() + i); byDay[dayKey(d)] = { date: dayKey(d), revenue: 0, count: 0 }; }
-  sales.forEach((s) => { const k = dayKey(s.date); if (byDay[k]) { byDay[k].revenue += s.total; byDay[k].count += 1; } });
+  if (days === 1) {
+    for (let h = 0; h < 24; h++) byDay[h] = { date: `${dayKey(from)}T${String(h).padStart(2, '0')}:00`, hour: h, revenue: 0, count: 0 };
+    sales.forEach((s) => { const h = new Date(s.date).getHours(); byDay[h].revenue += s.total; byDay[h].count += 1; });
+  } else {
+    for (let i = 0; i < days; i++) { const d = new Date(from); d.setDate(d.getDate() + i); byDay[dayKey(d)] = { date: dayKey(d), revenue: 0, count: 0 }; }
+    sales.forEach((s) => { const k = dayKey(s.date); if (byDay[k]) { byDay[k].revenue += s.total; byDay[k].count += 1; } });
+  }
 
   // По каналам
   const byChannel = {};
@@ -58,7 +63,7 @@ r.get('/', ah(async (req, res) => {
   });
 
   res.json({
-    days,
+    days, hourly: days === 1,
     kpi: {
       revenue, prevRevenue, profit: revenue - cost, salesCount: sales.length, avgCheck: sales.length ? revenue / sales.length : 0,
       todayRevenue: today.reduce((s, x) => s + x.total, 0), todayCount: today.length,

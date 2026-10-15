@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2, Wand2, ImagePlus, Star, Tags, Save, X, History } from 'lucide-react';
 import { api, fileUrl } from '../api';
 import { Badge, BarcodeSvg, Button, Field, Spinner, fmtDate, fmtNum, useLoad, useToast } from '../ui';
+import { CameraButton } from '../components/CameraScanner';
 
 const empty = { name: '', sku: '', description: '', unit: 'шт', price: '', oldPrice: '', costPrice: '', minStock: '', categoryId: null, barcodes: [], attributes: [] };
 const attrPresets = ['Размер', 'Цвет', 'Материал', 'Вес', 'Бренд', 'Страна'];
@@ -256,7 +257,10 @@ export default function ProductForm() {
                       <button type="button" onClick={() => setForm({ ...form, barcodes: form.barcodes.filter((_, j) => j !== i) })} className="text-slate-400 hover:text-rose-600" title="Удалить"><Trash2 size={14} /></button>
                     </div>
                   </div>
-                  <input className="input font-mono" value={b} onChange={(e) => setBarcode(i, e.target.value)} placeholder="Введите или отсканируйте" />
+                  <div className="relative">
+                    <input className="input pr-11 font-mono" value={b} onChange={(e) => setBarcode(i, e.target.value)} placeholder="Введите или отсканируйте" />
+                    <CameraButton onResult={(code) => setBarcode(i, code)} className="absolute top-1/2 right-2 -translate-y-1/2" />
+                  </div>
                   {b && <div className="mt-2 flex justify-center rounded-lg bg-white p-2"><BarcodeSvg value={b} height={44} width={1.6} /></div>}
                 </div>
               ))}

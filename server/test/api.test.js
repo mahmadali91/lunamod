@@ -10,6 +10,7 @@ const PORT = 3900 + Math.floor(Math.random() * 90);
 const BASE = `http://127.0.0.1:${PORT}`;
 const PASS = process.env.ADMIN_PASSWORD || 'test-password';
 const U = Date.now().toString(36); // уникальный суффикс, чтобы тесты не мешали существующим данным
+const D = String(Date.now()).slice(-10); // уникальные цифры для своих штрихкодов
 let server, token;
 
 async function api(p, { method = 'GET', body, auth = true, form } = {}) {
@@ -66,7 +67,7 @@ test('товар: автоматический EAN-13, характеристи�
 });
 
 test('свой штрихкод и запрет дублей', async () => {
-  const own = '46' + U.padStart(10, '0').slice(-10).replace(/\D/g, '7');
+  const own = '46' + D;
   const p = await ok('/products/' + product.id, { method: 'PUT', body: { ...product, barcodes: [product.barcodes[0].code, own] } });
   assert.equal(p.barcodes.length, 2);
   const dup = await api('/products', { method: 'POST', body: { name: 'Дубль ' + U, barcodes: [own] } });
@@ -166,8 +167,63 @@ test('загрузка фото товара', async () => {
   await ok(`/products/${product.id}/images/${img.id}`, { method: 'DELETE' });
 });
 
-test('дашборд', async () => {
+test('дашборд: период и «Сегодня» по часам', async () => {
   const d = await ok('/dashboard?days=7');
   assert.ok(d.kpi.salesCount >= 0);
   assert.equal(d.chart.length, 7);
+  const t = await ok('/dashboard?days=1');
+  assert.equal(t.hourly, true);
+  assert.equal(t.chart.length, 24);
+  assert.ok(t.chart.reduce((a, h) => a + h.count, 0) === t.kpi.todayCount);
+});
+
+test('импорт товаров из Excel', async () => {
+  const rows = [
+    { _line: 2, name: 'Импорт платье ' + U, sku: 'IMP-1-' + U, category: 'Импорт ' + U, price: '2 990', costPrice: '1200,50', quantity: 7, attributes: { Размер: 'M', Цвет: 'Синий' } },
+    { _line: 3, name: 'Импорт юбка ' + U, sku: 'IMP-2-' + U, barcode: '47' + D, price: 1500 },
+    { _line: 4, sku: 'NO-NAME-' + U },
+    { _line: 5, name: 'Плохая цена ' + U, price: 'abc' },
+  ];
+  const r = await ok('/products/import', { method: 'POST', body: { rows, warehouseId: w1.id } });
+  assert.equal(r.created, 2);
+  assert.equal(r.errors.length, 2);
+  assert.deepEqual(r.errors.map((e) => e.line), [4, 5]);
+  const p = await ok('/products/lookup/IMP-1-' + U);
+  assert.equal(p.price, 2990);
+  assert.equal(p.costPrice, 1200.5);
+  assert.equal(p.category.name, 'Импорт ' + U);
+  assert.equal(p.stocks.find((s) => s.warehouseId === w1.id).quantity, 7);
+  assert.equal(p.attributes.find((a) => a.name === 'Размер').value, 'M');
+  assert.match(p.barcodes[0].code, /^200\d{10}$/, 'без штрихкода — генерируется EAN-13');
+  // повторный импорт по артикулу обновляет, а не создаёт
+  const r2 = await ok('/products/import', { method: 'POST', body: { rows: [{ sku: 'IMP-1-' + U, price: 3490, quantity: 10 }], warehouseId: w1.id } });
+  assert.equal(r2.updated, 1);
+  assert.equal(r2.created, 0);
+  const p2 = await ok('/products/lookup/IMP-1-' + U);
+  assert.equal(p2.price, 3490);
+  assert.equal(p2.name, 'Импорт платье ' + U, 'пустые поля не затирают данные');
+  assert.equal(p2.stocks.find((s) => s.warehouseId === w1.id).quantity, 10);
+});
+
+test('демо-данные: загрузка и удаление', async () => {
+  const before = (await ok('/products?limit=1')).total;
+  assert.equal((await api('/admin/demo', { method: 'POST', body: {} , auth: false })).status, 401);
+  await ok('/admin/demo', { method: 'POST', body: { perCategory: 1, days: 20 } });
+  let st;
+  for (let i = 0; i < 100; i++) { st = await ok('/admin/demo'); if (st.state !== 'running') break; await new Promise((r) => setTimeout(r, 200)); }
+  assert.equal(st.state, 'done', JSON.stringify(st));
+  assert.equal(st.summary.products, 20, 'по одному товару в каждой из 20 категорий');
+  assert.ok(st.summary.sales > 20);
+  assert.equal((await ok('/products?limit=1')).total, before + 20);
+  const demo = (await ok('/products?q=' + encodeURIComponent('демо') + '&limit=5'));
+  assert.equal((await api('/admin/demo', { method: 'POST', body: {} })).status, 400, 'повторно загрузить нельзя');
+  const pr = await ok('/products/popular?limit=3');
+  assert.ok(pr.length === 3);
+  const img = (await ok('/products?limit=200')).items.find((p) => p.images[0]?.path.includes('demo-'));
+  assert.equal((await fetch(BASE + img.images[0].path)).status, 200, 'иллюстрация доступна');
+  await ok('/admin/demo', { method: 'DELETE' });
+  assert.equal((await ok('/products?limit=1')).total, before, 'демо удалено, остальное на месте');
+  assert.equal((await ok('/products/' + product.id)).id, product.id);
+  assert.equal((await ok('/admin/demo')).loaded, false);
+  void demo;
 });

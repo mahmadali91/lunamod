@@ -12,12 +12,15 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@zxing/browser": "^0.2.1",
     "jsbarcode": "^3.12.3",
     "lucide-react": "^1.57.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.30.6",
-    "recharts": "^2.15.4"
+    "read-excel-file": "^9.3.6",
+    "recharts": "^2.15.4",
+    "write-excel-file": "^4.1.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

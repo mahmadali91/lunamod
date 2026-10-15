@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ScanBarcode, Search, Flame } from 'lucide-react';
 import { api, qs } from '../api';
 import { Thumb, useMoney, useToast, fmtNum } from '../ui';
+import { CameraButton } from './CameraScanner';
 
 /**
  * Поле поиска товара: ввод названия/артикула/штрихкода.
@@ -35,6 +36,12 @@ export default function ProductPicker({ onPick, autoFocus, placeholder = 'Ска
 
   const pick = (p) => { onPick(p); setQ(''); setList([]); setOpen(false); setShowPopular(false); skipFocus.current = true; ref.current?.focus(); };
 
+  // Код с камеры: ищем точное совпадение, иначе показываем результаты поиска
+  const onScan = async (code) => {
+    try { pick(await api('/products/lookup/' + encodeURIComponent(code))); }
+    catch { setQ(code); toast(`Товар «${code}» не найден`, 'error'); }
+  };
+
   const onKey = async (e) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.min(a + 1, list.length - 1)); }
     if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
@@ -55,7 +62,8 @@ export default function ProductPicker({ onPick, autoFocus, placeholder = 'Ска
     <div className="relative">
       <div className="relative">
         <ScanBarcode size={18} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" />
-        <input ref={ref} autoFocus={autoFocus} className="input py-2.5 pl-10" placeholder={placeholder} value={q}
+         <CameraButton onResult={onScan} className="absolute top-1/2 right-2 z-10 -translate-y-1/2" />
+        <input ref={ref} autoFocus={autoFocus} className="input py-2.5 pr-11 pl-10" placeholder={placeholder} value={q}
           onChange={(e) => setQ(e.target.value)} onKeyDown={onKey} onFocus={() => { if (skipFocus.current) { skipFocus.current = false; return; } if (list.length) setOpen(true); else loadPopular(); }} onClick={() => !q.trim() && !(open && showPopular) && loadPopular()} onBlur={() => setTimeout(() => setOpen(false), 150)} />
       </div>
       {open && (
