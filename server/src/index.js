@@ -34,6 +34,19 @@ app.get('/api/health', async (req, res) => {
 app.use('/api/shop', require('./routes/shop').router);
 
 app.use('/api/auth', auth);
+// скачивание резервной копии по одноразовой ссылке из «Настроек» (браузер качает файл сам, без заголовка входа)
+app.get('/api/backup/:kind(db|uploads)', async (req, res) => {
+  let p;
+  try { p = require('jsonwebtoken').verify(String(req.query.t || ''), (process.env.JWT_SECRET || 'change-me-please') + ':backup'); } catch { p = null; }
+  if (!p || p.purpose !== 'backup' || p.kind !== req.params.kind) return res.status(403).send('Ссылка устарела. Нажмите кнопку скачивания в «Настройках» ещё раз.');
+  const { dumpDatabase, archiveUploads } = require('./backup');
+  const day = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'application/gzip');
+  res.setHeader('Content-Disposition', `attachment; filename="${req.params.kind === 'db' ? `sklad-db-${day}.sql.gz` : `sklad-uploads-${day}.tar.gz`}"`);
+  res.setHeader('Cache-Control', 'no-store');
+  try { await (req.params.kind === 'db' ? dumpDatabase(res) : archiveUploads(res)); }
+  catch (e) { console.error('backup', e); res.destroy(e); }
+});
 app.use('/api', requireAuth);
 app.use('/api/users', users);
 app.use('/api/warehouses', refs.warehouses);

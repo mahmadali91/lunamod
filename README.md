@@ -73,44 +73,9 @@ cd .. && npm run build && npm start       # http://localhost:3000
 
 **После первого входа смените пароль admin в «Настройках».**
 
-## Переход на PostgreSQL
+## Резервная копия, перенос, свой сервер
 
-1. В `server/prisma/schema.prisma` замените `provider = "sqlite"` на `provider = "postgresql"`.
-2. В `server/.env`: `DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DBNAME?schema=public"`.
-3. Удалите папку `server/prisma/migrations` (она под SQLite) и выполните:
-   ```bash
-   cd server && npx prisma migrate dev --name init && npm run seed
-   ```
-Для MySQL то же самое с `provider = "mysql"` и `mysql://...`.
-
-## Деплой на сервер (Ubuntu + nginx + pm2)
-
-```bash
-git clone <repo> /var/www/sklad && cd /var/www/sklad
-npm run install:all && npm run build
-cd server && cp .env.example .env && nano .env   # DATABASE_URL, JWT_SECRET, PORT=3000
-npx prisma migrate deploy && npm run seed && cd ..
-npm i -g pm2 && pm2 start ecosystem.config.cjs && pm2 save && pm2 startup
-```
-
-nginx (`/etc/nginx/sites-available/sklad`):
-
-```nginx
-server {
-    server_name example.com;
-    client_max_body_size 20m;
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-HTTPS: `sudo certbot --nginx -d example.com`.
-
-Фото товаров хранятся в `server/uploads/` — включите эту папку и базу данных в резервное копирование.
+Подробная инструкция — **[docs/DEPLOY.md](docs/DEPLOY.md)**: резервная копия базы и фото (админка → Настройки → «Резервная копия»), установка на новый сайт Beget, на свой VPS (Ubuntu + nginx + pm2) и запуск копии на компьютере.
 
 ## Печать этикеток
 

@@ -726,3 +726,23 @@ test('демо-данные: загрузка и удаление', async () => 
   assert.equal((await ok('/admin/demo')).loaded, false);
   void demo;
 });
+
+test('резервная копия: база (SQL) и файлы (tar) по одноразовой ссылке', async () => {
+  const info = await ok('/admin/backup');
+  assert.ok(info.tables > 10);
+  const { url } = await ok('/admin/backup/link', { method: 'POST', body: { kind: 'db' } });
+  const r = await fetch(BASE + url);
+  assert.equal(r.status, 200);
+  const sql = require('zlib').gunzipSync(Buffer.from(await r.arrayBuffer())).toString();
+  assert.match(sql, /CREATE TABLE `Product`/);
+  assert.match(sql, /INSERT INTO `_prisma_migrations`/);
+  assert.match(sql, /SET FOREIGN_KEY_CHECKS = 1;\s*SET UNIQUE_CHECKS = 1;\s*$/);
+  // ссылка не годится для входа в программу и для другого вида копии
+  const t = url.split('t=')[1];
+  assert.equal((await fetch(BASE + '/api/products', { headers: { Authorization: 'Bearer ' + decodeURIComponent(t) } })).status, 401);
+  assert.equal((await fetch(BASE + '/api/backup/uploads?t=' + t)).status, 403);
+  assert.equal((await fetch(BASE + '/api/backup/db?t=bad')).status, 403);
+  const up = await ok('/admin/backup/link', { method: 'POST', body: { kind: 'uploads' } });
+  const tar = require('zlib').gunzipSync(Buffer.from(await (await fetch(BASE + up.url)).arrayBuffer()));
+  assert.equal(tar.subarray(257, 262).toString(), 'ustar');
+});

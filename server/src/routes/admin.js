@@ -1,6 +1,8 @@
 const express = require('express');
 const { ah } = require('../util');
 const { requireAdmin } = require('../auth');
+const jwt = require('jsonwebtoken');
+const { backupInfo } = require('../backup');
 const { generateDemo, removeDemo, getStatus, setStatus } = require('../demo/generate');
 
 const r = express.Router();
@@ -20,5 +22,13 @@ r.post('/demo', ah(async (req, res) => {
 }));
 
 r.delete('/demo', ah(async (req, res) => res.json(await removeDemo())));
+
+// Резервная копия: размеры и одноразовая ссылка на скачивание (живёт 2 минуты)
+r.get('/backup', ah(async (req, res) => res.json(await backupInfo())));
+r.post('/backup/link', ah(async (req, res) => {
+  const kind = req.body.kind === 'uploads' ? 'uploads' : 'db';
+  const t = jwt.sign({ purpose: 'backup', kind, uid: req.user.id }, (process.env.JWT_SECRET || 'change-me-please') + ':backup', { expiresIn: '2m' });
+  res.json({ url: `/api/backup/${kind}?t=${encodeURIComponent(t)}` });
+}));
 
 module.exports = r;

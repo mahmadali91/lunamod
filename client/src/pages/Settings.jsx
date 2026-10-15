@@ -3,6 +3,7 @@ import { Trash2, UserPlus, Save } from 'lucide-react';
 import { api } from '../api';
 import { Badge, Button, Field, PageHeader, useLoad, useSettings, useToast } from '../ui';
 import DemoData from '../components/DemoData';
+import Backup from '../components/Backup';
 
 export default function SettingsPage() {
   const settings = useSettings();
@@ -73,6 +74,7 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {isAdmin && <Backup />}
       {isAdmin && <DemoData />}
 
       <form className="card space-y-4 p-6" onSubmit={run(async () => { await api('/auth/password', { method: 'POST', body: pw }); setPw({ oldPassword: '', newPassword: '' }); }, 'Пароль изменён')}>
