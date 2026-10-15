@@ -104,6 +104,7 @@ function pickProduct(b) {
     name: str(b.name), sku: str(b.sku), description: str(b.description), unit: b.unit || 'шт',
     price: num(b.price), oldPrice: b.oldPrice ? num(b.oldPrice) : null, costPrice: num(b.costPrice), minStock: num(b.minStock),
     categoryId: int(b.categoryId), active: b.active === undefined ? true : Boolean(b.active),
+    showInShop: b.showInShop === undefined ? true : Boolean(b.showInShop),
   };
 }
 
@@ -167,7 +168,7 @@ r.put('/:id', ah(async (req, res) => {
 
 r.delete('/:id', ah(async (req, res) => {
   const id = Number(req.params.id);
-  const used = await prisma.saleItem.count({ where: { productId: id } }) + await prisma.receiptItem.count({ where: { productId: id } });
+  const used = await prisma.saleItem.count({ where: { productId: id } }) + await prisma.receiptItem.count({ where: { productId: id } }) + await prisma.orderItem.count({ where: { productId: id } });
   if (used) {
     await prisma.product.update({ where: { id }, data: { active: false } });
     return res.json({ ok: true, archived: true });

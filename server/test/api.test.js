@@ -250,6 +250,79 @@ test('категории: количество товаров', async () => {
   assert.ok(c && c._count.products === 1);
 });
 
+test('интернет-магазин: каталог, вход по SMS, заказ, выдача, оплата', async () => {
+  const shop = async (p, { method = 'GET', body, token: t } = {}) => {
+    const headers = { 'Content-Type': 'application/json' };
+    if (t) headers.Authorization = 'Bearer ' + t;
+    const res = await fetch(BASE + '/api/shop' + p, { method, headers, body: body && JSON.stringify(body) });
+    return { status: res.status, data: await res.json().catch(() => ({})) };
+  };
+  // настройки: тестовый режим SMS, онлайн-оплата включена (без ключей → тестовая оплата)
+  const st = await ok('/orders/settings', { method: 'PUT', body: { smsMode: 'test', tbankEnabled: '1', tbankPassword: 'secret-pass', courierPrice: '300', courierFreeFrom: '5000', warehouseId: String(w1.id) } });
+  assert.equal(st.tbankPassword, '••••••', 'секреты маскируются');
+  assert.equal((await ok('/orders/settings', { method: 'PUT', body: { tbankPassword: '••••••' } })).tbankPassword, '••••••', 'маска не затирает пароль');
+  await ok('/orders/settings', { method: 'PUT', body: { tbankPassword: '' } });
+
+  const p = await ok('/products', { method: 'POST', body: { name: 'Магазин платье ' + U, price: 2000, costPrice: 800, initialStock: [{ warehouseId: w1.id, quantity: 5 }] } });
+  const hidden = await ok('/products', { method: 'POST', body: { name: 'Скрытый ' + U, price: 100, showInShop: false, initialStock: [{ warehouseId: w1.id, quantity: 5 }] } });
+  const list = (await shop('/products?q=' + encodeURIComponent(U) + '&limit=60')).data.items;
+  assert.ok(list.some((x) => x.id === p.id), 'товар в каталоге');
+  assert.ok(!list.some((x) => x.id === hidden.id), 'скрытый не показывается');
+  assert.equal((await shop('/products/' + p.id)).data.stock, 5);
+  assert.equal((await shop('/products/' + hidden.id)).status, 404);
+  assert.equal((await shop('/products/' + p.id)).data.costPrice, undefined, 'закупочная цена не раскрывается');
+
+  // вход по SMS
+  const phone = '79' + D.slice(-9);
+  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { phone: '123' } })).status, 400);
+  const rc = await shop('/auth/request-code', { method: 'POST', body: { phone: '8' + phone.slice(1) } });
+  assert.equal(rc.status, 200); assert.match(rc.data.testCode, /^\d{4}$/);
+  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { phone } })).status, 429, 'повтор не раньше 60 с');
+  assert.equal((await shop('/auth/verify', { method: 'POST', body: { phone, code: rc.data.testCode === '0000' ? '1111' : '0000' } })).status, 400);
+  const v = await shop('/auth/verify', { method: 'POST', body: { phone, code: rc.data.testCode, name: 'Ольга' } });
+  const ct = v.data.token; assert.ok(ct);
+  assert.equal((await shop('/auth/verify', { method: 'POST', body: { phone, code: rc.data.testCode } })).status, 400, 'код одноразовый');
+  assert.equal((await fetch(BASE + '/api/products', { headers: { Authorization: 'Bearer ' + ct } })).status, 401, 'токен покупателя не пускает в админку');
+  assert.equal((await shop('/me', { token })).status, 401, 'админский токен не подходит магазину');
+  assert.equal((await shop('/me', { token: ct })).data.phone, phone);
+
+  // заказ: цена из базы, доставка, остатки
+  assert.equal((await shop('/orders', { method: 'POST', token: ct, body: { items: [{ productId: p.id, quantity: 6 }] } })).status, 400, 'больше остатка нельзя');
+  assert.equal((await shop('/orders', { method: 'POST', token: ct, body: { items: [{ productId: p.id, quantity: 1 }], delivery: 'courier' } })).status, 400, 'курьер без адреса');
+  const o1 = (await shop('/orders', { method: 'POST', token: ct, body: { items: [{ productId: p.id, quantity: 2, price: 1 }], delivery: 'courier', address: 'ул. Тестовая, 1', paymentMethod: 'cash' } })).data.order;
+  assert.equal(o1.subtotal, 4000); assert.equal(o1.deliveryPrice, 300); assert.equal(o1.total, 4300);
+  const o2 = (await shop('/orders', { method: 'POST', token: ct, body: { items: [{ productId: p.id, quantity: 3 }], delivery: 'courier', address: 'ул. Тестовая, 1' } })).data.order;
+  assert.equal(o2.deliveryPrice, 0, 'бесплатная доставка от 5000');
+  assert.equal((await shop('/orders', { token: ct })).data.length, 2);
+
+  // админка: выдача заказа → продажа, списание, покупатель
+  const adminList = await ok('/orders?status=active');
+  assert.ok(adminList.items.some((x) => x.id === o1.id));
+  await ok(`/orders/${o1.id}/status`, { method: 'POST', body: { status: 'confirmed' } });
+  const done = await ok(`/orders/${o1.id}/status`, { method: 'POST', body: { status: 'completed' } });
+  assert.equal(done.status, 'completed'); assert.ok(done.saleId); assert.equal(done.paymentStatus, 'paid');
+  const sale = await ok('/sales/' + done.saleId);
+  assert.equal(sale.total, 4300); assert.equal(sale.channel.name, 'Интернет-магазин'); assert.equal(sale.counterparty.phone, '+' + phone);
+  assert.equal((await ok('/products/' + p.id)).stocks.find((x) => x.warehouseId === w1.id).quantity, 3);
+  assert.equal((await api(`/orders/${o1.id}/status`, { method: 'POST', body: { status: 'new' } })).status, 400, 'закрытый заказ не меняется');
+  // покупатель отменяет новый заказ
+  assert.equal((await shop(`/orders/${o2.id}/cancel`, { method: 'POST', token: ct })).data.status, 'cancelled');
+
+  // онлайн-оплата в тестовом режиме
+  const o3 = await shop('/orders', { method: 'POST', token: ct, body: { items: [{ productId: p.id, quantity: 1 }], paymentMethod: 'tbank' } });
+  assert.equal(o3.data.paymentUrl, `/order/${o3.data.order.id}?testpay=1`);
+  const paid = (await shop(`/orders/${o3.data.order.id}/test-pay`, { method: 'POST', token: ct })).data;
+  assert.equal(paid.paymentStatus, 'paid'); assert.equal(paid.status, 'confirmed');
+  // чужой заказ недоступен
+  const rc2 = await shop('/auth/request-code', { method: 'POST', body: { phone: '79' + String(Number(D.slice(-9)) + 1).padStart(9, '0').slice(-9) } });
+  const other = (await shop('/auth/verify', { method: 'POST', body: { phone: rc2.data.phone, code: rc2.data.testCode } })).data.token;
+  assert.equal((await shop(`/orders/${o3.data.order.id}`, { token: other })).status, 404);
+  // уведомление банка с неверной подписью отклоняется
+  const bad = await fetch(BASE + '/api/shop/tbank/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TerminalKey: 'x', OrderId: o3.data.order.number, Status: 'CONFIRMED', Token: 'bad' }) });
+  assert.equal(bad.status, 400);
+  await ok('/orders/settings', { method: 'PUT', body: { tbankEnabled: '0' } });
+});
+
 test('демо-данные: загрузка и удаление', async () => {
   const before = (await ok('/products?limit=1')).total;
   assert.equal((await api('/admin/demo', { method: 'POST', body: {} , auth: false })).status, 401);

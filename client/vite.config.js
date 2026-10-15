@@ -9,6 +9,8 @@ const { version } = JSON.parse(readFileSync(new URL('../package.json', import.me
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   define: { __APP_VERSION__: JSON.stringify(version) },
+  // Две страницы: витрина магазина (/) и программа учёта (/admin)
+  build: { rollupOptions: { input: { shop: 'index.html', admin: 'admin/index.html' } } },
   server: {
     proxy: { '/api': 'http://localhost:3000', '/uploads': 'http://localhost:3000' },
   },

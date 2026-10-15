@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Package, Boxes, ShoppingCart, Receipt, Warehouse, Radio, Users, Tags, Settings, LogOut, Menu, X, ScanBarcode, PackagePlus, HandCoins, FolderTree, BarChart3,
+  LayoutDashboard, Package, Boxes, ShoppingCart, Receipt, Warehouse, Radio, Users, Tags, Settings, LogOut, Menu, X, ScanBarcode, PackagePlus, HandCoins, FolderTree, BarChart3, ShoppingBag, Globe,
 } from 'lucide-react';
 import { api } from './api';
 import { SettingsCtx, useToast } from './ui';
@@ -10,6 +10,7 @@ import { CameraButton } from './components/CameraScanner';
 const nav = [
   { to: '/', icon: LayoutDashboard, label: 'Дашборд', end: true },
   { to: '/pos', icon: ShoppingCart, label: 'Новая продажа' },
+  { to: '/orders', icon: ShoppingBag, label: 'Заказы', badge: 'orders' },
   { to: '/sales', icon: Receipt, label: 'Продажи' },
   { to: '/consignment', icon: HandCoins, label: 'Реализация' },
   { to: '/stats', icon: BarChart3, label: 'Статистика' },
@@ -23,6 +24,7 @@ const nav = [
   { to: '/warehouses', icon: Warehouse, label: 'Склады' },
   { to: '/channels', icon: Radio, label: 'Каналы продаж' },
   { to: '/counterparties', icon: Users, label: 'Контрагенты' },
+  { to: '/shop-settings', icon: Globe, label: 'Интернет-магазин' },
   { to: '/settings', icon: Settings, label: 'Настройки' },
 ];
 
@@ -58,6 +60,13 @@ export default function Layout() {
 
   const loadSettings = () => api('/settings').then(setSettings).catch(() => {});
   useEffect(() => { loadSettings(); }, []);
+  const [newOrders, setNewOrders] = useState(0);
+  useEffect(() => {
+    const load = () => api('/orders/count').then((r) => setNewOrders(r.new)).catch(() => {});
+    load();
+    const t = setInterval(load, 60000);
+    return () => clearInterval(t);
+  }, []);
 
   const logout = () => { localStorage.removeItem('token'); localStorage.removeItem('user'); navigate('/login'); };
 
@@ -77,6 +86,7 @@ export default function Layout() {
           <NavLink key={n.to} to={n.to} end={n.end} onClick={() => setMobile(false)}
             className={({ isActive }) => `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${isActive ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}>
             <n.icon size={18} /> {n.label}
+            {n.badge === 'orders' && newOrders > 0 && <span className="ml-auto rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] leading-none font-semibold text-white">{newOrders}</span>}
           </NavLink>
         ))}
       </nav>

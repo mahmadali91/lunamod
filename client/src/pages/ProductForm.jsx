@@ -5,7 +5,7 @@ import { api, fileUrl } from '../api';
 import { Badge, BarcodeSvg, Button, Field, Spinner, fmtDate, fmtNum, useLoad, useToast } from '../ui';
 import { CameraButton } from '../components/CameraScanner';
 
-const empty = { name: '', sku: '', description: '', unit: 'шт', price: '', oldPrice: '', costPrice: '', minStock: '', categoryId: null, barcodes: [], attributes: [] };
+const empty = { name: '', sku: '', description: '', unit: 'шт', price: '', oldPrice: '', costPrice: '', minStock: '', categoryId: null, showInShop: true, barcodes: [], attributes: [] };
 const attrPresets = ['Размер', 'Цвет', 'Материал', 'Вес', 'Бренд', 'Страна'];
 const moveTypes = { RECEIPT: ['Приход', 'green'], SALE: ['Продажа', 'indigo'], RETURN: ['Возврат', 'blue'], ADJUST: ['Корректировка', 'amber'], TRANSFER_IN: ['Перемещение +', 'slate'], TRANSFER_OUT: ['Перемещение −', 'slate'] };
 
@@ -164,6 +164,7 @@ export default function ProductForm() {
                 )}
               </Field>
               <Field label="Описание" className="sm:col-span-2"><textarea className="input" rows={3} value={form.description} onChange={set('description')} /></Field>
+              <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={form.showInShop !== false} onChange={(e) => setForm({ ...form, showInShop: e.target.checked })} /> Показывать в интернет-магазине</label>
             </div>
           </Section>
 

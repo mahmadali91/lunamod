@@ -16,6 +16,8 @@ import Pos from './pages/Pos';
 import Consignment from './pages/Consignment';
 import Categories from './pages/Categories';
 import Stats from './pages/Stats';
+import Orders from './pages/Orders';
+import ShopSettings from './pages/ShopSettings';
 import Labels from './pages/Labels';
 import { Warehouses, Channels, Counterparties } from './pages/Refs';
 import SettingsPage from './pages/Settings';
@@ -25,7 +27,7 @@ const Private = ({ children }) => (getToken() ? children : <Navigate to="/login"
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ToastProvider>
-      <BrowserRouter>
+      <BrowserRouter basename="/admin">
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route element={<Private><Layout /></Private>}>
@@ -37,6 +39,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="products/new" element={<ProductForm />} />
             <Route path="categories" element={<Categories />} />
             <Route path="stats" element={<Stats />} />
+            <Route path="orders" element={<Orders />} />
+            <Route path="shop-settings" element={<ShopSettings />} />
             <Route path="products/:id" element={<ProductForm />} />
             <Route path="stock" element={<Stock />} />
             <Route path="receipts" element={<Receipts />} />

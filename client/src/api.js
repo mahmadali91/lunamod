@@ -13,7 +13,7 @@ export async function api(path, { method = 'GET', body, form } = {}) {
   if (res.status === 401 && path !== '/auth/login') {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    window.location.href = '/login';
+    window.location.href = '/admin/login';
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Ошибка ' + res.status);

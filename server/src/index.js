@@ -30,6 +30,9 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// Интернет-магазин: публичное API (свой вход покупателей по SMS)
+app.use('/api/shop', require('./routes/shop').router);
+
 app.use('/api/auth', auth);
 app.use('/api', requireAuth);
 app.use('/api/users', users);
@@ -44,6 +47,7 @@ app.use('/api/sales', require('./routes/sales'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/stats', require('./routes/stats'));
+app.use('/api/orders', require('./routes/orders'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
@@ -51,6 +55,8 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 const dist = process.env.CLIENT_DIST || path.join(__dirname, '..', '..', 'client', 'dist');
 if (fs.existsSync(dist)) {
   app.use(express.static(dist));
+  // /admin — программа учёта, остальное — витрина магазина
+  app.get(['/admin', '/admin/*'], (req, res) => res.sendFile(path.join(dist, 'admin', 'index.html')));
   app.get('*', (req, res) => res.sendFile(path.join(dist, 'index.html')));
 }
 

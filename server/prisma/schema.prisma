@@ -50,6 +50,7 @@ model Product {
   categoryId  Int?
   category    Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   active      Boolean            @default(true)
+  showInShop  Boolean            @default(true) // показывать в интернет-магазине
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   barcodes    Barcode[]
@@ -59,6 +60,7 @@ model Product {
   movements   StockMovement[]
   saleItems   SaleItem[]
   receiptItems ReceiptItem[]
+  orderItems  OrderItem[]
 }
 
 model Barcode {
@@ -219,4 +221,69 @@ model ReceiptItem {
 model Setting {
   key   String @id
   value String @db.Text
+}
+
+// ---------- Интернет-магазин ----------
+
+model Customer {
+  id        Int      @id @default(autoincrement())
+  phone     String   @unique // 7XXXXXXXXXX
+  name      String?
+  email     String?
+  address   String?  @db.Text
+  createdAt DateTime @default(now())
+  lastLogin DateTime?
+  orders    Order[]
+}
+
+model SmsCode {
+  id        Int      @id @default(autoincrement())
+  phone     String
+  codeHash  String
+  ip        String?
+  attempts  Int      @default(0)
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([phone, createdAt])
+}
+
+// status: new | confirmed | ready | completed | cancelled
+// paymentStatus: unpaid | pending | paid | failed | refunded
+model Order {
+  id            Int         @id @default(autoincrement())
+  number        String      @unique
+  customerId    Int
+  status        String      @default("new")
+  paymentMethod String      @default("cash") // cash | tbank
+  paymentStatus String      @default("unpaid")
+  paymentId     String? // PaymentId в Т-Банке
+  paymentUrl    String?     @db.Text
+  delivery      String      @default("pickup") // pickup | courier
+  address       String?     @db.Text
+  name          String?
+  phone         String
+  comment       String?     @db.Text
+  subtotal      Float       @default(0)
+  deliveryPrice Float       @default(0)
+  total         Float       @default(0)
+  saleId        Int? // продажа, созданная при выдаче заказа
+  adminNote     String?     @db.Text
+  paidAt        DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  customer      Customer    @relation(fields: [customerId], references: [id])
+  items         OrderItem[]
+}
+
+model OrderItem {
+  id        Int     @id @default(autoincrement())
+  orderId   Int
+  productId Int
+  name      String
+  price     Float
+  quantity  Float
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id])
 }
