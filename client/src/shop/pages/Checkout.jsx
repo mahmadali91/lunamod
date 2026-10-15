@@ -6,6 +6,7 @@ import DeliveryPicker from '../DeliveryPicker';
 import { shopApi, fmtPhone } from '../api';
 import { useShop } from '../store';
 import { ecommerce } from '../metrika';
+import Img from '../Img';
 
 function Option({ active, onClick, icon: Icon, title, sub }) {
   return (
@@ -77,7 +78,7 @@ export default function Checkout() {
         </div>
         <div className="h-fit rounded-3xl bg-slate-50 p-6 lg:sticky lg:top-24">
           <div className="space-y-2 text-sm">
-            {cart.items.map((i) => <div key={i.id} className="flex justify-between gap-3"><span className="text-slate-600">{i.name} × {i.quantity}</span><span className="shrink-0">{money(i.price * i.quantity)}</span></div>)}
+            {cart.items.map((i) => <div key={i.id} className="flex items-center gap-3"><div className="h-12 w-9 shrink-0 overflow-hidden rounded-md bg-slate-100"><Img src={i.image} icon={14} /></div><span className="min-w-0 flex-1 text-slate-600">{i.name} × {i.quantity}</span><span className="shrink-0">{money(i.price * i.quantity)}</span></div>)}
           </div>
           <div className="mt-4 space-y-1 border-t border-slate-200 pt-4 text-sm">
             <div className="flex justify-between"><span className="text-slate-600">Товары</span><span>{money(cart.total)}</span></div>

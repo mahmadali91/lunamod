@@ -143,4 +143,24 @@ const ARTICLE_BASE = 10000000;
 const articleOf = (id) => ARTICLE_BASE + id;
 const idOfArticle = (q) => { const s = String(q || '').trim(); return /^\d{8}$/.test(s) && Number(s) > ARTICLE_BASE ? Number(s) - ARTICLE_BASE : null; };
 
-module.exports = { articleOf, idOfArticle, ah, HttpError, ean13CheckDigit, isValidEan13, generateEan13, detectBarcodeType, changeStock, nextNumber, num, int, str, like };
+/**
+ * У размеров нет своих фото — берём фото карточки (с тем же цветом, если фото привязаны к цвету).
+ * products — объекты товаров с полем images (мутируются); работает для любых include.
+ */
+async function fillImages(products) {
+  const need = products.filter((p) => p && p.id && !(p.images && p.images.length));
+  if (!need.length) return products;
+  const rows = await prisma.product.findMany({ where: { id: { in: [...new Set(need.map((p) => p.id))] } }, select: { id: true, parentId: true, color: true } });
+  const info = Object.fromEntries(rows.map((r) => [r.id, r]));
+  const parents = [...new Set(rows.map((r) => r.parentId).filter(Boolean))];
+  const imgs = parents.length ? await prisma.productImage.findMany({ where: { productId: { in: parents }, kind: 'image' }, orderBy: [{ sort: 'asc' }, { id: 'asc' }], select: { productId: true, path: true, color: true } }) : [];
+  for (const p of need) {
+    const r = info[p.id]; if (!r?.parentId) { p.images = p.images || []; continue; }
+    const own = imgs.filter((i) => i.productId === r.parentId);
+    const best = own.find((i) => i.color && r.color && i.color === r.color) || own.find((i) => !i.color) || own[0];
+    p.images = best ? [{ path: best.path }] : [];
+  }
+  return products;
+}
+
+module.exports = { fillImages, articleOf, idOfArticle, ah, HttpError, ean13CheckDigit, isValidEan13, generateEan13, detectBarcodeType, changeStock, nextNumber, num, int, str, like };

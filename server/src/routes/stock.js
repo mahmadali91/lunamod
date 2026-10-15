@@ -14,8 +14,8 @@ r.get('/', ah(async (req, res) => {
     where.OR = [{ name: like(s) }, { sku: like(s) }, { barcodes: { some: { code: like(s) } } }, { parent: { sku: like(s) } }, ...(art ? [{ id: art }, { parentId: art }] : [])];
   }
   const [products, warehouses] = await Promise.all([
-    prisma.product.findMany({ where, include: { stocks: true, barcodes: { where: { isPrimary: true } }, images: { take: 1, orderBy: { sort: 'asc' } },
-      parent: { select: { sku: true, images: { orderBy: { sort: 'asc' }, select: { path: true, color: true } } } } }, orderBy: [{ name: 'asc' }, { sort: 'asc' }] }),
+    prisma.product.findMany({ where, include: { stocks: true, barcodes: { where: { isPrimary: true } }, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' } },
+      parent: { select: { sku: true, images: { where: { kind: 'image' }, orderBy: { sort: 'asc' }, select: { path: true, color: true } } } } }, orderBy: [{ name: 'asc' }, { sort: 'asc' }] }),
     prisma.warehouse.findMany({ where: { active: true }, orderBy: { id: 'asc' } }),
   ]);
   // себестоимость остатка — по фактическим партиям

@@ -69,7 +69,7 @@ export function ShopProvider({ children }) {
         const x = r.items.find((y) => y.productId === i.id);
         if (!x) return [i];
         if (!x.ok || x.quantity <= 0) { removed.push(i.name); return []; }
-        return [{ ...i, price: x.price, stock: x.stock, quantity: x.quantity }];
+        return [{ ...i, price: x.price, stock: x.stock, quantity: x.quantity, image: x.image || i.image }];
       }));
       if (removed.length) notify(`Убрали из корзины — больше нет в продаже: ${removed.slice(0, 3).join(', ')}${removed.length > 3 ? ` и ещё ${removed.length - 3}` : ''}`, 'error');
     },

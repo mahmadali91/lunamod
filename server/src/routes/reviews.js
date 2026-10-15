@@ -15,7 +15,7 @@ r.get('/', ah(async (req, res) => {
   }
   const where = req.query.status ? { status: String(req.query.status) } : {};
   const [items, counts] = await Promise.all([
-    prisma.review.findMany({ where, orderBy: { id: 'desc' }, take: 300, include: { customer: { select: { name: true, phone: true } }, product: { select: { id: true, name: true, sku: true, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } } } }),
+    prisma.review.findMany({ where, orderBy: { id: 'desc' }, take: 300, include: { customer: { select: { name: true, phone: true } }, product: { select: { id: true, name: true, sku: true, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } } } }),
     prisma.review.groupBy({ by: ['status'], _count: true }),
   ]);
   res.json({ items: items.map((x) => ({ ...x, photos: JSON.parse(x.photos || '[]') })), counts: Object.fromEntries(counts.map((c) => [c.status, c._count])) });

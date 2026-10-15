@@ -3,7 +3,7 @@ const express = require('express');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const prisma = require('../db');
-const { ah, HttpError, nextNumber, num, str, like, articleOf, idOfArticle } = require('../util');
+const { ah, HttpError, nextNumber, num, str, like, articleOf, idOfArticle, fillImages } = require('../util');
 const { getShopSettings, tbankReady } = require('../shop/settings');
 const { sendSms } = require('../shop/sms');
 const tbank = require('../shop/tbank');
@@ -146,7 +146,7 @@ r.get('/categories', ah(async (req, res) => {
   const base = await productWhere(s, {});
   const cats = await prisma.category.findMany({ orderBy: { name: 'asc' }, include: {
     _count: { select: { products: { where: base } } },
-    products: { where: { AND: [base, { images: { some: {} } }] }, take: 1, select: { images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } },
+    products: { where: { AND: [base, { images: { some: {} } }] }, take: 1, select: { images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } },
   } });
   res.json(cats.filter((c) => c._count.products > 0).map((c) => ({ id: c.id, name: c.name, count: c._count.products, image: c.products[0]?.images[0]?.path || null })));
 }));
@@ -269,13 +269,14 @@ const parseLines = (raw) => (raw || []).map((i) => ({ productId: Number(i.produc
 r.post('/cart/check', ah(async (req, res) => {
   const s = await getShopSettings();
   const lines = parseLines(req.body.items).slice(0, 100);
-  const found = await prisma.product.findMany({ where: { id: { in: lines.map((l) => l.productId) } }, include: { stocks: true, parent: { select: { id: true, active: true, showInShop: true } } } });
+  const found = await prisma.product.findMany({ where: { id: { in: lines.map((l) => l.productId) } }, include: { stocks: true, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, parent: { select: { id: true, active: true, showInShop: true } } } });
+  await fillImages(found); // фото размера = фото карточки
   res.json({ items: lines.map((l) => {
     const p = found.find((x) => x.id === l.productId);
     const alive = p && p.active && p.showInShop && p.price > 0 && !p.hasVariants && (!p.parent || (p.parent.active && p.parent.showInShop));
     if (!alive) return { productId: l.productId, ok: false, reason: p?.hasVariants ? 'size' : 'gone' };
     const stock = Math.max(0, sumStock(p.stocks, s));
-    return { productId: p.id, ok: true, name: p.name, price: p.price, stock, quantity: s.allowBackorder === '1' ? l.quantity : Math.min(l.quantity, stock) };
+    return { productId: p.id, ok: true, name: p.name, price: p.price, stock, image: p.images[0]?.path || null, quantity: s.allowBackorder === '1' ? l.quantity : Math.min(l.quantity, stock) };
   }) });
 }));
 
@@ -336,7 +337,7 @@ r.put('/me', customerAuth(), ah(async (req, res) => {
 }));
 
 // ---------- заказы ----------
-const orderInclude = { items: { include: { product: { select: { id: true, parentId: true, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, parent: { select: { images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } } } } } } };
+const orderInclude = { items: { include: { product: { select: { id: true, parentId: true, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, parent: { select: { images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } } } } } } };
 const publicOrder = (o) => ({ ...o, adminNote: undefined, paymentId: undefined,
   items: o.items?.map((i) => ({ ...i, product: i.product && { id: i.product.parentId || i.product.id, images: i.product.images.length ? i.product.images : i.product.parent?.images || [] } })) });
 

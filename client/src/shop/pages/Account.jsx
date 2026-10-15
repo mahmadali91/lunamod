@@ -4,6 +4,7 @@ import { LogOut, Package } from 'lucide-react';
 import { shopApi, fmtPhone } from '../api';
 import { useShop } from '../store';
 import { STATUS, PAY } from './Order';
+import Img from '../Img';
 
 export default function Account() {
   const { auth, money, notify } = useShop();
@@ -30,7 +31,7 @@ export default function Account() {
                 <span className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS[o.status][1]}`}>{STATUS[o.status][0]}</span>
               </div>
               <div className="mt-1 text-sm text-slate-500">{new Date(o.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })} · {o.items.length} поз. · <b className="text-slate-900">{money(o.total)}</b> · {PAY[o.paymentStatus]}</div>
-              <div className="mt-3 flex gap-2">{o.items.slice(0, 5).map((i) => <div key={i.id} className="h-14 w-11 overflow-hidden rounded-lg bg-slate-100">{i.product.images[0] && <img src={i.product.images[0].path} alt="" className="h-full w-full object-cover" />}</div>)}</div>
+              <div className="mt-3 flex gap-2">{o.items.slice(0, 5).map((i) => <div key={i.id} className="h-14 w-11 overflow-hidden rounded-lg bg-slate-100"><Img src={i.product.images[0]?.path} icon={16} /></div>)}</div>
             </Link>
           ))}
         </div>

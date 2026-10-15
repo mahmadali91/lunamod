@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Minus, Plus, Trash2, ShoppingBag, ImageOff } from 'lucide-react';
 import { useShop } from '../store';
+import Img from '../Img';
 
 export default function Cart() {
   const { cart, money, auth } = useShop();
@@ -25,7 +26,7 @@ export default function Cart() {
           {cart.items.map((i) => (
             <div key={i.id} className="flex gap-4 py-4">
               <Link to={i.url || `/product/${i.id}`} className="h-28 w-21 shrink-0 overflow-hidden rounded-xl bg-slate-100" style={{ width: 84 }}>
-                {i.image ? <img src={i.image} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-300"><ImageOff /></div>}
+                <Img src={i.image} icon={24} />
               </Link>
               <div className="flex flex-1 flex-col">
                 <Link to={i.url || `/product/${i.id}`} className="text-sm font-medium">{i.name}</Link>

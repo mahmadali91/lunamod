@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
-import { Printer, Trash2, Tags, RotateCw } from 'lucide-react';
+import { Printer, Trash2, Tags, RotateCw, FileDown } from 'lucide-react';
 import { api } from '../api';
 import ProductPicker from '../components/ProductPicker';
 import { BarcodeSvg, Button, Field, PageHeader, Thumb, useMoney, useSettings, useToast } from '../ui';
@@ -10,7 +10,15 @@ const LS = 'label_options';
 // карточка с размерами → этикетка на каждый вариант
 const expand = (p) => p.variants.map((v) => ({ ...v, parent: { name: p.name, sku: p.sku }, attributes: p.attributes, oldPrice: v.oldPrice ?? p.oldPrice, images: (p.images || []).filter((i) => !i.color || i.color === v.color) }));
 
-const defaults = { template: 'price', w: 58, h: 40, showStore: true, showSku: true, showAttrs: true, showOld: true };
+// данные этикетки для PDF — то же, что на экране
+export const labelData = (p) => ({
+  name: p.parent ? p.parent.name : p.name,
+  variant: p.parent && (p.color || p.size) ? [p.color, p.size].filter(Boolean).join(' · ') : '',
+  attrs: (p.attributes || []).slice(0, 3).map((a) => a.value).join(' · '),
+  price: p.price, oldPrice: p.oldPrice, barcode: p.barcodes?.[0]?.code, sku: p.sku || p.parent?.sku,
+});
+
+export const defaults = { template: 'price', w: 58, h: 40, showStore: true, showSku: true, showAttrs: true, showOld: true };
 
 /** Одна этикетка в реальных миллиметрах */
 function Label({ p, o, money, storeName }) {
@@ -94,6 +102,12 @@ export default function Labels() {
   const labels = useMemo(() => items.flatMap((it) => Array.from({ length: Math.max(0, Number(it.qty) || 0) }, () => it.product)), [items]);
   const set = (k, v) => setO({ ...o, [k]: v });
   const print = () => { if (!labels.length) return toast('Добавьте товары', 'error'); window.print(); };
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const pdf = async () => {
+    setPdfBusy(true);
+    try { const { labelsPdf } = await import('../pdf'); await labelsPdf(labels.map(labelData), o, { money, storeName, fileName: `ценники-${o.w}x${o.h}.pdf` }); }
+    catch (e) { toast(e.message || 'Не удалось создать PDF', 'error'); } finally { setPdfBusy(false); }
+  };
 
   const printCss = `
     @page { size: ${o.w}mm ${o.h}mm; margin: 0; }
@@ -111,6 +125,7 @@ export default function Labels() {
     <div className="mx-auto max-w-7xl">
       <style>{printCss}</style>
       <PageHeader title="Ценники и этикетки" subtitle={`Термоэтикетки ${o.w}×${o.h} мм · ${labels.length} шт к печати`}>
+        <Button variant="secondary" icon={FileDown} loading={pdfBusy} onClick={pdf} disabled={!labels.length}>PDF</Button>
         <Button icon={Printer} onClick={print} disabled={!labels.length}>Печать</Button>
       </PageHeader>
 

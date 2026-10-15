@@ -30,7 +30,7 @@ const categories = crud('category', {
   // кол-во товаров (карточек) и фото первого товара — для карточек категорий
   include: {
     _count: { select: { products: { where: { active: true, parentId: null } } } },
-    products: { where: { active: true, parentId: null, images: { some: {} } }, take: 1, select: { images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } },
+    products: { where: { active: true, parentId: null, images: { some: {} } }, take: 1, select: { images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } },
   },
 });
 

@@ -1,13 +1,22 @@
 // Заказы интернет-магазина (админка) и настройки магазина
 const express = require('express');
 const prisma = require('../db');
-const { ah, HttpError, changeStock, nextNumber, str } = require('../util');
+const { ah, HttpError, changeStock, nextNumber, str, fillImages, articleOf } = require('../util');
 const { requireAdmin } = require('../auth');
 const { getShopSettings, saveShopSettings, masked, tbankReady } = require('../shop/settings');
 const tbank = require('../shop/tbank');
 
 const r = express.Router();
-const include = { customer: true, items: { include: { product: { select: { id: true, sku: true, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, stocks: true } } } } };
+const include = { customer: true, items: { include: { product: { select: { id: true, sku: true, name: true, size: true, sizeRu: true, color: true, parentId: true, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, stocks: { include: { warehouse: { select: { id: true, name: true } } } },
+  barcodes: { where: { isPrimary: true }, select: { code: true } }, parent: { select: { name: true, sku: true } } } } } } };
+// заказ для админки: фото размеров берём у карточки, артикул — числовой как на сайте
+const loadOrder = async (id) => {
+  const o = await prisma.order.findUnique({ where: { id }, include });
+  if (!o) return o;
+  await fillImages(o.items.map((i) => i.product));
+  o.items.forEach((i) => { i.product.article = articleOf(i.product.parentId || i.product.id); });
+  return o;
+};
 const STATUSES = ['new', 'confirmed', 'ready', 'completed', 'cancelled'];
 
 r.get('/', ah(async (req, res) => {
@@ -23,7 +32,7 @@ r.get('/', ah(async (req, res) => {
 }));
 
 r.get('/:id(\\d+)', ah(async (req, res) => {
-  const o = await prisma.order.findUnique({ where: { id: Number(req.params.id) }, include });
+  const o = await loadOrder(Number(req.params.id));
   if (!o) throw new HttpError(404, 'Заказ не найден');
   res.json(o);
 }));
@@ -71,7 +80,7 @@ r.post('/:id(\\d+)/status', ah(async (req, res) => {
   } else {
     await prisma.order.update({ where: { id }, data: { status } });
   }
-  res.json(await prisma.order.findUnique({ where: { id }, include }));
+  res.json(await loadOrder(id));
 }));
 
 r.put('/:id(\\d+)/note', ah(async (req, res) => {
@@ -82,7 +91,7 @@ r.put('/:id(\\d+)/note', ah(async (req, res) => {
 r.post('/:id(\\d+)/paid', ah(async (req, res) => {
   const id = Number(req.params.id);
   await prisma.order.update({ where: { id }, data: { paymentStatus: 'paid', paidAt: new Date() } });
-  res.json(await prisma.order.findUnique({ where: { id }, include }));
+  res.json(await loadOrder(id));
 }));
 
 r.get('/count', ah(async (req, res) => res.json({ new: await prisma.order.count({ where: { status: 'new' } }) })));

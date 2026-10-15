@@ -521,6 +521,13 @@ test('цены и скидки: список с себестоимостью п�
   const c = await ok('/products', { method: 'POST', body: { name: 'Цены ' + U, price: 1000, costPrice: 400, variantWarehouseId: w1.id, variants: [{ size: 'S', quantity: 2 }, { size: 'M' }] } });
   const row = (await ok('/products/prices?q=' + encodeURIComponent('Цены ' + U))).find((x) => x.id === c.id);
   assert.equal(row.article, c.article); assert.equal(row.variants.length, 2); assert.equal(row.avgCost, 400); assert.equal(row.stock, 2);
+  assert.ok(row.variants.every((v) => /^\d{13}$/.test(v.barcode)), 'штрихкоды размеров — для ценников');
+  // у размера нет своих фото — в корзине фото карточки
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const form = new FormData(); form.append('images', new Blob([png], { type: 'image/png' }), 'card.png');
+  const [img] = await ok(`/products/${c.id}/images`, { method: 'POST', form });
+  const chk = (await shop('/cart/check', { method: 'POST', body: { items: [{ productId: row.variants[0].id, quantity: 1 }] } })).data.items[0];
+  assert.ok(chk.ok, JSON.stringify(chk)); assert.equal(chk.image, img.path);
   // скидка 20% от 1500 на всю карточку (с размерами) + новая закупочная
   await ok('/products/prices', { method: 'PUT', body: { items: [{ id: c.id, price: 1200, oldPrice: 1500, costPrice: 450, sizes: true }] } });
   const d = await ok('/products/' + c.id);

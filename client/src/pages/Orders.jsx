@@ -1,23 +1,74 @@
 import { useEffect, useState } from 'react';
-import { ShoppingBag, Search, Phone, MapPin, Store, Truck, CheckCircle2, XCircle, Wallet, ExternalLink } from 'lucide-react';
+import { ShoppingBag, Search, Phone, MapPin, Store, Truck, CheckCircle2, XCircle, Wallet, ExternalLink, ClipboardList, FileDown } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, qs } from '../api';
-import { Badge, Button, Empty, Modal, PageHeader, Spinner, Thumb, fmtDate, fmtNum, useLoad, useMoney, useToast } from '../ui';
+import { Badge, Button, Empty, Modal, PageHeader, Spinner, Thumb, fmtDate, fmtNum, useLoad, useMoney, useSettings, useToast } from '../ui';
 
 export const ORDER_STATUS = {
   new: ['Новый', 'indigo'], confirmed: ['Подтверждён', 'blue'], ready: ['Собран / в пути', 'amber'], completed: ['Выполнен', 'green'], cancelled: ['Отменён', 'slate'],
 };
 export const PAY_STATUS = { unpaid: ['не оплачен', 'slate'], pending: ['ожидает оплаты', 'amber'], paid: ['оплачен', 'green'], failed: ['ошибка оплаты', 'red'], refunded: ['возврат', 'red'] };
-const PAY_METHOD = { cash: 'При получении', tbank: 'Онлайн (Т-Банк)' };
+const PAY_METHOD = { cash: 'При получении', tbank: 'Онлайн (Т-Банк)', sbp: 'СБП' };
 const fmtPhone = (p) => (p ? `+${p[0]} ${p.slice(1, 4)} ${p.slice(4, 7)}-${p.slice(7, 9)}-${p.slice(9)}` : '');
+
+// строки листа подбора: что и сколько взять, где лежит
+const pickRows = (o) => o.items.map((i) => ({
+  id: i.id, image: i.product.images[0]?.path, name: i.product.parent?.name || i.name, color: i.product.color, size: i.product.size ? `${i.product.size}${i.product.sizeRu ? ` (${i.product.sizeRu})` : ''}` : null,
+  article: i.product.article, sku: i.product.parent?.sku || i.product.sku, barcode: i.product.barcodes?.[0]?.code, quantity: i.quantity,
+  stocks: i.product.stocks.filter((s) => s.quantity > 0 || i.product.stocks.length === 1).map((s) => ({ name: s.warehouse?.name || 'Склад', quantity: s.quantity })),
+}));
+
+/** Лист подбора: отметки «взял» прямо на экране (для телефона на складе) и скачивание PDF */
+function PickList({ o, onClose }) {
+  const money = useMoney();
+  const { storeName } = useSettings();
+  const toast = useToast();
+  const rows = pickRows(o);
+  const [done, setDone] = useState(() => new Set());
+  const [busy, setBusy] = useState(false);
+  const pdf = async () => {
+    setBusy(true);
+    try {
+      const { pickListPdf } = await import('../pdf');
+      await pickListPdf({ ...o, paymentLabel: `${PAY_METHOD[o.paymentMethod] || o.paymentMethod} · ${PAY_STATUS[o.paymentStatus]?.[0] || ''}` }, rows, { money, storeName, fmtDate });
+    } catch (e) { toast(e.message || 'Не удалось создать PDF', 'error'); } finally { setBusy(false); }
+  };
+  const total = rows.reduce((a, r) => a + r.quantity, 0);
+  return (
+    <Modal open onClose={onClose} wide title={<span className="flex items-center gap-2"><ClipboardList size={20} className="text-indigo-600" />Лист подбора {o.number}</span>}
+      footer={<><span className="mr-auto self-center text-sm text-slate-500">Собрано {done.size} из {rows.length} · всего {fmtNum(total)} шт</span><Button icon={FileDown} loading={busy} onClick={pdf}>Скачать PDF</Button></>}>
+      <div className="divide-y divide-slate-100">
+        {rows.map((r) => {
+          const ok = done.has(r.id);
+          const low = r.stocks.reduce((a, s) => a + s.quantity, 0) < r.quantity;
+          return (
+            <label key={r.id} className={`flex cursor-pointer items-center gap-3 py-3 ${ok ? 'opacity-50' : ''}`}>
+              <input type="checkbox" className="h-5 w-5 shrink-0" checked={ok} onChange={() => setDone((d) => { const n = new Set(d); n.has(r.id) ? n.delete(r.id) : n.add(r.id); return n; })} />
+              <Thumb src={r.image} size={52} />
+              <div className="min-w-0 flex-1 text-sm">
+                <div className={`font-medium ${ok ? 'line-through' : ''}`}>{r.name}</div>
+                <div className="text-xs text-slate-500">{[r.color, r.size && <b key="s" className="text-slate-900">{r.size}</b>].filter(Boolean).reduce((a, x, i) => (i ? [...a, ' · ', x] : [x]), [])}</div>
+                <div className="font-mono text-xs text-slate-400">арт. {r.article}{r.sku ? ` · ${r.sku}` : ''}{r.barcode ? ` · ${r.barcode}` : ''}</div>
+                <div className={`text-xs ${low ? 'text-rose-600' : 'text-slate-500'}`}>{r.stocks.length ? r.stocks.map((s) => `${s.name}: ${fmtNum(s.quantity)}`).join(' · ') : 'нет на складе'}</div>
+              </div>
+              <div className="shrink-0 text-right"><div className="text-2xl font-bold tabular-nums">{fmtNum(r.quantity)}</div><div className="text-[11px] text-slate-400">шт</div></div>
+            </label>
+          );
+        })}
+      </div>
+    </Modal>
+  );
+}
 
 function OrderModal({ id, onClose, onChange }) {
   const [o, setO] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [pick, setPick] = useState(false);
   const money = useMoney();
   const toast = useToast();
   useEffect(() => { api('/orders/' + id).then(setO); }, [id]);
   if (!o) return null;
+  if (pick) return <PickList o={o} onClose={() => setPick(false)} />;
 
   const act = async (path, body, msg) => {
     setBusy(true);
@@ -58,6 +109,10 @@ function OrderModal({ id, onClose, onChange }) {
         <div><div className="label">Оплата</div>{PAY_METHOD[o.paymentMethod]}<div><Badge color={PAY_STATUS[o.paymentStatus][1]}>{PAY_STATUS[o.paymentStatus][0]}</Badge></div></div>
       </div>
       {o.comment && <div className="mb-4 rounded-lg bg-amber-50 p-3 text-sm"><b>Комментарий покупателя:</b> {o.comment}</div>}
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">Товары · {fmtNum(o.items.reduce((a, i) => a + i.quantity, 0))} шт</h3>
+        <Button size="sm" variant="secondary" icon={ClipboardList} onClick={() => setPick(true)}>Лист подбора</Button>
+      </div>
       {/* на телефоне — списком, без горизонтальной прокрутки */}
       <div className="divide-y divide-slate-100 border-y border-slate-100 sm:hidden">
         {o.items.map((i) => {

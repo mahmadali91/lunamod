@@ -13,9 +13,9 @@ r.get('/', ah(async (req, res) => {
   const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
 
   const [sales, prevSales, products, channels, recent, counts] = await Promise.all([
-    prisma.sale.findMany({ where: { date: { gte: from }, status: 'completed' }, include: { items: { include: { product: { include: { images: { take: 1, orderBy: { sort: 'asc' } }, parent: { select: { images: { take: 1, orderBy: { sort: 'asc' } } } } } } } }, channel: true } }),
+    prisma.sale.findMany({ where: { date: { gte: from }, status: 'completed' }, include: { items: { include: { product: { include: { images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' } }, parent: { select: { images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' } } } } } } } }, channel: true } }),
     prisma.sale.findMany({ where: { date: { gte: prevFrom, lt: from }, status: 'completed' }, select: { total: true } }),
-    prisma.product.findMany({ where: { active: true, hasVariants: false }, include: { stocks: true, images: { take: 1, orderBy: { sort: 'asc' } }, parent: { select: { images: { take: 1, orderBy: { sort: 'asc' } } } } } }),
+    prisma.product.findMany({ where: { active: true, hasVariants: false }, include: { stocks: true, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' } }, parent: { select: { images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' } } } } } }),
     prisma.salesChannel.findMany(),
     prisma.sale.findMany({ take: 8, orderBy: { id: 'desc' }, include: { channel: true, counterparty: true } }),
     Promise.all([prisma.counterparty.count(), prisma.warehouse.count({ where: { active: true } })]),

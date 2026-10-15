@@ -135,8 +135,11 @@ export function Spinner() {
 }
 
 export function Thumb({ src, size = 40, className = '' }) {
-  return src ? (
-    <img src={fileUrl(src)} alt="" style={{ width: size, height: size }} className={`shrink-0 rounded-lg border border-slate-200 object-cover ${className}`} />
+  // видео или недоступный файл — заглушка вместо «битой» картинки
+  const [bad, setBad] = useState(null);
+  const ok = src && bad !== src && !/\.(mp4|webm|mov|m3u8)(\?|$)/i.test(src);
+  return ok ? (
+    <img src={fileUrl(src)} alt="" loading="lazy" onError={() => setBad(src)} style={{ width: size, height: size }} className={`shrink-0 rounded-lg border border-slate-200 object-cover ${className}`} />
   ) : (
     <div style={{ width: size, height: size }} className={`flex shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-300 ${className}`}><ImageOff size={size / 2.4} /></div>
   );

@@ -1,7 +1,7 @@
 // Чаты с покупателями (админка) и подписка сотрудников на пуш-уведомления
 const express = require('express');
 const prisma = require('../db');
-const { ah, HttpError } = require('../util');
+const { ah, HttpError, fillImages } = require('../util');
 const chat = require('../chat');
 const { notifyVisitor, getVapid } = require('../notify');
 
@@ -26,9 +26,10 @@ r.get('/:id(\\d+)', ah(async (req, res) => {
   // заказы покупателя: по привязанному аккаунту или по телефону
   const orders = c.customerId || c.phone ? await prisma.order.findMany({
     where: { OR: [...(c.customerId ? [{ customerId: c.customerId }] : []), ...(c.phone ? [{ phone: c.phone }] : [])] },
-    include: { items: { include: { product: { select: { images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } } } } },
+    include: { items: { include: { product: { select: { id: true, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } } } } },
     orderBy: { id: 'desc' }, take: 20,
   }) : [];
+  await fillImages(orders.flatMap((o) => o.items.map((i) => i.product)));
   res.json({ conversation: c, messages, orders });
 }));
 

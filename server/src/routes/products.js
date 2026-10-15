@@ -26,7 +26,7 @@ const fullInclude = {
   stocks: { include: { warehouse: true } },
   parent: { select: { id: true, name: true, sku: true } },
   variants: { where: { active: true }, include: variantInclude, orderBy: [{ sort: 'asc' }, { id: 'asc' }] },
-  looks: { include: { linked: { select: { id: true, name: true, sku: true, price: true, images: { take: 1, orderBy: { sort: 'asc' } } } } }, orderBy: { sort: 'asc' } },
+  looks: { include: { linked: { select: { id: true, name: true, sku: true, price: true, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' } } } } }, orderBy: { sort: 'asc' } },
 };
 
 // Остаток карточки с вариантами — сумма остатков вариантов
@@ -64,8 +64,8 @@ r.get('/', ah(async (req, res) => {
   const [items, total] = await Promise.all([
     prisma.product.findMany({
       where, skip: (page - 1) * limit, take: limit, orderBy: { id: 'desc' },
-      include: { barcodes: { where: { isPrimary: true } }, images: { take: 1, orderBy: { sort: 'asc' } }, category: true, stocks,
-        parent: { select: { id: true, name: true, sku: true, images: { take: 1, orderBy: { sort: 'asc' } } } },
+      include: { barcodes: { where: { isPrimary: true } }, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' } }, category: true, stocks,
+        parent: { select: { id: true, name: true, sku: true, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' } } } },
         variants: { where: { active: true }, select: { id: true, color: true, size: true, stocks, barcodes: { where: { isPrimary: true }, select: { code: true } } } },
         group: { select: { id: true, _count: { select: { products: { where: { active: true } } } } } } },
     }),
@@ -93,7 +93,7 @@ r.get('/export', ah(async (req, res) => {
 const MAX_FEATURED = 20;
 r.get('/featured', ah(async (req, res) => {
   const list = await prisma.product.findMany({ where: { featuredPos: { not: null }, parentId: null }, orderBy: { featuredPos: 'asc' },
-    include: { images: { take: 1, orderBy: { sort: 'asc' } }, stocks: true, variants: { where: { active: true }, select: { stocks: true } } } });
+    include: { images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' } }, stocks: true, variants: { where: { active: true }, select: { stocks: true } } } });
   res.json(list.map((p) => ({ id: p.id, article: articleOf(p.id), name: p.name, sku: p.sku, color: p.color, price: p.price, active: p.active, showInShop: p.showInShop, image: p.images[0]?.path || null, totalStock: withTotals(p).totalStock })));
 }));
 r.put('/featured', ah(async (req, res) => {
@@ -116,9 +116,9 @@ r.get('/prices', ah(async (req, res) => {
     const s = String(req.query.q).trim(); const art = idOfArticle(s);
     where.OR = [{ name: like(s) }, { sku: like(s) }, ...(art ? [{ id: art }] : [])];
   }
-  const cards = await prisma.product.findMany({ where, orderBy: { id: 'desc' }, take: Math.min(1000, Number(req.query.limit) || 500),
-    include: { images: { take: 1, orderBy: { sort: 'asc' } }, category: { select: { name: true } }, stocks: true,
-      variants: { where: { active: true }, orderBy: [{ sort: 'asc' }, { id: 'asc' }], include: { stocks: true } } } });
+  const cards = await prisma.product.findMany({ where, orderBy: { id: 'desc' }, take: Math.min(5000, Number(req.query.limit) || 500),
+    include: { images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' } }, category: { select: { name: true } }, stocks: true, barcodes: { where: { isPrimary: true }, select: { code: true } },
+      variants: { where: { active: true }, orderBy: [{ sort: 'asc' }, { id: 'asc' }], include: { stocks: true, barcodes: { where: { isPrimary: true }, select: { code: true } } } } } });
   const ids = cards.flatMap((c) => [c.id, ...c.variants.map((v) => v.id)]);
   const rows = ids.length ? await prisma.$queryRawUnsafe(`SELECT productId, SUM(remaining) q, SUM(remaining * costPrice) v FROM Batch WHERE remaining > 0 AND productId IN (${ids.map(Number).join(',')}) GROUP BY productId`) : [];
   const lot = Object.fromEntries(rows.map((x) => [x.productId, { q: Number(x.q), v: Number(x.v) }]));
@@ -126,10 +126,10 @@ r.get('/prices', ah(async (req, res) => {
   const stock = (x) => x.stocks.reduce((a, s) => a + s.quantity, 0);
   res.json(cards.map((c) => ({
     id: c.id, article: articleOf(c.id), name: c.name, sku: c.sku, color: c.color, category: c.category?.name || null, image: c.images[0]?.path || null,
-    price: c.price, oldPrice: c.oldPrice, costPrice: c.costPrice, hasVariants: c.hasVariants,
+    price: c.price, oldPrice: c.oldPrice, costPrice: c.costPrice, hasVariants: c.hasVariants, barcode: c.barcodes[0]?.code || null,
     avgCost: avg(c.hasVariants ? c.variants.map((v) => v.id) : [c.id]),
     stock: c.hasVariants ? c.variants.reduce((a, v) => a + stock(v), 0) : stock(c),
-    variants: c.variants.map((v) => ({ id: v.id, size: v.size, price: v.price, oldPrice: v.oldPrice, costPrice: v.costPrice, avgCost: avg([v.id]), stock: stock(v) })),
+    variants: c.variants.map((v) => ({ id: v.id, size: v.size, sizeRu: v.sizeRu, barcode: v.barcodes[0]?.code || null, price: v.price, oldPrice: v.oldPrice, costPrice: v.costPrice, avgCost: avg([v.id]), stock: stock(v) })),
   })));
 }));
 
@@ -168,7 +168,7 @@ r.get('/popular', ah(async (req, res) => {
   const all = [...ids, ...extra.map((x) => x.id)];
   const products = await prisma.product.findMany({
     where: { id: { in: all } },
-    include: { barcodes: { where: { isPrimary: true } }, images: { take: 1, orderBy: { sort: 'asc' } }, stocks: true, parent: { select: { sku: true, images: { take: 1, orderBy: { sort: 'asc' } } } } },
+    include: { barcodes: { where: { isPrimary: true } }, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' } }, stocks: true, parent: { select: { sku: true, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' } } } } },
   });
   products.forEach((p) => { if (!p.images.length && p.parent) p.images = p.parent.images; if (!p.sku && p.parent) p.sku = p.parent.sku; });
   const sold = Object.fromEntries(top.map((t) => [t.productId, t._sum.quantity]));
@@ -202,7 +202,7 @@ r.get('/:id', ah(async (req, res) => {
   const qty = left.reduce((a, b) => a + b.remaining, 0);
   // карточки той же модели (другие цвета) и продажи по размерам за 90 дней
   const groupCards = p.groupId ? await prisma.product.findMany({ where: { groupId: p.groupId, active: true }, orderBy: { id: 'asc' },
-    select: { id: true, name: true, sku: true, color: true, hasVariants: true, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, stocks: { select: { quantity: true } }, variants: { where: { active: true }, select: { stocks: { select: { quantity: true } } } } } }) : [];
+    select: { id: true, name: true, sku: true, color: true, hasVariants: true, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, stocks: { select: { quantity: true } }, variants: { where: { active: true }, select: { stocks: { select: { quantity: true } } } } } }) : [];
   const sold = await prisma.saleItem.groupBy({ by: ['productId'], _sum: { quantity: true, returned: true }, where: { productId: { in: ids }, sale: { status: { not: 'returned' }, date: { gte: new Date(Date.now() - 90 * 864e5) } } } });
   const soldOf = Object.fromEntries(sold.map((x) => [x.productId, (x._sum.quantity || 0) - (x._sum.returned || 0)]));
   res.json({

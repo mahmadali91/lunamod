@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { MessageCircle, Send, ImagePlus, Phone, ArrowLeft, CheckCheck, RotateCcw, Loader2, Search, Package } from 'lucide-react';
 import { api, getToken, qs } from '../api';
-import { Badge, Button, Empty, PageHeader, Spinner, fmtDate, useMoney, useToast } from '../ui';
+import { Badge, Button, Empty, PageHeader, Spinner, Thumb, fmtDate, useMoney, useToast } from '../ui';
 import PushToggle from '../components/PushToggle';
 import { ORDER_STATUS, PAY_STATUS } from './Orders';
 import { VoicePlayer, VoiceRecorder } from '../components/Voice';
@@ -102,7 +102,7 @@ function Thread({ id, onBack, onChanged }) {
                 <div className="flex items-center justify-between text-sm"><b>{o.number}</b><Badge color={ORDER_STATUS[o.status][1]}>{ORDER_STATUS[o.status][0]}</Badge></div>
                 <div className="mt-1 text-xs text-slate-500">{fmtDate(o.createdAt, false)} · {money(o.total)} · <span className={o.paymentStatus === 'paid' ? 'text-emerald-600' : ''}>{PAY_STATUS[o.paymentStatus][0]}</span></div>
                 <div className="mt-1 text-xs text-slate-500">{o.deliveryName}{o.address ? ': ' + o.address : ''}</div>
-                <div className="mt-2 flex gap-1">{o.items.slice(0, 5).map((i) => <div key={i.id} className="h-10 w-10 overflow-hidden rounded-lg bg-slate-100">{i.product.images[0] && <img src={i.product.images[0].path} alt="" className="h-full w-full object-cover" />}</div>)}</div>
+                <div className="mt-2 flex gap-1">{o.items.slice(0, 5).map((i) => <Thumb key={i.id} src={i.product.images[0]?.path} size={40} />)}</div>
               </a>
             ))}
           </div>

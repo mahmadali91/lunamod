@@ -1,12 +1,17 @@
 const express = require('express');
 const prisma = require('../db');
-const { ah, HttpError, changeStock, nextNumber, num, int, str } = require('../util');
+const { ah, HttpError, changeStock, nextNumber, num, int, str, fillImages } = require('../util');
 
 const r = express.Router();
 const include = {
   channel: true, counterparty: true, warehouse: true,
-  items: { include: { product: { include: { barcodes: { where: { isPrimary: true } }, images: { take: 1, orderBy: { sort: 'asc' } } } } } },
+  items: { include: { product: { include: { barcodes: { where: { isPrimary: true } }, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' } } } } } },
   payments: { orderBy: { id: 'asc' } },
+};
+const loadSale = async (id) => {
+  const s = await prisma.sale.findUnique({ where: { id }, include });
+  if (s) await fillImages(s.items.map((i) => i.product));
+  return s;
 };
 
 const round = (v) => Math.round(v * 100) / 100;
@@ -50,7 +55,7 @@ r.get('/consignment/summary', ah(async (req, res) => {
 }));
 
 r.get('/:id', ah(async (req, res) => {
-  const s = await prisma.sale.findUnique({ where: { id: Number(req.params.id) }, include });
+  const s = await loadSale(Number(req.params.id));
   if (!s) throw new HttpError(404, 'Продажа не найдена');
   res.json(withDebt(s));
 }));
@@ -89,7 +94,7 @@ r.post('/', ah(async (req, res) => {
     }
     return sale;
   });
-  res.status(201).json(withDebt(await prisma.sale.findUnique({ where: { id: sale.id }, include })));
+  res.status(201).json(withDebt(await loadSale(sale.id)));
 }));
 
 // Оплата по реализации
@@ -106,7 +111,7 @@ r.post('/:id/payments', ah(async (req, res) => {
     await tx.salePayment.create({ data: { saleId: id, amount, method: req.body.method || 'cash', note: str(req.body.note), date: req.body.date ? new Date(req.body.date) : new Date() } });
     await tx.sale.update({ where: { id }, data: { paidAmount: round(s.paidAmount + amount) } });
   });
-  res.json(withDebt(await prisma.sale.findUnique({ where: { id }, include })));
+  res.json(withDebt(await loadSale(id)));
 }));
 
 // Пересчёт суммы после возврата части товаров
@@ -143,7 +148,7 @@ r.post('/:id/return-items', ah(async (req, res) => {
     const after = await tx.sale.findUnique({ where: { id } });
     if (after.consignment && after.paidAmount > after.total + 0.001) throw new HttpError(400, 'По продаже уже оплачено больше, чем останется после возврата');
   });
-  res.json(withDebt(await prisma.sale.findUnique({ where: { id }, include })));
+  res.json(withDebt(await loadSale(id)));
 }));
 
 // Полный возврат: всё непроданное возвращается на склад
@@ -161,7 +166,7 @@ r.post('/:id/return', ah(async (req, res) => {
     }
     await tx.sale.update({ where: { id }, data: { status: 'returned' } });
   });
-  res.json(withDebt(await prisma.sale.findUnique({ where: { id }, include })));
+  res.json(withDebt(await loadSale(id)));
 }));
 
 module.exports = r;

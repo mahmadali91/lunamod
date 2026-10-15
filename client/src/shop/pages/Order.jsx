@@ -4,6 +4,7 @@ import { CheckCircle2, Clock, XCircle, CreditCard, Loader2, Store, Truck } from 
 import { shopApi } from '../api';
 import { useShop } from '../store';
 import SbpPay from '../SbpPay';
+import Img from '../Img';
 
 export const STATUS = {
   new: ['Принят', 'bg-indigo-100 text-indigo-800'], confirmed: ['Подтверждён', 'bg-sky-100 text-sky-800'], ready: ['Собран / в пути', 'bg-amber-100 text-amber-800'],
@@ -73,7 +74,7 @@ export default function Order() {
         <div className="mt-5 divide-y divide-slate-100">
           {o.items.map((i) => (
             <div key={i.id} className="flex items-center gap-3 py-3">
-              <div className="h-16 w-12 shrink-0 overflow-hidden rounded-lg bg-slate-100">{i.product.images[0] && <img src={i.product.images[0].path} alt="" className="h-full w-full object-cover" />}</div>
+              <div className="h-16 w-12 shrink-0 overflow-hidden rounded-lg bg-slate-100"><Img src={i.product.images[0]?.path} /></div>
               <Link to={`/product/${i.productId}`} className="flex-1 text-sm">{i.name}<div className="text-slate-500">{i.quantity} × {money(i.price)}</div></Link>
               <b>{money(i.price * i.quantity)}</b>
             </div>

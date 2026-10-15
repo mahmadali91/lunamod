@@ -19,7 +19,7 @@ function period(q) {
 async function lines({ from, to }, extraWhere = {}) {
   const sales = await prisma.sale.findMany({
     where: { date: { gte: from, lte: to }, status: 'completed', ...extraWhere },
-    include: { items: { include: { product: { select: { id: true, name: true, sku: true, categoryId: true, category: { select: { name: true } }, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, size: true, color: true, groupId: true, parent: { select: { id: true, name: true, sku: true, color: true, groupId: true, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } } } } } }, channel: true, counterparty: true, warehouse: true },
+    include: { items: { include: { product: { select: { id: true, name: true, sku: true, categoryId: true, category: { select: { name: true } }, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, size: true, color: true, groupId: true, parent: { select: { id: true, name: true, sku: true, color: true, groupId: true, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' }, select: { path: true } } } } } } } }, channel: true, counterparty: true, warehouse: true },
   });
   const out = [];
   for (const s of sales) {
@@ -134,7 +134,7 @@ r.get('/abc', ah(async (req, res) => {
   if (by === 'product') {
     const idle = await prisma.product.findMany({
       where: { active: true, parentId: null, id: { notIn: [...map.keys()] }, ...(req.query.categoryId ? { categoryId: Number(req.query.categoryId) } : {}) },
-      select: { id: true, name: true, sku: true, images: { take: 1, orderBy: { sort: 'asc' }, select: { path: true } } },
+      select: { id: true, name: true, sku: true, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' }, select: { path: true } } },
     });
     idle.forEach((x) => map.set(x.id, { id: x.id, name: x.name, sku: x.sku, image: x.images[0]?.path, revenue: 0, profit: 0, qty: 0 }));
   }
