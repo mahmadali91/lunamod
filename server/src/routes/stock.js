@@ -12,14 +12,14 @@ r.get('/', ah(async (req, res) => {
     where.OR = [{ name: like(s) }, { sku: like(s) }, { barcodes: { some: { code: like(s) } } }];
   }
   const [products, warehouses] = await Promise.all([
-    prisma.product.findMany({ where, include: { stocks: true, barcodes: { where: { isPrimary: true } } }, orderBy: { name: 'asc' } }),
+    prisma.product.findMany({ where, include: { stocks: true, barcodes: { where: { isPrimary: true } }, images: { take: 1, orderBy: { sort: 'asc' } } }, orderBy: { name: 'asc' } }),
     prisma.warehouse.findMany({ where: { active: true }, orderBy: { id: 'asc' } }),
   ]);
   const rows = products.map((p) => {
     const byWh = {};
     p.stocks.forEach((s) => { byWh[s.warehouseId] = s.quantity; });
     const total = p.stocks.reduce((a, s) => a + s.quantity, 0);
-    return { id: p.id, name: p.name, sku: p.sku, unit: p.unit, price: p.price, costPrice: p.costPrice, minStock: p.minStock, barcode: p.barcodes[0]?.code, byWh, total };
+    return { id: p.id, name: p.name, image: p.images[0]?.path || null, sku: p.sku, unit: p.unit, price: p.price, costPrice: p.costPrice, minStock: p.minStock, barcode: p.barcodes[0]?.code, byWh, total };
   });
   res.json({ warehouses, rows });
 }));
@@ -37,6 +37,22 @@ r.post('/adjust', ah(async (req, res) => {
     }
   });
   res.json({ ok: true });
+}));
+
+// Массовое редактирование: [{ productId, warehouseId, quantity }] — фактические остатки
+r.post('/bulk', ah(async (req, res) => {
+  const items = (req.body.items || []).filter((i) => i.productId && i.warehouseId && i.quantity !== '' && i.quantity !== null && !isNaN(Number(i.quantity)));
+  if (!items.length) throw new HttpError(400, 'Нет изменений');
+  let changed = 0;
+  await prisma.$transaction(async (tx) => {
+    for (const it of items) {
+      const productId = Number(it.productId), warehouseId = Number(it.warehouseId);
+      const cur = await tx.stock.findUnique({ where: { productId_warehouseId: { productId, warehouseId } } });
+      const diff = num(it.quantity) - (cur?.quantity || 0);
+      if (diff !== 0) { await changeStock(tx, { productId, warehouseId, quantity: diff, type: 'ADJUST', note: str(req.body.note) || 'Редактирование остатков' }); changed++; }
+    }
+  }, { timeout: 60000 });
+  res.json({ ok: true, changed });
 }));
 
 // Перемещение между складами

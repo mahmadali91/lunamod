@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Package, Boxes, ShoppingCart, Receipt, Warehouse, Radio, Users, Tags, Settings, LogOut, Menu, X, ScanBarcode, PackagePlus,
+  LayoutDashboard, Package, Boxes, ShoppingCart, Receipt, Warehouse, Radio, Users, Tags, Settings, LogOut, Menu, X, ScanBarcode, PackagePlus, HandCoins,
 } from 'lucide-react';
 import { api } from './api';
 import { SettingsCtx, useToast } from './ui';
@@ -10,6 +10,7 @@ const nav = [
   { to: '/', icon: LayoutDashboard, label: 'Дашборд', end: true },
   { to: '/pos', icon: ShoppingCart, label: 'Новая продажа' },
   { to: '/sales', icon: Receipt, label: 'Продажи' },
+  { to: '/consignment', icon: HandCoins, label: 'Реализация' },
   { group: 'Товары' },
   { to: '/products', icon: Package, label: 'Товары' },
   { to: '/stock', icon: Boxes, label: 'Остатки' },
@@ -86,6 +87,7 @@ export default function Layout() {
           </div>
           <button onClick={logout} title="Выйти" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-rose-600"><LogOut size={18} /></button>
         </div>
+        <div className="px-2 pt-1 text-[11px] text-slate-400" title="Версия программы">v{__APP_VERSION__}</div>
       </div>
     </div>
   );

@@ -1,0 +1,22 @@
+-- AlterTable
+ALTER TABLE `Sale` ADD COLUMN `consignment` BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN `dueDate` DATETIME(3) NULL,
+    ADD COLUMN `paidAmount` DOUBLE NOT NULL DEFAULT 0;
+
+-- AlterTable
+ALTER TABLE `SaleItem` ADD COLUMN `returned` DOUBLE NOT NULL DEFAULT 0;
+
+-- CreateTable
+CREATE TABLE `SalePayment` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `saleId` INTEGER NOT NULL,
+    `amount` DOUBLE NOT NULL,
+    `method` VARCHAR(191) NOT NULL DEFAULT 'cash',
+    `note` TEXT NULL,
+    `date` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- AddForeignKey
+ALTER TABLE `SalePayment` ADD CONSTRAINT `SalePayment_saleId_fkey` FOREIGN KEY (`saleId`) REFERENCES `Sale`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;

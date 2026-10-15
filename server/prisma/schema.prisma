@@ -147,12 +147,26 @@ model Sale {
   warehouseId    Int
   discount       Float         @default(0)
   total          Float         @default(0)
-  paymentMethod  String        @default("cash") // cash | card | transfer
+  paymentMethod  String        @default("cash") // cash | card | transfer | consignment
+  consignment    Boolean       @default(false) // под реализацию (в долг)
+  paidAmount     Float         @default(0) // оплачено по реализации
+  dueDate        DateTime? // срок оплаты
   note           String? @db.Text
   channel        SalesChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
   counterparty   Counterparty? @relation(fields: [counterpartyId], references: [id], onDelete: SetNull)
   warehouse      Warehouse     @relation(fields: [warehouseId], references: [id])
   items          SaleItem[]
+  payments       SalePayment[]
+}
+
+model SalePayment {
+  id        Int      @id @default(autoincrement())
+  saleId    Int
+  amount    Float
+  method    String   @default("cash")
+  note      String?  @db.Text
+  date      DateTime @default(now())
+  sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
 }
 
 model SaleItem {
@@ -160,6 +174,7 @@ model SaleItem {
   saleId    Int
   productId Int
   quantity  Float
+  returned  Float   @default(0) // возвращено (для реализации)
   price     Float
   costPrice Float   @default(0)
   sale      Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)

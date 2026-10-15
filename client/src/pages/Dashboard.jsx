@@ -194,7 +194,11 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        <Link to="/consignment" className="card col-span-2 flex items-center justify-between p-4 hover:border-amber-200 hover:shadow-md sm:col-span-1">
+          <span className="text-sm text-slate-500">Долг по реализации<span className="block text-xs">{k.consignmentOpen} открыто</span></span>
+          <span className={`text-lg font-bold ${k.consignmentDebt > 0 ? 'text-amber-600' : ''}`}>{money(k.consignmentDebt)}</span>
+        </Link>
         {[['Товаров', k.productsCount, '/products'], ['Складов', k.warehouses, '/warehouses'], ['Каналов', data.channels, '/channels'], ['Контрагентов', k.counterparties, '/counterparties']].map(([l, v, to]) => (
           <Link key={l} to={to} className="card flex items-center justify-between p-4 hover:border-indigo-200 hover:shadow-md">
             <span className="text-sm text-slate-500">{l}</span><span className="text-lg font-bold">{fmtNum(v)}</span>

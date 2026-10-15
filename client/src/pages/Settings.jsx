@@ -83,7 +83,7 @@ export default function SettingsPage() {
 
       {health.data && (
         <p className="text-center text-xs text-slate-400">
-          Версия {String(health.data.version).slice(0, 7)} · Node {health.data.node} · база {health.data.db === 'ok' ? 'подключена' : 'недоступна'}
+          Версия v{__APP_VERSION__} (сборка {String(health.data.version).slice(0, 7)}) · Node {health.data.node} · база {health.data.db === 'ok' ? 'подключена' : 'недоступна'}
         </p>
       )}
     </div>

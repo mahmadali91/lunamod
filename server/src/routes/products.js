@@ -52,6 +52,27 @@ r.get('/', ah(async (req, res) => {
   res.json({ items: list, total, page, limit });
 }));
 
+// Самые продаваемые товары (для подсказки в кассе)
+r.get('/popular', ah(async (req, res) => {
+  const limit = Math.min(30, Number(req.query.limit) || 10);
+  const since = new Date(Date.now() - 90 * 864e5);
+  const top = await prisma.saleItem.groupBy({
+    by: ['productId'], _sum: { quantity: true },
+    where: { sale: { date: { gte: since }, status: 'completed' }, product: { active: true } },
+    orderBy: { _sum: { quantity: 'desc' } }, take: limit,
+  });
+  const ids = top.map((t) => t.productId);
+  // Если продаж мало — добираем новыми товарами
+  const extra = ids.length < limit ? await prisma.product.findMany({ where: { active: true, id: { notIn: ids } }, orderBy: { id: 'desc' }, take: limit - ids.length, select: { id: true } }) : [];
+  const all = [...ids, ...extra.map((x) => x.id)];
+  const products = await prisma.product.findMany({
+    where: { id: { in: all } },
+    include: { barcodes: { where: { isPrimary: true } }, images: { take: 1, orderBy: { sort: 'asc' } }, stocks: true },
+  });
+  const sold = Object.fromEntries(top.map((t) => [t.productId, t._sum.quantity]));
+  res.json(all.map((id) => products.find((p) => p.id === id)).filter(Boolean).map((p) => ({ ...withTotals(p), sold: sold[p.id] || 0 })));
+}));
+
 // Поиск по штрихкоду или артикулу — точное совпадение (для сканера)
 r.get('/lookup/:code', ah(async (req, res) => {
   const code = String(req.params.code).trim();

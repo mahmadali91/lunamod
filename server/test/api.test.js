@@ -38,6 +38,7 @@ let w1, w2, ch, cp, product;
 test('health и вход', async () => {
   const h = await fetch(BASE + '/api/health').then((r) => r.json());
   assert.equal(h.db, 'ok');
+  assert.equal(h.app, require('../../package.json').version);
   assert.equal((await api('/products', { auth: false })).status, 401, 'без токена — 401');
   assert.equal((await api('/auth/login', { method: 'POST', auth: false, body: { login: 'admin', password: 'wrong' } })).status, 401);
   const r = await ok('/auth/login', { method: 'POST', auth: false, body: { login: 'admin', password: PASS } });
@@ -81,17 +82,70 @@ test('поиск по штрихкоду, артикулу и названию (
   assert.ok(s.items.some((p) => p.id === product.id));
 });
 
-test('приход, продажа, контроль остатка, возврат', async () => {
+test('приход, продажа со скидкой, возврат', async () => {
   await ok('/receipts', { method: 'POST', body: { warehouseId: w1.id, counterpartyId: cp.id, items: [{ productId: product.id, quantity: 5, costPrice: 450 }] } });
   const stock = async () => (await ok('/products/' + product.id)).stocks.find((s) => s.warehouseId === w1.id).quantity;
   assert.equal(await stock(), 15);
-  const over = await api('/sales', { method: 'POST', body: { warehouseId: w1.id, items: [{ productId: product.id, quantity: 100, price: 1000 }] } });
-  assert.equal(over.status, 400, 'нельзя продать больше остатка');
   const sale = await ok('/sales', { method: 'POST', body: { warehouseId: w1.id, channelId: ch.id, discount: 100, items: [{ productId: product.id, quantity: 3, price: 1000 }] } });
   assert.equal(sale.total, 2900);
   assert.equal(await stock(), 12);
   await ok(`/sales/${sale.id}/return`, { method: 'POST' });
   assert.equal(await stock(), 15);
+});
+
+test('продажа при нулевом остатке уводит остаток в минус', async () => {
+  const p = await ok('/products', { method: 'POST', body: { name: 'Без остатка ' + U, price: 50 } });
+  const sale = await ok('/sales', { method: 'POST', body: { warehouseId: w2.id, items: [{ productId: p.id, quantity: 3, price: 50 }] } });
+  assert.equal(sale.total, 150);
+  const after = await ok('/products/' + p.id);
+  assert.equal(after.stocks.find((s) => s.warehouseId === w2.id).quantity, -3);
+  await ok(`/sales/${sale.id}/return`, { method: 'POST' });
+});
+
+test('реализация: долг, оплаты, возврат части товара', async () => {
+  const p = await ok('/products', { method: 'POST', body: { name: 'Реализация ' + U, price: 100, initialStock: [{ warehouseId: w1.id, quantity: 20 }] } });
+  const need = await api('/sales', { method: 'POST', body: { warehouseId: w1.id, consignment: true, items: [{ productId: p.id, quantity: 1, price: 100 }] } });
+  assert.equal(need.status, 400, 'без контрагента нельзя');
+  const buyer = await ok('/counterparties', { method: 'POST', body: { name: 'Магазин-партнёр ' + U } });
+  let s = await ok('/sales', { method: 'POST', body: { warehouseId: w1.id, counterpartyId: buyer.id, consignment: true, prepaid: 200, dueDate: '2030-01-01', items: [{ productId: p.id, quantity: 10, price: 100 }] } });
+  assert.equal(s.consignment, true);
+  assert.equal(s.total, 1000);
+  assert.equal(s.debt, 800, 'долг = сумма − предоплата');
+  assert.equal(s.payments.length, 1);
+  s = await ok(`/sales/${s.id}/payments`, { method: 'POST', body: { amount: 300 } });
+  assert.equal(s.debt, 500);
+  assert.equal((await api(`/sales/${s.id}/payments`, { method: 'POST', body: { amount: 10000 } })).status, 400, 'переплата запрещена');
+  // вернули 4 непроданных — долг уменьшается, товар на складе
+  s = await ok(`/sales/${s.id}/return-items`, { method: 'POST', body: { items: [{ saleItemId: s.items[0].id, quantity: 4 }] } });
+  assert.equal(s.total, 600);
+  assert.equal(s.debt, 100);
+  assert.equal((await ok('/products/' + p.id)).stocks.find((x) => x.warehouseId === w1.id).quantity, 14);
+  const sum = await ok('/sales/consignment/summary');
+  assert.ok(sum.byCounterparty.some((c) => c.id === buyer.id && c.debt === 100));
+  assert.ok((await ok('/sales?consignment=1&open=1')).some((x) => x.id === s.id));
+  s = await ok(`/sales/${s.id}/payments`, { method: 'POST', body: { amount: 100 } });
+  assert.equal(s.debt, 0, 'полностью оплачено');
+  assert.ok(!(await ok('/sales?consignment=1&open=1')).some((x) => x.id === s.id));
+});
+
+test('массовое редактирование остатков', async () => {
+  const p = await ok('/products', { method: 'POST', body: { name: 'Массово ' + U } });
+  const r = await ok('/stock/bulk', { method: 'POST', body: { items: [
+    { productId: p.id, warehouseId: w1.id, quantity: 12 }, { productId: p.id, warehouseId: w2.id, quantity: 5 },
+  ] } });
+  assert.equal(r.changed, 2);
+  const st = await ok('/stock?q=' + encodeURIComponent('Массово ' + U));
+  const row = st.rows.find((x) => x.id === p.id);
+  assert.equal(row.byWh[w1.id], 12);
+  assert.equal(row.byWh[w2.id], 5);
+  assert.ok('image' in row, 'в остатках есть фото');
+  assert.equal((await ok('/stock/bulk', { method: 'POST', body: { items: [{ productId: p.id, warehouseId: w1.id, quantity: 12 }] } })).changed, 0, 'без изменений — ничего не пишем');
+});
+
+test('популярные товары для кассы', async () => {
+  const list = await ok('/products/popular?limit=5');
+  assert.ok(list.length > 0 && list.length <= 5);
+  for (let i = 1; i < list.length; i++) if (list[i].sold > 0) assert.ok(list[i - 1].sold >= list[i].sold, 'по убыванию продаж');
 });
 
 test('перемещение и инвентаризация', async () => {
