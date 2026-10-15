@@ -100,7 +100,7 @@ jobs:
             echo "$H"
             if echo "$H" | grep -q "\"version\":\"$GITHUB_SHA\"" && echo "$H" | grep -q '"db":"ok"'; then
               curl -fsS "$SITE_URL/" | grep -q "<title>" || { echo "::error::Главная страница не отдаётся"; exit 1; }
-              curl -fsS -o /dev/null "$SITE_URL/products" || { echo "::error::Страницы приложения не открываются"; exit 1; }
+              curl -fsS -o /dev/null "$SITE_URL/about" && curl -fsS "$SITE_URL/sitemap.xml" | grep -q "<urlset" || { echo "::error::Страницы приложения не открываются"; exit 1; }
               echo "Сайт работает, версия $GITHUB_SHA"
               exit 0
             fi
