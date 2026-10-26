@@ -23,6 +23,10 @@ ask()  { local v; read -r -p "$1" v </dev/tty; printf '%s' "$v"; }
 asks() { local v; read -r -s -p "$1" v </dev/tty; echo >/dev/tty; printf '%s' "$v"; }
 
 [ -d "$SITE" ] || fail "Нет папки сайта $SITE. Создайте сайт $DOMAIN в разделе «Сайты» панели Beget и привяжите к нему домен."
+# папка сайта может называться иначе, чем домен (например, ~/lunara), а ~/lunaramod.ru — ярлык на неё:
+# дальше везде настоящий путь, чтобы веб-сервер и Passenger работали с реальной папкой
+SITE="$(cd "$SITE" && pwd -P)"; APP="$SITE/app"; NODE_DIR="$SITE/.node"; UPLOADS="$SITE/uploads"; ENV_FILE="$SITE/sklad.env"
+echo "Папка сайта: $SITE"
 
 step "1/7 Node.js"
 . /etc/os-release || true

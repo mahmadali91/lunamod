@@ -76,21 +76,25 @@ curl -fsSL https://raw.githubusercontent.com/mahmadali91/sklad/main/deploy/setup
 ## 2а. Второй сайт на том же Beget (рабочий lunaramod.ru рядом с тестовым botmi.ru)
 
 1. Сайт создан в панели, оба домена привязаны к папке `lunaramod.ru`, SSL включён, база `mahmadgv_luna` создана.
-2. В терминале Beget (`ssh localhost -p 222`) — установка из архива, который автодеплой оставил на сервере:
+2. Если папка сайта называется не как домен (у нас `~/lunara`), сделайте ярлык с именем домена — его используют все скрипты:
+   ```bash
+   ln -s ~/lunara ~/lunaramod.ru
+   ```
+3. В терминале Beget (`ssh localhost -p 222`) — установка из архива, который автодеплой оставил на сервере:
    ```bash
    tar xzf ~/.sklad-release.tar.gz -O deploy/beget.sh | ARCHIVE=$HOME/.sklad-release.tar.gz DOMAIN=lunaramod.ru CANONICAL=lunaramod.ru DB_NAME=mahmadgv_luna bash
    ```
    Скрипт спросит только пароль базы. `CANONICAL` — основной домен: второй домен и `www` переадресуются на него.
-3. Перенос данных с botmi.ru (товары, продажи, заказы, покупатели, настройки, фото):
+4. Перенос данных с botmi.ru (товары, продажи, заказы, покупатели, настройки, фото):
    ```bash
    bash ~/lunaramod.ru/app/deploy/copy-site.sh botmi.ru lunaramod.ru
    ```
-4. Автообновление обоих сайтов:
+5. Автообновление обоих сайтов:
    ```bash
    tar xzf ~/.sklad-release.tar.gz -O deploy/setup-autodeploy.sh | DOMAINS="botmi.ru lunaramod.ru" bash
    ```
    Ключ для GitHub не меняется. В `.github/workflows/deploy.yml` список сайтов — переменная `SITES`.
-5. На botmi.ru: Настройки магазина → Поисковики → «Тестовый сайт — закрыть от поисковиков».
+6. На botmi.ru: Настройки магазина → Поисковики → «Тестовый сайт — закрыть от поисковиков».
 
 ## 3. Установка на свой сервер (VPS: Ubuntu 22.04 / 24.04)
 

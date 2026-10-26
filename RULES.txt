@@ -7,8 +7,8 @@
 - Программа учёта склада и продаж + интернет-магазин одежды (магазин «ЛУНАРА»).
 - https://botmi.ru — витрина магазина, https://botmi.ru/admin — программа учёта.
 - Два сайта на одном Beget, каждая правка выкладывается на ОБА (по желанию владельца):
-  · https://lunaramod.ru — РАБОЧИЙ магазин (база mahmadgv_luna, папка ~/lunaramod.ru). Второй домен
-    unaramoda.ru (уточнить написание) привязан к той же папке и переадресуется на lunaramod.ru (CANONICAL_HOST в sklad.env).
+  · https://lunaramod.ru — РАБОЧИЙ магазин (база mahmadgv_luna, папка ~/lunara, ярлык ~/lunaramod.ru → lunara). Второй домен
+    lunaramoda.ru привязан к той же папке и переадресуется на lunaramod.ru (CANONICAL_HOST в sklad.env).
   · https://botmi.ru — ТЕСТОВЫЙ сайт (своя база), закрыт от поисковиков настройкой «Тестовый сайт».
   · Данные botmi.ru → lunaramod.ru переносятся deploy/copy-site.sh (полная замена базы и фото «куда»!).
 - Репозиторий GitHub: mahmadali91/sklad — ЗАКРЫТЫЙ (private). Ветка main.
