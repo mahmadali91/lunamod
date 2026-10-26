@@ -75,7 +75,8 @@
 ======================================================================
 5. ДЕПЛОЙ (Beget)
 ======================================================================
-- .github/workflows/deploy.yml: тесты (MySQL 8 в CI!) → сборка → проверка dist → деплой → проверка /api/health.
+- .github/workflows/deploy.yml: тесты (MySQL 8 в CI!) → сборка → проверка dist → деплой на SITES по очереди
+  (botmi.ru первым; если он упал — lunaramod.ru не обновляется) → проверка /api/health каждого.
 - Репозиторий закрытый, поэтому: Actions делает git archive и передаёт его по SSH
   (ssh … "$GITHUB_SHA" < app.tar.gz). Ключ BEGET_SSH_KEY ограничен: на сервере запускается только
   ~/.sklad-deploy.sh (создаётся deploy/setup-autodeploy.sh), он кладёт архив и запускает deploy/beget.sh с ARCHIVE=.

@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SITE_URL: https://botmi.ru
+  SITES: botmi.ru lunaramod.ru   # первый — тестовый (обновляется первым)
   BEGET_HOST: zip4.beget.com
   BEGET_USER: mahmadgv
 
@@ -88,7 +88,8 @@ jobs:
         if: env.HAS_KEY == 'true'
         run: git archive --format=tar.gz -o "$RUNNER_TEMP/app.tar.gz" "$GITHUB_SHA" && ls -lh "$RUNNER_TEMP/app.tar.gz"
 
-      - name: Обновление сайта на хостинге
+      # Сначала тестовый botmi.ru: если он не поднялся — рабочий lunaramod.ru не трогаем
+      - name: Обновление сайтов на хостинге
         if: env.HAS_KEY == 'true'
         env:
           KEY: ${{ secrets.BEGET_SSH_KEY }}
@@ -96,23 +97,23 @@ jobs:
           install -m 700 -d ~/.ssh
           printf '%s\n' "$KEY" > ~/.ssh/beget && chmod 600 ~/.ssh/beget
           ssh-keyscan -H "$BEGET_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          # Ключ на хостинге ограничен: он может только запустить обновление до этой версии
-          ssh -i ~/.ssh/beget -o BatchMode=yes -o ServerAliveInterval=30 "$BEGET_USER@$BEGET_HOST" "$GITHUB_SHA" < "$RUNNER_TEMP/app.tar.gz" 2>&1 | tee deploy.log
-          grep -q "Готово" deploy.log || { echo "::error::Скрипт деплоя завершился с ошибкой"; exit 1; }
-
-      - name: Проверка сайта после деплоя
-        if: env.HAS_KEY == 'true'
-        run: |
-          for i in $(seq 1 24); do
-            H=$(curl -fsS "$SITE_URL/api/health" || true)
-            echo "$H"
-            if echo "$H" | grep -q "\"version\":\"$GITHUB_SHA\"" && echo "$H" | grep -q '"db":"ok"'; then
-              curl -fsS "$SITE_URL/" | grep -q "<title>" || { echo "::error::Главная страница не отдаётся"; exit 1; }
-              curl -fsS -o /dev/null "$SITE_URL/about" && curl -fsS "$SITE_URL/sitemap.xml" | grep -q "<urlset" || { echo "::error::Страницы приложения не открываются"; exit 1; }
-              echo "Сайт работает, версия $GITHUB_SHA"
-              exit 0
-            fi
-            sleep 5
+          first="${SITES%% *}"
+          for site in $SITES; do
+            echo "::group::Деплой $site"
+            # Ключ на хостинге ограничен: он может только запустить обновление до этой версии на сайте из списка
+            arg="$GITHUB_SHA"; [ "$site" = "$first" ] || arg="$GITHUB_SHA $site"
+            ssh -i ~/.ssh/beget -o BatchMode=yes -o ServerAliveInterval=30 "$BEGET_USER@$BEGET_HOST" "$arg" < "$RUNNER_TEMP/app.tar.gz" 2>&1 | tee "deploy-$site.log"
+            echo "::endgroup::"
+            grep -q "Готово" "deploy-$site.log" || { echo "::error::Деплой $site завершился с ошибкой"; exit 1; }
+            # сайт проверяем сразу, до следующего
+            ok=""
+            for i in $(seq 1 24); do
+              H=$(curl -fsS -b beget=begetok "https://$site/api/health" || true)
+              if echo "$H" | grep -q "\"version\":\"$GITHUB_SHA\"" && echo "$H" | grep -q '"db":"ok"'; then ok=1; break; fi
+              sleep 5
+            done
+            [ -n "$ok" ] || { echo "::error::$site не ответил новой версией за 2 минуты: $H"; exit 1; }
+            curl -fsS -b beget=begetok "https://$site/" | grep -q "<title>" || { echo "::error::$site: главная страница не отдаётся"; exit 1; }
+            curl -fsS -b beget=begetok -o /dev/null "https://$site/about" && curl -fsS -b beget=begetok "https://$site/sitemap.xml" | grep -q "<urlset" || { echo "::error::$site: страницы не открываются"; exit 1; }
+            echo "$site работает, версия $GITHUB_SHA"
           done
-          echo "::error::После деплоя сайт не ответил новой версией за 2 минуты"
-          exit 1
