@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Download, KeyRound, CheckCircle2, AlertTriangle, Loader2, ShieldCheck, ExternalLink } from 'lucide-react';
 import { api } from '../api';
-import { Button, Field, PageHeader, Spinner, useToast } from '../ui';
+import { Button, Field, PageHeader, PasswordInput, Spinner, useToast } from '../ui';
 
 export default function Wildberries() {
   const toast = useToast();
@@ -37,7 +37,7 @@ export default function Wildberries() {
           </div>
         ) : <p className="text-sm text-slate-500">Кабинет WB → профиль → Настройки → <b>Доступ к API</b> → «Создать новый токен». Отметьте «Контент» и «Цены и скидки» (для загрузки достаточно «Только на чтение»).</p>}
         <form onSubmit={save} className="mt-4 flex flex-wrap gap-2">
-          <input className="input min-w-0 flex-1 font-mono text-xs" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={d.connected ? 'Новый токен (заменит текущий)' : 'Вставьте токен'} />
+          <PasswordInput wrapClassName="min-w-0 flex-1" className="input font-mono text-xs" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={d.connected ? 'Новый токен (заменит текущий)' : 'Вставьте токен'} />
           <Button type="submit" loading={saving} disabled={!token.trim()}>Проверить и сохранить</Button>
           {d.connected && <Button type="button" variant="ghost" onClick={remove} className="text-rose-600">Отключить</Button>}
         </form>

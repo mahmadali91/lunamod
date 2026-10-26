@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Trash2, UserPlus, Save } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Field, PageHeader, useLoad, useSettings, useToast } from '../ui';
+import { Badge, Button, Field, PageHeader, PasswordInput, useLoad, useSettings, useToast } from '../ui';
 import DemoData from '../components/DemoData';
 import Backup from '../components/Backup';
 
@@ -67,7 +67,7 @@ export default function SettingsPage() {
           <form className="grid grid-cols-2 gap-3 sm:grid-cols-5" onSubmit={run(async () => { await api('/users', { method: 'POST', body: nu }); setNu({ login: '', name: '', password: '', role: 'seller' }); users.reload(); }, 'Пользователь добавлен')}>
             <input className="input" placeholder="Логин" value={nu.login} onChange={(e) => setNu({ ...nu, login: e.target.value })} required />
             <input className="input" placeholder="Имя" value={nu.name} onChange={(e) => setNu({ ...nu, name: e.target.value })} />
-            <input className="input" placeholder="Пароль" type="password" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} required minLength={6} />
+            <PasswordInput placeholder="Пароль" autoComplete="new-password" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} required minLength={6} />
             <select className="input" value={nu.role} onChange={(e) => setNu({ ...nu, role: e.target.value })}><option value="seller">Продавец</option><option value="admin">Админ</option></select>
             <Button type="submit" icon={UserPlus}>Добавить</Button>
           </form>
@@ -80,8 +80,8 @@ export default function SettingsPage() {
       <form className="card space-y-4 p-6" onSubmit={run(async () => { await api('/auth/password', { method: 'POST', body: pw }); setPw({ oldPassword: '', newPassword: '' }); }, 'Пароль изменён')}>
         <h2 className="font-semibold">Сменить пароль</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Текущий пароль"><input className="input" type="password" value={pw.oldPassword} onChange={(e) => setPw({ ...pw, oldPassword: e.target.value })} required /></Field>
-          <Field label="Новый пароль"><input className="input" type="password" value={pw.newPassword} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} required minLength={6} /></Field>
+          <Field label="Текущий пароль"><PasswordInput autoComplete="current-password" value={pw.oldPassword} onChange={(e) => setPw({ ...pw, oldPassword: e.target.value })} required /></Field>
+          <Field label="Новый пароль"><PasswordInput autoComplete="new-password" value={pw.newPassword} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} required minLength={6} /></Field>
         </div>
         <Button type="submit" variant="secondary">Сменить пароль</Button>
       </form>

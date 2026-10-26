@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { X, Loader2, CheckCircle2, AlertCircle, ImageOff } from 'lucide-react';
+import { X, Loader2, CheckCircle2, AlertCircle, ImageOff, Eye, EyeOff } from 'lucide-react';
 import JsBarcode from 'jsbarcode';
 import { api, fileUrl } from './api';
 
@@ -132,6 +132,21 @@ export function Empty({ icon: Icon, title, text, children }) {
 
 export function Spinner() {
   return <div className="flex justify-center py-16 text-slate-400"><Loader2 className="animate-spin" size={28} /></div>;
+}
+
+/** Поле пароля/ключа со значком «глаз»: нажатие показывает или скрывает введённое */
+export function PasswordInput({ className = 'input', wrapClassName = '', ...props }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className={`relative ${wrapClassName}`}>
+      <input {...props} type={show ? 'text' : 'password'} className={`${className} pr-10`} />
+      <button type="button" tabIndex={-1} onClick={() => setShow((v) => !v)} onMouseDown={(e) => e.preventDefault()}
+        aria-label={show ? 'Скрыть' : 'Показать'} title={show ? 'Скрыть' : 'Показать'}
+        className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+        {show ? <EyeOff size={17} /> : <Eye size={17} />}
+      </button>
+    </div>
+  );
 }
 
 export function Thumb({ src, size = 40, className = '' }) {

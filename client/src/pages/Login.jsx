@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Boxes } from 'lucide-react';
 import { api } from '../api';
-import { Button, Field } from '../ui';
+import { Button, Field, PasswordInput } from '../ui';
 import { solveCaptcha } from '../captcha';
 
 export default function Login() {
@@ -41,7 +41,7 @@ export default function Login() {
         </div>
         <div className="space-y-4">
           <Field label="Логин"><input className="input" autoFocus value={form.login} onChange={(e) => setForm({ ...form, login: e.target.value })} /></Field>
-          <Field label="Пароль"><input className="input" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></Field>
+          <Field label="Пароль"><PasswordInput autoComplete="current-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></Field>
           {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
           <Button type="submit" loading={loading} className="w-full py-2.5">Войти</Button>
         </div>

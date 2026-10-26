@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Megaphone, Rss, Save, ExternalLink, Search as SearchIcon, BarChart3, Share2, Send, History, CheckCircle2, XCircle, AlertTriangle, CreditCard, MessageSquare, Truck, Store, ShieldCheck, FileText, Bell, MessagesSquare, Plus, Trash2, RotateCcw, ChevronDown } from 'lucide-react';
 import PushToggle from '../components/PushToggle';
 import { api } from '../api';
-import { Button, Field, PageHeader, RefSelect, Spinner, useToast } from '../ui';
+import { Button, Field, PasswordInput, PageHeader, RefSelect, Spinner, useToast } from '../ui';
 
 function Section({ icon: Icon, title, children, hint }) {
   return (
@@ -31,7 +31,10 @@ export default function ShopSettings() {
   const setM = (i, patch) => setMethods(methods.map((m, j) => (i === j ? { ...m, ...patch } : m)));
   const addMethod = (carrier) => setMethods([...methods, { id: carrier + '_' + Date.now().toString(36), carrier, name: tpl.carriers[carrier].name, enabled: true, price: 0, markupFixed: 0, markupPercent: 0, freeFrom: 0, days: '', description: '' }]);
   const f = (k) => (v) => setS({ ...s, [k]: v });
-  const inp = (k, props = {}) => <input className="input" value={s[k] ?? ''} onChange={(e) => f(k)(e.target.value)} {...props} />;
+  // поля с паролями и ключами — со значком «глаз»
+  const inp = (k, props = {}) => (props.type === 'password'
+    ? <PasswordInput value={s[k] ?? ''} onChange={(e) => f(k)(e.target.value)} {...props} />
+    : <input className="input" value={s[k] ?? ''} onChange={(e) => f(k)(e.target.value)} {...props} />);
 
   const save = async () => {
     setSaving(true);
