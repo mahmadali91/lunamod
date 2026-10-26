@@ -49,7 +49,7 @@ async function pageFor(req, info) {
   const org = { '@context': 'https://schema.org', '@type': 'Organization', name: shopTitle, url: base + '/', ...(s.phone ? { telephone: s.phone } : {}), ...(s.email ? { email: s.email } : {}),
     sameAs: Object.values(require('./routes/shop').socialLinks(s)) };
 
-  if (p === '/') {
+  if (p === '/' || p === '/catalog') { // каталог — та же главная (canonical указывает на /)
     const cat = req.query.category ? await prisma.category.findUnique({ where: { id: Number(req.query.category) || 0 } }) : null;
     const where = await productWhere(s, { category: cat?.id, sale: req.query.sale });
     const include = cardInclude(s);

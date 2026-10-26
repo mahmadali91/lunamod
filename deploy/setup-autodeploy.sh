@@ -9,9 +9,9 @@
 #    любая команда при входе с ним подменяется на ~/.sklad-deploy.sh.
 set -euo pipefail
 REPO_RAW="https://raw.githubusercontent.com/mahmadali91/sklad"
-DOMAIN="${DOMAIN:-botmi.ru}"
+DOMAIN="${DOMAIN:-botmi.ru lunaramod.ru}"
 # все сайты, которые обновляются автоматически (первый — по умолчанию): DOMAINS="botmi.ru lunaramod.ru"
-DOMAINS="${DOMAINS:-$DOMAIN}"
+DOMAINS="${DOMAINS:-$DOMAIN}"  # тестовый botmi.ru — первым
 SSH_DIR="$HOME/.ssh"; AK="$SSH_DIR/authorized_keys"
 mkdir -p "$SSH_DIR"; chmod 700 "$SSH_DIR"; touch "$AK"; chmod 600 "$AK"
 

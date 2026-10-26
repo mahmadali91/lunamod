@@ -597,7 +597,7 @@ test('Wildberries: токен проверяется, без токена заг
 });
 
 test('SEO: страницы магазина, robots.txt, sitemap.xml, Метрика и соцсети', async () => {
-  await ok('/orders/settings', { method: 'PUT', body: { metrikaId: '12345678', yandexVerification: 'abc123', socialTelegram: '@botmi_shop', socialWhatsapp: '8 900 111-22-33', socialInstagram: 'javascript:alert(1)' } });
+  await ok('/orders/settings', { method: 'PUT', body: { metrikaId: '12345678', yandexVerification: 'abc123', socialTelegram: '@lunara_shop', socialWhatsapp: '8 900 111-22-33', socialInstagram: 'javascript:alert(1)' } });
   const p = await ok('/products', { method: 'POST', body: { name: 'SEO <платье> ' + U, price: 1990, description: 'Лёгкое летнее платье', showInShop: true, initialStock: [{ warehouseId: w1.id, quantity: 3 }] } });
   const page = await fetch(BASE + '/product/' + p.id);
   assert.equal(page.status, 200);
@@ -626,7 +626,7 @@ test('SEO: страницы магазина, robots.txt, sitemap.xml, Метр�
   assert.match(sm, new RegExp(`/product/${p.id}-seo-plate-[a-z0-9-]+</loc>`));
   // соцсети в настройках витрины: только http(s), WhatsApp из номера
   const cfg = (await shop('/config')).data;
-  assert.deepEqual(cfg.socials, { telegram: 'https://t.me/botmi_shop', whatsapp: 'https://wa.me/79001112233' });
+  assert.deepEqual(cfg.socials, { telegram: 'https://t.me/lunara_shop', whatsapp: 'https://wa.me/79001112233' });
   assert.deepEqual(cfg.metrika, { id: 12345678, ecommerce: true });
   await ok('/orders/settings', { method: 'PUT', body: { metrikaId: '', yandexVerification: '', socialTelegram: '', socialWhatsapp: '', socialInstagram: '' } });
   assert.ok(!/mc\.yandex/.test(await fetch(BASE + '/').then((x) => x.text())));
@@ -825,4 +825,10 @@ test('тестовый сайт: «закрыть от поисковиков» 
   assert.match(await fetch(BASE + '/robots.txt').then((r) => r.text()), /Disallow: \/\n/);
   await ok('/orders/settings', { method: 'PUT', body: { noindex: '0' } });
   assert.match(await fetch(BASE + '/robots.txt').then((r) => r.text()), /Sitemap:/);
+});
+
+test('страница /catalog отдаётся со статусом 200 (не 404) и ссылается на главную как canonical', async () => {
+  const r = await fetch(BASE + '/catalog');
+  assert.equal(r.status, 200);
+  assert.match(await r.text(), /<link rel="canonical" href="[^"]*\/"/);
 });

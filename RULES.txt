@@ -5,7 +5,7 @@
 1. ЧТО ЭТО ЗА ПРОЕКТ
 ======================================================================
 - Программа учёта склада и продаж + интернет-магазин одежды (магазин «ЛУНАРА»).
-- https://botmi.ru — витрина магазина, https://botmi.ru/admin — программа учёта.
+- https://lunaramod.ru — витрина магазина, https://lunaramod.ru/admin — программа учёта (рабочий сайт).
 - Два сайта на одном Beget, каждая правка выкладывается на ОБА (по желанию владельца):
   · https://lunaramod.ru — РАБОЧИЙ магазин (база mahmadgv_luna, папка ~/lunara, ярлык ~/lunaramod.ru → lunara). Второй домен
     lunaramoda.ru привязан к той же папке и переадресуется на lunaramod.ru (CANONICAL_HOST в sklad.env).
@@ -62,7 +62,7 @@
   В этом Chromium НЕТ H.264 — видео MP4/HLS с WB тут не играет (это не баг сайта). Для теста — VP9 через ffmpeg.
 - Запросы к внешним сайтам из node: NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt.
   Браузер Playwright через прокси не ходит на localhost — перехватывать внешние запросы через page.route.
-- curl на botmi.ru без cookie получает заглушку Beget → добавлять: -b "beget=begetok".
+- curl на сайты Beget без cookie получает заглушку Beget → добавлять: -b "beget=begetok".
 - Миграции без интерактива:
     D=prisma/migrations/$(date +%Y%m%d%H%M%S)_name; mkdir -p $D
     npx prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --script > $D/migration.sql
@@ -81,7 +81,8 @@
   (ssh … "$GITHUB_SHA" < app.tar.gz). Ключ BEGET_SSH_KEY ограничен: на сервере запускается только
   ~/.sklad-deploy.sh (создаётся deploy/setup-autodeploy.sh), он кладёт архив и запускает deploy/beget.sh с ARCHIVE=.
   В журнале Actions должно быть «Автодеплой версии … (архив …)» и «Готово».
-- deploy/beget.sh: Node в ~/botmi.ru/.node, код ~/botmi.ru/app, фото ~/botmi.ru/uploads, настройки ~/botmi.ru/sklad.env.
+- deploy/beget.sh (для каждого сайта ~/<домен>): Node в .node, код в app, фото в uploads, настройки в sklad.env
+  (SITE_URL и CANONICAL_HOST там же). Адрес сайта в коде НЕ зашивать.
 - Статику (в т. ч. /admin/ index.html и /uploads) на Beget отдаёт nginx напрямую — заголовки Express до неё НЕ доходят.
   Защита админки от фреймов — скриптом в client/admin/index.html. .htaccess с новыми директивами не трогать
   (ошибка = 500 на весь сайт).

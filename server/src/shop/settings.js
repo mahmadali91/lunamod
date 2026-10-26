@@ -6,7 +6,7 @@ const DEFAULTS = {
   title: '',                  // название на витрине (пусто — берётся название из основных настроек)
   tagline: 'Одежда и аксессуары с доставкой',
   phone: '', email: '', address: '', workHours: '',
-  siteUrl: 'https://botmi.ru',
+  siteUrl: process.env.SITE_URL || '', // адрес сайта; по умолчанию — из настроек сервера (beget.sh пишет SITE_URL=https://домен)
   // доставка
   pickupEnabled: '1', pickupAddress: '',
   courierEnabled: '1', courierPrice: '300', courierFreeFrom: '5000',

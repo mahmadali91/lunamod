@@ -111,7 +111,7 @@ async function generateDemo({ perCategory = 5, days = 365 } = {}) {
 
   // --- Категории и товары «как на WB»: модель → карточка на каждый цвет (свой артикул и фото) → размеры со штрихкодами ---
   const products = []; // то, что продаётся: размеры (или карточка без размеров)
-  const BRANDS = ['Botmi', 'Botmi', 'Botmi Basic', 'Urban Line'];
+  const BRANDS = ['Demo Wear', 'Demo Wear', 'Demo Basic', 'Urban Line']; // у демо-товаров заметно «демо» в бренде
   const SIZE_W = { XS: 0.5, S: 1, M: 1.4, L: 1.2, XL: 0.6, 26: 0.5, 27: 0.8, 28: 1.2, 29: 1.3, 30: 1.1, 31: 0.7, 32: 0.5 };
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   let n = 0, cards = 0;

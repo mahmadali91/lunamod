@@ -8,7 +8,7 @@
 #   tar xzf sklad.tar.gz -O deploy/beget.sh | ARCHIVE=$HOME/sklad.tar.gz bash   (подходит и .zip из GitHub)
 set -euo pipefail
 
-DOMAIN="${DOMAIN:-botmi.ru}"
+DOMAIN="${DOMAIN:-lunaramod.ru}"
 REPO="${REPO:-https://github.com/mahmadali91/sklad}"
 BRANCH="${BRANCH:-main}"
 SITE="$HOME/$DOMAIN"
@@ -124,6 +124,8 @@ ENV
   umask 022
   echo "Сохранено в $ENV_FILE"
 fi
+# адрес сайта (ссылки оплаты, карта сайта, уведомления) — свой у каждого сайта
+grep -q '^SITE_URL=' "$ENV_FILE" || echo "SITE_URL=https://$DOMAIN" >> "$ENV_FILE"
 # основной домен: CANONICAL=lunaramod.ru — остальные домены этой папки переадресуются на него
 if [ -n "${CANONICAL:-}" ]; then
   { grep -v '^CANONICAL_HOST=' "$ENV_FILE" || true; echo "CANONICAL_HOST=$CANONICAL"; } > "$ENV_FILE.tmp" && cat "$ENV_FILE.tmp" > "$ENV_FILE" && rm -f "$ENV_FILE.tmp"

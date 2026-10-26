@@ -14,7 +14,8 @@ async function getVapid() {
     return getVapid();
   }
   vapid = { publicKey: m.vapid_public, privateKey: m.vapid_private };
-  webpush.setVapidDetails('mailto:admin@botmi.ru', vapid.publicKey, vapid.privateKey);
+  // контакт отправителя пушей — адрес сайта (каждый сайт свой)
+  webpush.setVapidDetails(/^https:\/\//.test(process.env.SITE_URL || '') ? process.env.SITE_URL : 'mailto:admin@example.com', vapid.publicKey, vapid.privateKey);
   return vapid;
 }
 
