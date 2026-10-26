@@ -9,6 +9,19 @@ const refs = require('./routes/refs');
 const { stock, receipts } = require('./routes/stock');
 
 const app = express();
+// Основной домен (CANONICAL_HOST в настройках сервера): все другие домены, привязанные к этой папке, и http
+// переадресуются на https://основной-домен — одна страница в поисковиках, одна корзина и вход у покупателя
+const CANONICAL = (process.env.CANONICAL_HOST || '').trim().toLowerCase();
+if (CANONICAL) {
+  app.use((req, res, next) => {
+    const host = String(req.headers.host || '').toLowerCase().split(':')[0];
+    const local = !host || host === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(host);
+    if (!local && (host !== CANONICAL || req.headers['x-forwarded-proto'] === 'http') && req.method === 'GET' && !req.path.startsWith('/api/')) {
+      return res.redirect(301, `https://${CANONICAL}${req.originalUrl}`);
+    }
+    next();
+  });
+}
 app.use(cors());
 // заголовки безопасности: без чужих фреймов (кликджекинг), без угадывания типа файлов, HTTPS для браузера
 app.use((req, res, next) => {

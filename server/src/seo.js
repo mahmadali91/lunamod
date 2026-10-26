@@ -144,7 +144,7 @@ async function renderShop(req, res, dist) {
   const head = [
     `<title>${esc(pg.title || shopTitle)}</title>`,
     pg.description ? `<meta name="description" content="${esc(pg.description)}" />` : '',
-    pg.noindex ? '<meta name="robots" content="noindex, follow" />' : '<meta name="robots" content="index, follow, max-image-preview:large" />',
+    s.noindex === '1' ? '<meta name="robots" content="noindex, nofollow" />' : pg.noindex ? '<meta name="robots" content="noindex, follow" />' : '<meta name="robots" content="index, follow, max-image-preview:large" />',
     pg.canonical ? `<link rel="canonical" href="${esc(pg.canonical)}" />` : '',
     `<meta property="og:site_name" content="${esc(shopTitle)}" />`, '<meta property="og:locale" content="ru_RU" />',
     `<meta property="og:type" content="${pg.type === 'product' ? 'product' : 'website'}" />`,
@@ -165,7 +165,9 @@ async function renderShop(req, res, dist) {
 }
 
 async function robots(req, res) {
-  const { base } = await storeInfo(req);
+  const { s, base } = await storeInfo(req);
+  // тестовый сайт целиком закрыт от поисковиков
+  if (s.noindex === '1') return res.type('text/plain').send('User-agent: *\nDisallow: /\n');
   res.type('text/plain').send([
     'User-agent: *',
     'Disallow: /admin', 'Disallow: /api/', 'Disallow: /cart', 'Disallow: /checkout', 'Disallow: /account', 'Disallow: /order/',

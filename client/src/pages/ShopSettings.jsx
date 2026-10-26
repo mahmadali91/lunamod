@@ -216,6 +216,7 @@ export default function ShopSettings() {
         <Field label="Описание магазина для поисковиков (до 160 символов)">
           <textarea className="input min-h-[70px]" maxLength={300} value={s.seoDescription ?? ''} onChange={(e) => f('seoDescription')(e.target.value)} placeholder="Например: Одежда и обувь с доставкой по России. Примерка при получении, оплата картой или наличными." />
         </Field>
+        <Check v={s.noindex} set={f('noindex')} label="Тестовый сайт — закрыть от поисковиков (Яндекс и Google не будут его показывать)" />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Код подтверждения Яндекс Вебмастера">{inp('yandexVerification', { placeholder: 'содержимое content из meta yandex-verification' })}</Field>
           <Field label="Код подтверждения Google Search Console">{inp('googleVerification', { placeholder: 'содержимое content из meta google-site-verification' })}</Field>

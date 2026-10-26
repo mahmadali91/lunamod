@@ -819,3 +819,10 @@ test('избранное: товар, снятый с сайта, пропада
   await ok('/products/' + p.id, { method: 'PUT', body: { ...(await ok('/products/' + p.id)), showInShop: false } });
   assert.deepEqual((await sh('/favorites')).ids, [], 'скрытый товар убран');
 });
+
+test('тестовый сайт: «закрыть от поисковиков» — robots.txt запрещает всё', async () => {
+  await ok('/orders/settings', { method: 'PUT', body: { noindex: '1' } });
+  assert.match(await fetch(BASE + '/robots.txt').then((r) => r.text()), /Disallow: \/\n/);
+  await ok('/orders/settings', { method: 'PUT', body: { noindex: '0' } });
+  assert.match(await fetch(BASE + '/robots.txt').then((r) => r.text()), /Sitemap:/);
+});

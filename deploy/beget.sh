@@ -120,6 +120,11 @@ ENV
   umask 022
   echo "Сохранено в $ENV_FILE"
 fi
+# основной домен: CANONICAL=lunaramod.ru — остальные домены этой папки переадресуются на него
+if [ -n "${CANONICAL:-}" ]; then
+  { grep -v '^CANONICAL_HOST=' "$ENV_FILE" || true; echo "CANONICAL_HOST=$CANONICAL"; } > "$ENV_FILE.tmp" && cat "$ENV_FILE.tmp" > "$ENV_FILE" && rm -f "$ENV_FILE.tmp"
+  echo "Основной домен: $CANONICAL"
+fi
 ln -sfn "$ENV_FILE" "$APP/server/.env"
 
 step "5/7 База данных"

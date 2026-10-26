@@ -33,6 +33,7 @@ const DEFAULTS = {
   // соцсети, SEO, аналитика
   socialTelegram: '', socialVk: '', socialMax: '', socialInstagram: '', socialWhatsapp: '',
   seoDescription: '', yandexVerification: '', googleVerification: '',
+  noindex: '0',               // 1 — тестовый сайт: закрыт от поисковиков (robots.txt и meta robots)
   metrikaId: '', metrikaWebvisor: '1', metrikaEcommerce: '1',
   // СБП (через эквайринг Т-Банка), напоминания покупателям, отзывы
   sbpEnabled: '0', cartReminders: '1', remindSms: '0', reviewsEnabled: '1',
