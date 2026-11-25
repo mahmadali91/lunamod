@@ -54,7 +54,7 @@ function ShopTracker() {
       if (document.visibilityState !== 'visible' || !sid.current) { last = Date.now(); return; }
       const seconds = Math.min(60, Math.round((Date.now() - last) / 1000));
       last = Date.now();
-      if (seconds >= 5) api('/track/beat', { sessionId: sid.current, seconds }, true);
+      if (seconds >= 5) api('/track/beat', { visitorKey: trackerKey(), sessionId: sid.current, seconds }, true);
     };
     const t = setInterval(beat, 30000);
     const onHide = () => beat();

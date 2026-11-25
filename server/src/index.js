@@ -22,7 +22,14 @@ if (CANONICAL) {
     next();
   });
 }
-app.use(cors());
+// запросы из браузера с чужих сайтов не разрешаем: только тот же домен, основной домен и SITE_URL
+const OWN_HOSTS = new Set([CANONICAL, (() => { try { return new URL(process.env.SITE_URL || '').host.toLowerCase(); } catch { return ''; } })()].filter(Boolean));
+app.use(cors((req, cb) => {
+  let host = '';
+  try { host = new URL(req.headers.origin || '').host.toLowerCase(); } catch { /* нет Origin — обычный запрос */ }
+  const own = !host || host === String(req.headers.host || '').toLowerCase() || OWN_HOSTS.has(host) || OWN_HOSTS.has(host.replace(/^www\./, ''));
+  cb(null, { origin: own });
+}));
 // заголовки безопасности: без чужих фреймов (кликджекинг), без угадывания типа файлов, HTTPS для браузера
 app.use((req, res, next) => {
   // запрет фреймов только для программы учёта: витрину Метрика (Вебвизор) показывает во фрейме
