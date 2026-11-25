@@ -8,6 +8,24 @@ import Img from '../Img';
 
 const GENDERS = [['', 'Не указан'], ['female', 'Женский'], ['male', 'Мужской']];
 
+// Маска +7 (900) 000-00-00
+function maskPhone(v) {
+  let d = String(v || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d[0] === '8') d = '7' + d.slice(1);
+  if (d[0] !== '7') d = '7' + d;
+  d = d.slice(0, 11);
+  const p = d.slice(1);
+  let out = '+7';
+  if (p.length) out += ' (' + p.slice(0, 3);
+  if (p.length >= 3) out += ') ' + p.slice(3, 6);
+  if (p.length >= 6) out += '-' + p.slice(6, 8);
+  if (p.length >= 8) out += '-' + p.slice(8, 10);
+  return out;
+}
+
+const inputCls = 'h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-slate-900';
+
 export default function Account() {
   const { auth, money, notify, config } = useShop();
   const [tab, setTab] = useState('orders');
@@ -28,6 +46,7 @@ export default function Account() {
     shopApi('/me/visits').then(setVisits).catch(() => {});
     setF({
       name: auth.me.name || '', email: auth.me.email || '', address: auth.me.address || '',
+      phone: auth.me.phone ? maskPhone(auth.me.phone) : '',
       birthDate: auth.me.birthDate ? String(auth.me.birthDate).slice(0, 10) : '',
       gender: auth.me.gender || '',
       marketingPush: auth.me.marketingPush !== false,
@@ -179,21 +198,26 @@ export default function Account() {
                 <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => uploadAvatar(e.target.files?.[0])} />
               </div>
             </div>
-            <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Имя" className="w-full rounded-xl border border-slate-300 px-3 py-2.5 outline-none focus:border-slate-900" />
+            <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Имя" className={inputCls} />
+            <label className="block text-sm">
+              <span className="mb-1 block text-slate-500">Телефон</span>
+              <input inputMode="tel" autoComplete="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: maskPhone(e.target.value) })} placeholder="+7 (900) 000-00-00" className={inputCls} />
+              <span className="mt-1 block text-xs text-slate-400">Нужен для доставки и связи по заказу. Вход на сайт — по email.</span>
+            </label>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-sm">
                 <span className="mb-1 block text-slate-500">Дата рождения</span>
-                <input type="date" value={f.birthDate} onChange={(e) => setF({ ...f, birthDate: e.target.value })} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 outline-none focus:border-slate-900" />
+                <input type="date" value={f.birthDate} onChange={(e) => setF({ ...f, birthDate: e.target.value })} className={inputCls} />
               </label>
               <label className="block text-sm">
                 <span className="mb-1 block text-slate-500">Пол</span>
-                <select value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 outline-none focus:border-slate-900">
+                <select value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })} className={inputCls}>
                   {GENDERS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </label>
             </div>
-            <textarea rows={2} value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} placeholder="Адрес доставки" className="w-full rounded-xl border border-slate-300 px-3 py-2.5 outline-none focus:border-slate-900" />
-            <button disabled={busy} className="w-full rounded-full bg-slate-900 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? 'Сохраняем…' : 'Сохранить'}</button>
+            <textarea rows={2} value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} placeholder="Адрес доставки" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-slate-900" />
+            <button disabled={busy} className="h-11 w-full rounded-full bg-slate-900 text-sm font-semibold text-white disabled:opacity-50">{busy ? 'Сохраняем…' : 'Сохранить'}</button>
           </form>
 
           <div className="space-y-4">

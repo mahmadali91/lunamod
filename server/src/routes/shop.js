@@ -685,6 +685,17 @@ r.put('/me', customerAuth(), ah(async (req, res) => {
     data.marketingPush = Boolean(req.body.marketingPush);
     if (!cur.marketingConsentAt) data.marketingConsentAt = new Date();
   }
+  // телефон — контакт для доставки; вход по нему больше не идёт
+  if (req.body.phone !== undefined) {
+    const raw = String(req.body.phone || '').trim();
+    if (raw === '') data.phone = null;
+    else {
+      const phone = normPhone(raw);
+      const busy = await prisma.customer.findUnique({ where: { phone } });
+      if (busy && busy.id !== id) throw new HttpError(400, 'Этот номер уже используется другим аккаунтом');
+      data.phone = phone;
+    }
+  }
   if (req.body.email !== undefined) {
     const raw = String(req.body.email || '').trim();
     if (raw === '') { data.email = null; data.emailVerifiedAt = null; }
@@ -697,7 +708,10 @@ r.put('/me', customerAuth(), ah(async (req, res) => {
       }
     }
   }
-  res.json(await prisma.customer.update({ where: { id }, data }));
+  const updated = await prisma.customer.update({ where: { id }, data });
+  // держим телефон в открытой переписке в актуальном виде
+  if (data.phone !== undefined) await prisma.conversation.updateMany({ where: { customerId: id, status: 'open' }, data: { phone: data.phone } }).catch(() => {});
+  res.json(updated);
 }));
 
 // Фото профиля
