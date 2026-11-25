@@ -182,11 +182,19 @@ r.post('/:id(\\d+)/sbp-qr', ah(async (req, res) => {
   if (s.sbpEnabled !== '1') throw new HttpError(400, 'СБП выключена в настройках магазина');
   const phone = String(sale.counterparty && sale.counterparty.phone || s.phone || '').replace(/\D/g, '');
   if (phone.length !== 11) throw new HttpError(400, 'Чтобы выставить счёт через СБП, укажите телефон покупателя (или телефон магазина в настройках)');
-  const orderLike = { id: sale.id, number: sale.number, total: sale.total, phone, deliveryPrice: 0, items: sale.items.map((i) => ({ name: i.product?.name || 'Товар #' + i.productId, price: i.price, quantity: i.quantity })) };
+  const base = String(s.siteUrl || '').replace(/\/$/, '');
+  // после оплаты с телефона покупателя — на главную магазина (страницы заказа у продажи в кассе нет)
+  const orderLike = { id: sale.id, number: sale.number, total: sale.total, phone, deliveryPrice: 0, successUrl: base + '/?paid=1', failUrl: base + '/', items: sale.items.map((i) => ({ name: i.product?.name || 'Товар #' + i.productId, price: i.price, quantity: i.quantity })) };
   const p = await tbank.initPayment(s, orderLike);
-  const qr = await tbank.getQr(s, p.PaymentId);
   await prisma.sale.update({ where: { id: sale.id }, data: { sbpPaymentId: String(p.PaymentId) } });
-  res.json({ paymentId: String(p.PaymentId), paymentUrl: qr });
+  try {
+    const qr = await tbank.getQr(s, p.PaymentId);
+    res.json({ paymentId: String(p.PaymentId), paymentUrl: qr, kind: 'sbp' });
+  } catch (e) {
+    if (!e.sbpUnavailable) throw e;
+    // СБП-QR у терминала не включён — QR ведёт на платёжную страницу Т-Банка (там доступные способы: карта, T-Pay, SberPay, СБП если включена)
+    res.json({ paymentId: String(p.PaymentId), paymentUrl: p.PaymentURL, kind: 'form', warning: e.message });
+  }
 }));
 
 // Статус оплаты по СБП для продажи

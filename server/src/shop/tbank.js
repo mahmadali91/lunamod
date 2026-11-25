@@ -50,8 +50,8 @@ async function initPayment(s, order, attempt = 0) {
     Amount: kop(order.total),
     OrderId: attempt ? `${order.number}-${attempt}` : order.number,
     Description: `Заказ ${order.number}`.slice(0, 140),
-    SuccessURL: `${base}/order/${order.id}?paid=1`,
-    FailURL: `${base}/order/${order.id}?failed=1`,
+    SuccessURL: order.successUrl || `${base}/order/${order.id}?paid=1`,
+    FailURL: order.failUrl || `${base}/order/${order.id}?failed=1`,
     NotificationURL: `${base}/api/shop/tbank/notify`,
     DATA: { Phone: '+' + order.phone },
   };
@@ -77,7 +77,7 @@ async function getQr(s, paymentId) {
   const body = { TerminalKey: s.tbankTerminalKey, PaymentId: String(paymentId), DataType: 'PAYLOAD' };
   body.Token = token(body, s.tbankPassword);
   const r = await call('GetQr', body);
-  if (!r.Success || !r.Data) throw Object.assign(new Error(`СБП: ${r.Message || 'не удалось получить QR'}${r.Details ? ' — ' + r.Details : ''}. Проверьте, что СБП подключена в личном кабинете Т-Бизнеса`), { status: 502 });
+  if (!r.Success || !r.Data) throw Object.assign(new Error(`СБП: ${r.Message || 'не удалось получить QR'}${r.Details ? ' — ' + r.Details : ''}. Проверьте, что СБП подключена в личном кабинете Т-Бизнеса`), { status: 502, sbpUnavailable: true });
   return r.Data;
 }
 
