@@ -288,7 +288,14 @@ export default function Account() {
               {pushState === 'on' && (
                 <div className="mt-2 space-y-1">
                   <p className="flex items-center gap-1.5 text-sm text-emerald-700"><BadgeCheck size={16} /> Уведомления включены в этом браузере</p>
-                  <button type="button" onClick={async () => { setPushState('checking'); await unsubscribePush(); setPushState('off'); notify('Уведомления отключены в этом браузере'); }} className="text-xs text-slate-500 underline">Отключить в этом браузере</button>
+                  <button type="button" onClick={async () => {
+                    try {
+                      const reg = await navigator.serviceWorker.ready;
+                      await reg.showNotification('ЛУНАРА', { body: 'Проверка: уведомления на этом устройстве работают', icon: '/icons/shop-192.png', badge: '/icons/shop-192.png', tag: 'local-check' });
+                      notify('Отправили проверочное уведомление на это устройство');
+                    } catch (e) { notify('Не удалось показать: ' + (e.message || 'браузер блокирует уведомления'), 'error'); }
+                  }} className="block text-xs text-slate-600 underline">Проверить уведомление на этом устройстве</button>
+                  <button type="button" onClick={async () => { setPushState('checking'); await unsubscribePush(); setPushState('off'); notify('Уведомления отключены в этом браузере'); }} className="block text-xs text-slate-400 underline">Отключить в этом браузере</button>
                 </div>
               )}
               {pushState === 'off' && (
