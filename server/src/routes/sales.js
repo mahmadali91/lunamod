@@ -1,6 +1,8 @@
 const express = require('express');
 const prisma = require('../db');
 const { ah, HttpError, changeStock, nextNumber, num, int, str, fillImages } = require('../util');
+const { getShopSettings, tbankReady } = require('../shop/settings');
+const tbank = require('../shop/tbank');
 
 const r = express.Router();
 const include = {
@@ -167,6 +169,35 @@ r.post('/:id/return', ah(async (req, res) => {
     await tx.sale.update({ where: { id }, data: { status: 'returned' } });
   });
   res.json(withDebt(await loadSale(id)));
+}));
+
+
+// ---------- оплата продажи по QR-коду СБП через Т-Банк ----------
+// Создаёт платёж в Т-Банке и возвращает ссылку-платёж, из которой на кассе рисуем QR-код.
+r.post('/:id(\\d+)/sbp-qr', ah(async (req, res) => {
+  const sale = await prisma.sale.findUnique({ where: { id: Number(req.params.id) }, include: { items: { include: { product: { select: { name: true } } } }, counterparty: true } });
+  if (!sale) throw new HttpError(404, 'Продажа не найдена');
+  const s = await getShopSettings();
+  if (!tbankReady(s)) throw new HttpError(400, 'Оплата Т-Банк не настроена — заполните ключи в «Настройки магазина → Оплата»');
+  if (s.sbpEnabled !== '1') throw new HttpError(400, 'СБП выключена в настройках магазина');
+  const phone = String(sale.counterparty && sale.counterparty.phone || s.phone || '').replace(/\D/g, '');
+  if (phone.length !== 11) throw new HttpError(400, 'Чтобы выставить счёт через СБП, укажите телефон покупателя (или телефон магазина в настройках)');
+  const orderLike = { id: sale.id, number: sale.number, total: sale.total, phone, deliveryPrice: 0, items: sale.items.map((i) => ({ name: i.product?.name || 'Товар #' + i.productId, price: i.price, quantity: i.quantity })) };
+  const p = await tbank.initPayment(s, orderLike);
+  const qr = await tbank.getQr(s, p.PaymentId);
+  await prisma.sale.update({ where: { id: sale.id }, data: { sbpPaymentId: String(p.PaymentId) } });
+  res.json({ paymentId: String(p.PaymentId), paymentUrl: qr });
+}));
+
+// Статус оплаты по СБП для продажи
+r.get('/:id(\\d+)/sbp-status', ah(async (req, res) => {
+  const sale = await prisma.sale.findUnique({ where: { id: Number(req.params.id) } });
+  if (!sale) throw new HttpError(404, 'Продажа не найдена');
+  if (!sale.sbpPaymentId) throw new HttpError(400, 'Для этой продажи платёж СБП не создавался');
+  const s = await getShopSettings();
+  const st = await tbank.getState(s, sale.sbpPaymentId);
+  const paid = ['CONFIRMED', 'AUTHORIZED'].includes(String(st.Status));
+  res.json({ status: st.Status || null, paid });
 }));
 
 module.exports = r;

@@ -51,10 +51,10 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Интернет-магазин: публичное API (свой вход покупателей по SMS)
+// Интернет-магазин: публичное API (вход покупателей по email)
 app.use('/api/shop', require('./routes/shop').router);
 
-// задача для капчи (вход в программу, SMS-код в магазине)
+// задача для капчи (вход в программу, код на email в магазине)
 app.get('/api/captcha', (req, res) => { res.set('Cache-Control', 'no-store'); res.json(require('./captcha').createChallenge()); });
 app.use('/api/auth', auth);
 // скачивание резервной копии по одноразовой ссылке из «Настроек» (браузер качает файл сам, без заголовка входа)
@@ -87,6 +87,7 @@ app.use('/api/stats', require('./routes/stats'));
 app.use('/api/orders', require('./routes/orders'));
 app.use('/api/reviews', require('./routes/reviews'));
 app.use('/api/wb', require('./routes/wb'));
+app.use('/api/customers', require('./routes/customers'));
 app.use('/api/chats', require('./routes/chats').chats);
 app.use('/api/push', require('./routes/chats').push);
 app.use('/api/dashboard', require('./routes/dashboard'));
@@ -120,4 +121,8 @@ require('./jobs').start();
 require('./upgrade').runUpgrades();
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Сервер запущен: http://localhost:${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Сервер запущен: http://localhost:${PORT}`);
+  // недосланные рассылки (сервер перезапускался) — продолжаем
+  setTimeout(() => require('./routes/customers').resumeBulks().catch((e) => console.error('рассылки:', e.message)), 5000).unref();
+});

@@ -217,7 +217,8 @@ model Sale {
   warehouseId    Int
   discount       Float         @default(0)
   total          Float         @default(0)
-  paymentMethod  String        @default("cash") // cash | card | transfer | consignment
+  paymentMethod  String        @default("cash") // cash | card | transfer | sbp_qr | consignment
+  sbpPaymentId   String? // платеж Т-Банка для оплаты по QR-коду СБП
   consignment    Boolean       @default(false) // под реализацию (в долг)
   paidAmount     Float         @default(0) // оплачено по реализации
   dueDate        DateTime? // срок оплаты
@@ -283,13 +284,17 @@ model Setting {
 
 model Customer {
   id        Int      @id @default(autoincrement())
-  phone     String   @unique // 7XXXXXXXXXX
+  phone     String?  @unique // 7XXXXXXXXXX (может не быть при регистрации по email)
   name      String?
   email     String?
   address   String?  @db.Text
   createdAt DateTime @default(now())
   lastLogin DateTime?
   consentAt DateTime? // согласие на обработку персональных данных
+  emailVerifiedAt  DateTime? // email подтверждён кодом
+  avatar           String? // /uploads/avatars/...
+  marketingConsentAt DateTime? // согласие на рекламные сообщения
+  marketingPush    Boolean   @default(true)
   cart          String?   @db.Text // корзина (для напоминания о брошенной корзине)
   cartUpdatedAt DateTime?
   cartReminded  Int       @default(0) // 0 — не напоминали, 1 — через 2 ч, 2 — через сутки
@@ -298,20 +303,111 @@ model Customer {
   favorites Favorite[]
   waitlist  StockSubscription[]
   reviews   Review[]
+  visits        VisitSession[]
+  phoneChanges  CustomerPhoneChange[]
+  emailCodes    EmailCode[]
+
+  @@index([email])
 }
 
-model SmsCode {
+// ---------- Клиенты: подтверждение email, посещения, рассылки ----------
+
+model EmailCode {
   id        Int      @id @default(autoincrement())
-  phone     String
+  email     String
   codeHash  String
   ip        String?
   attempts  Int      @default(0)
   used      Boolean  @default(false)
   expiresAt DateTime
   createdAt DateTime @default(now())
+  customerId Int?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  @@index([phone, createdAt])
+  @@index([email, createdAt])
 }
+
+// Сессия посещения сайта (анонимная или привязанная к клиенту)
+model VisitSession {
+  id          Int      @id @default(autoincrement())
+  customerId  Int?
+  visitorKey  String // идентификатор браузера
+  startedAt   DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  durationSec Int      @default(0)
+  referrer    String?  @db.VarChar(500)
+  ua          String?  @db.VarChar(300)
+  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  events      VisitEvent[]
+
+  @@index([customerId, startedAt])
+  @@index([visitorKey, startedAt])
+}
+
+// Событие посещения: страница / товар / поисковый запрос
+model VisitEvent {
+  id         Int      @id @default(autoincrement())
+  sessionId  Int
+  customerId Int?
+  type       String // page | product | search
+  path       String?  @db.VarChar(500)
+  productId  Int?
+  query      String?  @db.VarChar(300)
+  createdAt  DateTime @default(now())
+  session    VisitSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, createdAt])
+  @@index([productId, createdAt])
+  @@index([sessionId])
+}
+
+// Массовая рассылка клиентам (push)
+model BulkMessage {
+  id          Int      @id @default(autoincrement())
+  channel     String // push
+  text        String   @db.Text
+  filter      String?  @db.Text // JSON фильтра, по которому выбраны получатели
+  total       Int      @default(0)
+  sent        Int      @default(0)
+  failed      Int      @default(0)
+  skipped     Int      @default(0)
+  status      String   @default("running") // running | done | cancelled | error
+  error       String?  @db.Text
+  byUserId    Int?
+  createdAt   DateTime @default(now())
+  finishedAt  DateTime?
+  recipients  BulkRecipient[]
+
+  @@index([createdAt])
+}
+
+model BulkRecipient {
+  id         Int    @id @default(autoincrement())
+  bulkId     Int
+  customerId Int
+  status     String @default("pending") // pending | sent | failed | skipped
+  error      String? @db.VarChar(300)
+  sentAt     DateTime?
+  bulk       BulkMessage @relation(fields: [bulkId], references: [id], onDelete: Cascade)
+
+  @@unique([bulkId, customerId])
+  @@index([bulkId, status])
+}
+
+// Журнал смены номера телефона (в том числе администратором)
+model CustomerPhoneChange {
+  id         Int      @id @default(autoincrement())
+  customerId Int
+  oldPhone   String
+  newPhone   String
+  reason     String?  @db.VarChar(500)
+  byUserId   Int?
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, createdAt])
+}
+
 
 // status: new | confirmed | ready | completed | cancelled
 // paymentStatus: unpaid | pending | paid | failed | refunded
@@ -397,6 +493,7 @@ model PushSubscription {
   keys       String   @db.Text // JSON { p256dh, auth }
   userId     Int? // сотрудник (админка)
   visitorKey String? // покупатель (чат)
+  userAgent  String? @db.VarChar(300) // чтобы в профиле было видно устройства
   createdAt  DateTime @default(now())
 
   @@unique([endpoint(length: 500)])

@@ -3,7 +3,7 @@ import { Undo2, Wallet, PackageX } from 'lucide-react';
 import { api } from '../api';
 import { Badge, Button, Field, Modal, Thumb, fmtDate, fmtNum, useMoney, useToast } from '../ui';
 
-export const payNames = { cash: 'Наличные', card: 'Карта', transfer: 'Перевод', consignment: 'Реализация' };
+export const payNames = { cash: 'Наличные', card: 'Карта', transfer: 'Перевод', sbp_qr: 'QR СБП', consignment: 'Реализация' };
 
 export function SaleStatus({ s }) {
   if (s.status === 'returned') return <Badge color="red">возврат</Badge>;

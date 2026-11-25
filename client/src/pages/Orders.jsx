@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ShoppingBag, Search, Phone, MapPin, Store, Truck, CheckCircle2, XCircle, Wallet, ExternalLink, ClipboardList, FileDown } from 'lucide-react';
+import { ShoppingBag, Search, Phone, MapPin, Store, Truck, CheckCircle2, XCircle, Undo2, Wallet, ExternalLink, ClipboardList, FileDown } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, qs } from '../api';
 import { Badge, Button, Empty, Modal, PageHeader, Spinner, Thumb, fmtDate, fmtNum, useLoad, useMoney, useSettings, useToast } from '../ui';
@@ -74,14 +74,19 @@ function OrderModal({ id, onClose, onChange }) {
     setBusy(true);
     try { const r = await api(`/orders/${o.id}/${path}`, { method: 'POST', body }); setO(r); onChange(); toast(msg); } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
+  const paidOnline = ['tbank', 'sbp'].includes(o.paymentMethod) && o.paymentStatus === 'paid';
   const setStatus = (status) => {
     if (status === 'completed' && !confirm('Отметить заказ выполненным? Будет создана продажа и списан товар со склада.')) return;
     if (status === 'cancelled') {
-      const refund = o.paymentMethod === 'tbank' && o.paymentStatus === 'paid';
-      if (!confirm(refund ? 'Отменить заказ и вернуть деньги покупателю через Т-Банк?' : 'Отменить заказ?')) return;
-      return act('status', { status, refund }, 'Заказ отменён');
+      if (paidOnline) { toast('Сначала верните деньги кнопкой «Вернуть» — заказ оплачен онлайн', 'error'); return; }
+      if (!confirm('Отменить заказ?')) return;
+      return act('status', { status }, 'Заказ отменён');
     }
     act('status', { status }, 'Статус обновлён');
+  };
+  const refund = () => {
+    if (!confirm('Вернуть деньги покупателю через Т-Банк? Отменить возврат нельзя.')) return;
+    act('refund', {}, 'Деньги возвращены покупателю');
   };
   const open = !['completed', 'cancelled'].includes(o.status);
   const flow = ['new', 'confirmed', 'ready', 'completed'];
@@ -90,7 +95,10 @@ function OrderModal({ id, onClose, onChange }) {
     <Modal open onClose={onClose} wide title={<span className="flex items-center gap-2">Заказ {o.number} <Badge color={ORDER_STATUS[o.status][1]}>{ORDER_STATUS[o.status][0]}</Badge></span>}
       footer={open && (
         <>
-          <Button variant="secondary" icon={XCircle} className="mr-auto text-rose-600" loading={busy} onClick={() => setStatus('cancelled')}>Отменить</Button>
+          <div className="mr-auto flex flex-wrap gap-2">
+            <Button variant="secondary" icon={XCircle} className="text-rose-600" loading={busy} onClick={() => setStatus('cancelled')}>Отменить</Button>
+            {paidOnline && <Button variant="secondary" icon={Undo2} loading={busy} onClick={refund}>Вернуть</Button>}
+          </div>
           {o.paymentMethod === 'cash' && o.paymentStatus !== 'paid' && <Button variant="secondary" icon={Wallet} loading={busy} onClick={() => act('paid', {}, 'Оплата отмечена')}>Оплачен</Button>}
           {o.status === 'new' && <Button variant="secondary" loading={busy} onClick={() => setStatus('confirmed')}>Подтвердить</Button>}
           {['new', 'confirmed'].includes(o.status) && <Button variant="secondary" loading={busy} onClick={() => setStatus('ready')}>Собран / в пути</Button>}

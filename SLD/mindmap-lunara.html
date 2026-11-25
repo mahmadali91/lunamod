@@ -1,0 +1,81 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>ЛУНАРА — карта изменений</title>
+<style>
+  *{box-sizing:border-box} body{margin:0;background:#f8fafc;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:#0f172a}
+  .wrap{width:1720px;margin:0 auto;padding:46px 40px 44px}
+  h1{margin:0 0 8px;font-size:30px;line-height:1.25;letter-spacing:-.02em} .sub{color:#64748b;font-size:14px;margin-bottom:28px;line-height:1.4}
+  .center{background:linear-gradient(135deg,#1e293b,#334155);color:#fff;border-radius:22px;padding:18px 26px;display:flex;align-items:center;gap:14px;margin-bottom:26px;box-shadow:0 16px 32px rgba(15,23,42,.18)}
+  .logo{width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#6366f1);display:flex;align-items:center;justify-content:center;font-size:26px}
+  .center b{font-size:21px} .center span{display:block;font-size:13px;color:#cbd5f5;margin-top:2px}
+  .cols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px}
+  .card{background:#fff;border-radius:18px;border:1px solid #e2e8f0;box-shadow:0 8px 20px rgba(15,23,42,.06);overflow:hidden}
+  .card header{padding:12px 16px;font-weight:700;font-size:15px;color:#fff;display:flex;gap:9px;align-items:center}
+  .c1 header{background:#6366f1}.c2 header{background:#0ea5e9}.c3 header{background:#10b981}
+  .c4 header{background:#f59e0b}.c5 header{background:#ec4899}.c6 header{background:#64748b}
+  ul{margin:10px 14px 14px;padding-left:18px;font-size:13px;line-height:1.45}
+  li{margin:5px 0} li b{font-weight:700}
+  .dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.9);display:inline-block}
+  .tag{display:inline-block;background:#eef2ff;color:#4338ca;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:700;margin-left:4px}
+  .done{color:#059669;font-weight:700}.fix{color:#b91c1c;font-weight:700}
+  .legend{margin-top:20px;font-size:12px;color:#64748b}
+</style></head><body><div class="wrap">
+  <h1>ЛУНАРА — что сделано за чат</h1>
+  <div class="sub">Версии 2.11 → 2.15 · работали напрямую на lunaramod.ru (GitHub и botmi не трогали)</div>
+
+  <div class="center"><div class="logo">Л</div><div><b>Интернет-магазин + учёт</b><span>вход по email · клиенты · push · касса · чеки · правила работы</span></div></div>
+
+  <div class="cols">
+    <div class="card c1"><header><i class="dot"></i>Вход и профиль</header><ul>
+      <li><b>Регистрация и вход по email</b> (код из письма)</li>
+      <li>SMTP Beget настроен: <b>info@lunaramod.ru</b> <span class="fix">исправлен SMTP-клиент</span></li>
+      <li><b>Удалены</b> SMS-вход, смена номера клиентом <span class="tag">242 вхождения → 0</span></li>
+      <li>Поле <b>телефон</b> в профиле (контакт для доставки), маска без «залипания»</li>
+      <li><b>Удалены</b> «Дата рождения» и «Пол» из сайта и админки</li>
+      <li>Профиль: фото, имя, телефон, адрес, email + подтверждение</li>
+    </ul></div>
+
+    <div class="card c2"><header><i class="dot"></i>Раздел «Клиенты»</header><ul>
+      <li>Список клиентов с <b>ID</b>, заказами, посещениями, чатами</li>
+      <li>Фильтры: заказы, сумма, «были за N дней», согласие</li>
+      <li>Карточка: заказы, переписка, посещения, интересы</li>
+      <li><b>Смена номера админом</b> (журнал, лимит, уведомление на email)</li>
+      <li><b>Удаление клиента</b> без заказов/переписок</li>
+      <li>Лишние тестовые аккаунты <b>удалены</b> вместе со следами</li>
+    </ul></div>
+
+    <div class="card c3"><header><i class="dot"></i>Уведомления</header><ul>
+      <li>Push-подписка в браузере: кнопка в профиле + согласие</li>
+      <li><span class="fix">Исправлено:</span> админ-рассылка считала все push ошибкой</li>
+      <li><span class="fix">Исправлено:</span> Chrome-адреса <b>jmt*.google.com</b> отклонялись</li>
+      <li>Учёт устройств: «Устройств с уведомлениями: N»</li>
+      <li>Кнопка <b>проверки уведомления</b> на устройстве</li>
+      <li>Подсказка для iPhone (установка на «Домой»)</li>
+    </ul></div>
+
+    <div class="card c4"><header><i class="dot"></i>Касса и чеки</header><ul>
+      <li>Способ оплаты <b>«QR СБП»</b> первым в кассе (Т-Банк)</li>
+      <li>Оплата заказа: АУСН в чеке Т-Банка, <b>«Вернуть»/«Отменить»</b></li>
+      <li><b>Товарный чек PDF</b> из кассы и из «Продаж»</li>
+      <li>Продажи: номер платежа СБП + проверка статуса</li>
+      <li>Ваши реквизиты ИП внесены в документы</li>
+      <li><span class="fix">Блокер банка:</span> включить СБП в Т-Бизнесе</li>
+    </ul></div>
+
+    <div class="card c5"><header><i class="dot"></i>Настройки и данные</header><ul>
+      <li>«Почта и рассылки» в настройках магазина + проверка почты</li>
+      <li>Кнопки <b>«Сохранить» по разделам</b> настроек</li>
+      <li>Миграции БД с <b>бэкапами</b> перед каждым изменением</li>
+      <li>Удалены: SmsCode, authMethod, birthDate, gender</li>
+      <li>Обновлены документы: политика/оферта/справка (вход по email)</li>
+      <li>Прямой деплой через контейнер, версии 2.11 → 2.15</li>
+    </ul></div>
+
+    <div class="card c6"><header><i class="dot"></i>Процесс работы</header><ul>
+      <li>Чек-лист приёмки в <b>RULES.txt</b>: разбор → правка → сборка → бэкап → деплой → браузер → данные → отчёт</li>
+      <li>Правило: <b>не поддакивать</b>, «готово» только с цифрами</li>
+      <li>Плагины: Ральф-петли, терминалы, worktree, поиск по сессиям</li>
+      <li>Проверки: браузер, API, БД — после каждого деплоя</li>
+      <li>Тестовые аккаунты создаём и <b>удаляем</b></li>
+    </ul></div>
+  </div>
+  <div class="legend">✅ Проверено в браузере/API/БД · ⚠️ Внешние блокеры: СБП в Т-Бизнесе, разрешение уведомлений на устройствах</div>
+</div></body></html>

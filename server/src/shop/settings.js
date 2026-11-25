@@ -13,9 +13,10 @@ const DEFAULTS = {
   // оплата
   cashEnabled: '1',
   tbankEnabled: '0', tbankTerminalKey: '', tbankPassword: '', tbankReceipt: '0', tbankTaxation: 'usn_income', tbankTax: 'none',
-  // SMS
-  smsMode: 'test',            // test — код показывается на экране (только до запуска!), smsru — отправка через SMS.ru
-  smsruApiId: '', smsSender: '',
+  // почта для кодов входа и рассылок
+  smtpHost: '', smtpPort: '465', smtpSecure: '1', smtpUser: '', smtpPass: '', smtpFrom: '', smtpFromName: '',
+  // клиенты и рассылки
+  visitRetentionDays: '90', trackVisits: '1',
   // каталог и заказы
   warehouseId: '',            // склад, по которому показываем наличие и списываем заказы (пусто = все склады / основной)
   showOutOfStock: '0',        // показывать товары, которых нет в наличии
@@ -36,9 +37,9 @@ const DEFAULTS = {
   noindex: '0',               // 1 — тестовый сайт: закрыт от поисковиков (robots.txt и meta robots)
   metrikaId: '', metrikaWebvisor: '1', metrikaEcommerce: '1',
   // СБП (через эквайринг Т-Банка), напоминания покупателям, отзывы
-  sbpEnabled: '0', cartReminders: '1', remindSms: '0', reviewsEnabled: '1',
+  sbpEnabled: '0', cartReminders: '1', reviewsEnabled: '1',
 };
-const SECRET = ['tbankPassword', 'smsruApiId', 'cdekClientSecret', 'tgBotToken', 'maxBotToken'];
+const SECRET = ['tbankPassword', 'cdekClientSecret', 'tgBotToken', 'maxBotToken', 'smtpPass'];
 
 async function getShopSettings() {
   const rows = await prisma.setting.findMany({ where: { key: { startsWith: 'shop_' } } });

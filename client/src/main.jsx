@@ -18,6 +18,7 @@ import Consignment from './pages/Consignment';
 import Categories from './pages/Categories';
 import Stats from './pages/Stats';
 import Orders from './pages/Orders';
+import Customers from './pages/Customers';
 import ShopSettings from './pages/ShopSettings';
 import Chats from './pages/Chats';
 import Reviews from './pages/Reviews';
@@ -28,13 +29,33 @@ import { Warehouses, Channels, Counterparties } from './pages/Refs';
 import SettingsPage from './pages/Settings';
 import Help from './pages/Help';
 
+// Защита от «белого экрана»: вместо пустой страницы показываем ошибку
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error('Страница упала:', error, info); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="mx-auto max-w-xl p-6">
+        <div className="card p-6">
+          <h2 className="mb-2 text-lg font-semibold text-rose-600">Страница не открылась</h2>
+          <p className="mb-3 text-sm text-slate-600">Произошла ошибка — обновите страницу или вернитесь в меню. Данные не потеряны.</p>
+          <pre className="mb-4 max-h-40 overflow-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-500">{String((this.state.error && this.state.error.message) || this.state.error)}</pre>
+          <button className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white" onClick={() => window.location.reload()}>Обновить</button>
+        </div>
+      </div>
+    );
+  }
+}
+
 const Private = ({ children }) => (getToken() ? children : <Navigate to="/login" replace />);
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ToastProvider>
       <BrowserRouter basename="/admin">
-        <Routes>
+        <ErrorBoundary><Routes>
           <Route path="/login" element={<Login />} />
           <Route element={<Private><Layout /></Private>}>
             <Route index element={<Dashboard />} />
@@ -46,6 +67,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="categories" element={<Categories />} />
             <Route path="stats" element={<Stats />} />
             <Route path="orders" element={<Orders />} />
+            <Route path="customers" element={<Customers />} />
             <Route path="chats" element={<Chats />} />
             <Route path="reviews" element={<Reviews />} />
             <Route path="wildberries" element={<Wildberries />} />
@@ -64,7 +86,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="help/:id" element={<Help />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Route>
-        </Routes>
+        </Routes></ErrorBoundary>
       </BrowserRouter>
     </ToastProvider>
   </React.StrictMode>
