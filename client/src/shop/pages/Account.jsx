@@ -34,7 +34,11 @@ export default function Account() {
       marketingSms: auth.me.marketingSms !== false, marketingPush: auth.me.marketingPush !== false,
     });
   }, [auth.me]);
-  if (!auth.me) return <Navigate to="/" replace />;
+  if (!auth.me) {
+    // токен есть, профиль ещё грузится — не выкидываем на главную
+    if (shopToken.get()) return <div className="mx-auto max-w-5xl px-4 pt-16 text-center text-slate-400">Загрузка кабинета…</div>;
+    return <Navigate to="/" replace />;
+  }
 
   const saveProfile = async (e) => {
     e?.preventDefault();
@@ -104,7 +108,7 @@ export default function Account() {
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Личный кабинет</h1>
-            <p className="text-sm text-slate-500">{auth.me.name || 'Покупатель'} · {fmtPhone(auth.me.phone)}</p>
+            <p className="text-sm text-slate-500">{auth.me.name || 'Покупатель'} · {fmtPhone(auth.me.phone) || 'телефон не указан'}</p>
           </div>
         </div>
         <button onClick={auth.logout} className="flex items-center gap-2 rounded-full border border-slate-300 px-4 py-2 text-sm"><LogOut size={16} /> Выйти</button>

@@ -283,7 +283,7 @@ model Setting {
 
 model Customer {
   id        Int      @id @default(autoincrement())
-  phone     String   @unique // 7XXXXXXXXXX
+  phone     String?  @unique // 7XXXXXXXXXX (может не быть при регистрации по email)
   name      String?
   email     String?
   address   String?  @db.Text

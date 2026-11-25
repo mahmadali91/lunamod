@@ -63,7 +63,7 @@ export default function LoginModal() {
     try {
       const r = mode === 'phone'
         ? await shopApi('/auth/verify', { method: 'POST', body: { phone, code: value, consent } })
-        : await shopApi('/auth/email/verify', { method: 'POST', body: { email: email.trim().toLowerCase(), code: value } });
+        : await shopApi('/auth/email/verify', { method: 'POST', body: { email: email.trim().toLowerCase(), code: value, consent } });
       auth.login(r.token, r.customer);
       notify('Вы вошли');
       const then = loginOpen.then;
@@ -102,7 +102,7 @@ export default function LoginModal() {
               </>
             ) : (
               <>
-                <p className="text-sm text-slate-500">Пришлём код на email, если он привязан к аккаунту. Если аккаунта нет — войдите по телефону и добавьте email в профиле.</p>
+                <p className="text-sm text-slate-500">Пришлём код на email. Если аккаунта с таким email нет — он создастся автоматически (телефон укажете при оформлении заказа).</p>
                 <div className="relative">
                   <Mail size={18} className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-slate-400" />
                   <input autoFocus type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.ru"
@@ -111,13 +111,13 @@ export default function LoginModal() {
               </>
             )}
             {error && <p className="text-sm text-rose-600">{error}</p>}
-            {mode === 'phone' && (
+            {(
               <label className="flex items-start gap-2.5 text-sm text-slate-600">
                 <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-slate-900" />
                 <span>Даю <Link to="/legal/consent" target="_blank" className="underline">согласие на обработку персональных данных</Link> и принимаю <Link to="/legal/privacy" target="_blank" className="underline">политику конфиденциальности</Link></span>
               </label>
             )}
-            <button disabled={busy || (mode === 'phone' ? (!consent || phone.replace(/\D/g, '').length !== 11) : !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))}
+            <button disabled={busy || !consent || (mode === 'phone' ? phone.replace(/\D/g, '').length !== 11 : !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 py-3.5 font-semibold text-white disabled:opacity-40">
               {busy && <Loader2 size={18} className="animate-spin" />} {busy ? 'Проверяем и отправляем…' : 'Получить код'}
             </button>

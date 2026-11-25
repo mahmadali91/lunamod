@@ -20,7 +20,7 @@ async function waitlist(s) {
     const card = x.product.parent || x.product;
     const url = `/product/${card.id}`;
     await notifyVisitor('cust-' + x.customerId, { title: 'Снова в наличии!', body: x.product.name, url });
-    if (s.remindSms === '1' && s.smsMode === 'smsru') await sendSms(s, x.customer.phone, `Снова в наличии: ${x.product.name.slice(0, 60)}. ${base}${url}`).catch(() => {});
+    if (s.remindSms === '1' && s.smsMode === 'smsru' && x.customer.phone) await sendSms(s, x.customer.phone, `Снова в наличии: ${x.product.name.slice(0, 60)}. ${base}${url}`).catch(() => {});
     await prisma.stockSubscription.update({ where: { id: x.id }, data: { notifiedAt: new Date() } });
     sent++;
   }
@@ -41,7 +41,7 @@ async function carts(s) {
     const n = JSON.parse(c.cart || '[]').reduce((a, i) => a + i.quantity, 0);
     if (!n) continue;
     await notifyVisitor('cust-' + c.id, { title: 'Товары ждут вас в корзине', body: `В корзине ${n} шт. — оформите заказ, пока они в наличии`, url: '/cart' });
-    if (stage === 2 && s.remindSms === '1' && s.smsMode === 'smsru') await sendSms(s, c.phone, `${s.title || 'Магазин'}: товары ждут вас в корзине. ${base}/cart`).catch(() => {});
+    if (stage === 2 && s.remindSms === '1' && s.smsMode === 'smsru' && c.phone) await sendSms(s, c.phone, `${s.title || 'Магазин'}: товары ждут вас в корзине. ${base}/cart`).catch(() => {});
     await prisma.customer.update({ where: { id: c.id }, data: { cartReminded: stage } });
     sent++;
   }

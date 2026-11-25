@@ -153,6 +153,7 @@ r.post('/:id(\\d+)/message', requireAdmin, ah(async (req, res) => {
   if (!c) throw new HttpError(404, 'Клиент не найден');
   const s = await getShopSettings();
   if (channel === 'sms') {
+    if (!c.phone) throw new HttpError(400, 'У клиента нет номера телефона — напишите ему на email');
     const r1 = await sendSms(s, c.phone, text.slice(0, 500));
     return res.json({ ok: true, test: Boolean(r1.test) });
   }
@@ -173,7 +174,7 @@ r.post('/:id(\\d+)/phone', requireAdmin, ah(async (req, res) => {
   const last = await prisma.customerPhoneChange.findFirst({ where: { customerId: id }, orderBy: { createdAt: 'desc' } });
   if (last && Date.now() - last.createdAt.getTime() < 864e5) throw new HttpError(429, 'Номер этого клиента меняли меньше суток назад');
   const updated = await prisma.customer.update({ where: { id }, data: { phone } });
-  await prisma.customerPhoneChange.create({ data: { customerId: id, oldPhone: c.phone, newPhone: phone, reason, byUserId: req.user?.id || null } });
+  await prisma.customerPhoneChange.create({ data: { customerId: id, oldPhone: c.phone || '', newPhone: phone, reason, byUserId: req.user?.id || null } });
   await prisma.conversation.updateMany({ where: { customerId: id, status: 'open' }, data: { phone } });
   const s = await getShopSettings();
   // предупреждаем клиента о смене номера — на новый номер и на подтверждённый email
@@ -205,6 +206,7 @@ async function processBulk(bulkId) {
         try {
           if (bulk.channel === 'sms') {
             if (s.smsMode !== 'smsru') throw new Error('тестовый режим — SMS не отправлено');
+            if (!c.phone) throw new Error('нет номера телефона');
             const link = `${base}/api/shop/unsubscribe?token=${unsubToken(c.id, 'sms')}`;
             await sendSms(s, c.phone, `${bulk.text.slice(0, 400)}\nОтписаться: ${link}`);
           } else {

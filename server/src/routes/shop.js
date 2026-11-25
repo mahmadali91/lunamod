@@ -394,6 +394,12 @@ r.post('/orders', customerAuth(), ah(async (req, res) => {
   if (method === 'cash' && s.cashEnabled !== '1') throw new HttpError(400, 'Оплата при получении недоступна');
   if (method === 'sbp' && s.sbpEnabled !== '1') throw new HttpError(400, 'Оплата через СБП недоступна');
   const customer = await prisma.customer.findUnique({ where: { id: req.customer.cid } });
+  // телефон обязателен для доставки; у аккаунта, созданного по email, его может не быть
+  const orderPhone = normPhone(b.phone || customer.phone);
+  if (!customer.phone) {
+    const busy = await prisma.customer.findUnique({ where: { phone: orderPhone } });
+    if (!busy) await prisma.customer.update({ where: { id: customer.id }, data: { phone: orderPhone } }).catch(() => {});
+  }
 
   // проверка остатков и цен — по базе; доставка — пересчёт на сервере
   const c = await cartInfo(prisma, s, lines);
@@ -408,7 +414,7 @@ r.post('/orders', customerAuth(), ah(async (req, res) => {
     return tx.order.create({ data: {
       number, customerId: customer.id, paymentMethod: method,
       delivery: q.methodId, deliveryName: q.name, deliveryInfo: JSON.stringify(q.info), address: q.address,
-      name: str(b.name) || customer.name, phone: customer.phone, comment: str(b.comment), agreedAt: new Date(),
+      name: str(b.name) || customer.name, phone: orderPhone, comment: str(b.comment), agreedAt: new Date(),
       subtotal: c.subtotal, deliveryPrice: q.price, total: round(c.subtotal + q.price),
       items: { create: c.items.map(({ p, quantity }) => ({ productId: p.id, name: p.name, price: p.price, quantity })) },
     }, include: orderInclude });
@@ -617,7 +623,7 @@ r.post('/chat', customerAuth(), chat.upload, ah(async (req, res) => {
   const wait = await chat.cooldownLeft(c.id);
   if (wait > 0) { cleanup(); return res.status(429).json({ error: `Подождите ${wait} с перед следующим сообщением`, retryAfter: wait }); }
   const msg = await chat.addMessage(c.id, { sender: 'customer', text: req.body.text, ...files });
-  notifyAdmins({ title: `Сообщение в чате: ${c.name || '+' + c.phone}`, body: msg.text || (msg.audio ? `🎤 Голосовое сообщение, ${msg.duration} с` : '📷 Фото'), url: `/admin/chats?c=${c.id}`, tag: 'chat-' + c.id });
+  notifyAdmins({ title: `Сообщение в чате: ${c.name || (c.phone ? '+' + c.phone : 'клиент без телефона')}`, body: msg.text || (msg.audio ? `🎤 Голосовое сообщение, ${msg.duration} с` : '📷 Фото'), url: `/admin/chats?c=${c.id}`, tag: 'chat-' + c.id });
   res.status(201).json({ ...msg, cooldown: await chat.nextCooldown(c.id) });
 }));
 
@@ -681,8 +687,9 @@ r.post('/auth/email/request-code', ah(async (req, res) => {
   const email = normEmail(req.body.email);
   const ip = ipOf(req);
   await emailCodeLimits(email, ip);
-  const customer = await prisma.customer.findFirst({ where: { email, emailVerifiedAt: { not: null } } });
-  if (customer) await sendEmailCode(s, customer, email);
+  const customer = await prisma.customer.findFirst({ where: { email } });
+  try { await sendEmailCode(s, customer, email); }
+  catch (e) { throw new HttpError(503, 'Не удалось отправить письмо. Проверьте настройки почты в разделе «Почта и рассылки».'); }
   // ответ одинаковый, чтобы нельзя было подбирать адреса
   res.json({ ok: true, email });
 }));
@@ -697,10 +704,17 @@ r.post('/auth/email/verify', ah(async (req, res) => {
     await prisma.emailCode.update({ where: { id: rec.id }, data: { attempts: { increment: 1 } } });
     throw new HttpError(400, 'Неверный код');
   }
-  const customer = await prisma.customer.findFirst({ where: { email, emailVerifiedAt: { not: null } } });
-  if (!customer) throw new HttpError(400, 'Аккаунт с таким email не найден');
+  let customer = await prisma.customer.findFirst({ where: { email } });
+  // согласие проверяем ДО «сжигания» кода, иначе он сгорит и человек не сможет повторить
+  if (!customer && !req.body.consent) throw new HttpError(400, 'Подтвердите согласие на обработку персональных данных');
   await prisma.emailCode.update({ where: { id: rec.id }, data: { used: true } });
-  await prisma.customer.update({ where: { id: customer.id }, data: { lastLogin: new Date(), authMethod: 'email' } });
+  if (customer) {
+    // вход существующего аккаунта (email подтверждаем, если ещё не был подтверждён)
+    customer = await prisma.customer.update({ where: { id: customer.id }, data: { emailVerifiedAt: customer.emailVerifiedAt || new Date(), lastLogin: new Date(), authMethod: 'email' } });
+  } else {
+    // регистрация по email: телефон не нужен до оформления заказа
+    customer = await prisma.customer.create({ data: { email, emailVerifiedAt: new Date(), name: str(req.body.name), consentAt: new Date(), lastLogin: new Date(), authMethod: 'email' } });
+  }
   res.json({ token: jwt.sign({ cid: customer.id, phone: customer.phone }, SECRET, { expiresIn: '90d' }), customer });
 }));
 
@@ -837,7 +851,7 @@ r.post('/me/phone/verify', customerAuth(), ah(async (req, res) => {
   }
   if (phone !== req.customer.phone && await prisma.customer.findUnique({ where: { phone } })) throw new HttpError(400, 'Этот номер уже используется другим аккаунтом');
   await prisma.smsCode.update({ where: { id: rec.id }, data: { used: true } });
-  const old = req.customer.phone;
+  const old = req.customer.phone || '';
   const customer = await prisma.customer.update({ where: { id: req.customer.cid }, data: { phone } });
   await prisma.customerPhoneChange.create({ data: { customerId: customer.id, oldPhone: old, newPhone: phone, reason: 'клиент сменил номер в профиле' } });
   await prisma.conversation.updateMany({ where: { customerId: customer.id, status: 'open' }, data: { phone } });

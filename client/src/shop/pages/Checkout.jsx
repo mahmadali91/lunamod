@@ -3,7 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { Banknote, CreditCard, Loader2, QrCode } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import DeliveryPicker from '../DeliveryPicker';
-import { shopApi, fmtPhone } from '../api';
+import { shopApi } from '../api';
 import { useShop } from '../store';
 import { ecommerce } from '../metrika';
 import Img from '../Img';
@@ -21,12 +21,12 @@ export default function Checkout() {
   useEffect(() => { cart.check(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const navigate = useNavigate();
   const pay = config.payments;
-  const [f, setF] = useState({ name: '', paymentMethod: pay.sbp ? 'sbp' : pay.tbank ? 'tbank' : 'cash', comment: '' });
+  const [f, setF] = useState({ name: '', phone: '', paymentMethod: pay.sbp ? 'sbp' : pay.tbank ? 'tbank' : 'cash', comment: '' });
   const [dl, setDl] = useState({ ready: false });
   const [agree, setAgree] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { if (auth.me) setF((x) => ({ ...x, name: x.name || auth.me.name || '' })); }, [auth.me]);
+  useEffect(() => { if (auth.me) setF((x) => ({ ...x, name: x.name || auth.me.name || '', phone: x.phone || (auth.me.phone ? '+' + auth.me.phone : '') })); }, [auth.me]);
   if (!auth.me) return <Navigate to="/cart" replace />;
   if (!cart.items.length) return <Navigate to="/cart" replace />;
 
@@ -56,7 +56,7 @@ export default function Checkout() {
             <h2 className="mb-3 text-lg font-semibold">Получатель</h2>
             <div className="grid gap-3 sm:grid-cols-2">
               <input required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Имя" className="rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900" />
-              <div className="rounded-2xl bg-slate-100 px-4 py-3 text-slate-600">{fmtPhone(auth.me.phone)}</div>
+              <input required value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} inputMode="tel" placeholder="Телефон +7 900 000-00-00" className="rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900" />
             </div>
           </section>
           <section>
