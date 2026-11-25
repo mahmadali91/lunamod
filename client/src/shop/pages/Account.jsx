@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
-import { LogOut, Package, MessageCircle, UserRound, Upload, BadgeCheck, Phone, Mail, Loader2 } from 'lucide-react';
+import { LogOut, Package, MessageCircle, UserRound, Upload, BadgeCheck, Mail, Loader2 } from 'lucide-react';
 import { shopApi, shopToken, fmtPhone } from '../api';
 import { useShop } from '../store';
 import { STATUS, PAY } from './Order';
 import Img from '../Img';
-import { solveCaptcha } from '../../captcha';
 
 const GENDERS = [['', 'Не указан'], ['female', 'Женский'], ['male', 'Мужской']];
 
@@ -19,7 +18,6 @@ export default function Account() {
   const [chats, setChats] = useState(null);
   const [chatMore, setChatMore] = useState(false);
   const [emailStep, setEmailStep] = useState(null); // { email, sent, code }
-  const [phoneStep, setPhoneStep] = useState(null); // { phone, sent, code }
   const [uploading, setUploading] = useState(false);
   const [emailEdit, setEmailEdit] = useState(false);
   const fileRef = useRef(null);
@@ -87,23 +85,6 @@ export default function Account() {
     } catch (err) { notify(err.message, 'error'); }
   };
 
-  const requestPhone = async () => {
-    try {
-      const r = await shopApi('/me/phone/request-code', { method: 'POST', body: { phone: phoneStep.phone, captcha: await solveCaptcha() } });
-      setPhoneStep({ ...phoneStep, sent: true, code: '' });
-      notify('Код отправлен на новый номер');
-      if (r && r.testCode) setPhoneStep((s) => ({ ...s, sent: true, code: '', test: r.testCode }));
-    } catch (err) { notify(err.message, 'error'); }
-  };
-  const verifyPhone = async () => {
-    try {
-      const r = await shopApi('/me/phone/verify', { method: 'POST', body: { phone: phoneStep.phone, code: phoneStep.code } });
-      shopToken.set(r.token);
-      setPhoneStep(null);
-      await auth.refresh();
-      notify('Номер изменён');
-    } catch (err) { notify(err.message, 'error'); }
-  };
 
   const loadChats = async (before) => {
     try {
@@ -250,31 +231,6 @@ export default function Account() {
               )}
             </div>
 
-            <div className="rounded-3xl bg-slate-50 p-5">
-              <h3 className="mb-2 flex items-center gap-2 font-semibold"><Phone size={16} /> Номер телефона</h3>
-              <p className="mb-2 text-sm text-slate-600">Текущий: {fmtPhone(auth.me.phone)}</p>
-              {!phoneStep ? (
-                <button type="button" onClick={() => setPhoneStep({ phone: '', sent: false, code: '' })} className="rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm">Сменить номер</button>
-              ) : phoneStep.sent ? (
-                <div className="space-y-2">
-                  <p className="text-xs text-slate-500">Код отправлен на {fmtPhone(phoneStep.phone.replace(/\D/g, ''))}</p>
-                  {phoneStep.test && <p className="text-xs text-amber-700">Тестовый режим, код: <b>{phoneStep.test}</b></p>}
-                  <input value={phoneStep.code} onChange={(e) => setPhoneStep({ ...phoneStep, code: e.target.value.replace(/\D/g, '').slice(0, 6) })} inputMode="numeric" placeholder="Код из SMS" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm tracking-widest outline-none focus:border-slate-900" />
-                  <div className="flex gap-2">
-                    <button type="button" onClick={verifyPhone} className="rounded-full bg-slate-900 px-4 py-1.5 text-sm text-white">Подтвердить</button>
-                    <button type="button" onClick={() => setPhoneStep(null)} className="text-sm text-slate-500 underline">Отмена</button>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <input value={phoneStep.phone} onChange={(e) => setPhoneStep({ ...phoneStep, phone: e.target.value })} inputMode="tel" placeholder="+7 (900) 000-00-00" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900" />
-                  <div className="flex gap-2">
-                    <button type="button" onClick={requestPhone} disabled={(phoneStep.phone || '').replace(/\D/g, '').length !== 11} className="rounded-full bg-slate-900 px-4 py-1.5 text-sm text-white disabled:opacity-40">Отправить SMS</button>
-                    <button type="button" onClick={() => setPhoneStep(null)} className="text-sm text-slate-500 underline">Отмена</button>
-                  </div>
-                </div>
-              )}
-            </div>
 
             <div className="rounded-3xl bg-slate-50 p-5">
               <h3 className="mb-2 font-semibold">Способ входа</h3>
