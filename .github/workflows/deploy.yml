@@ -112,11 +112,10 @@ jobs:
           install -m 700 -d ~/.ssh
           printf '%s\n' "$KEY" > ~/.ssh/beget && chmod 600 ~/.ssh/beget
           ssh-keyscan -H "$BEGET_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          first="${SITES%% *}"
           for site in $SITES; do
             echo "::group::Деплой $site"
-            # Ключ на хостинге ограничен: он может только запустить обновление до этой версии на сайте из списка
-            arg="$GITHUB_SHA"; [ "$site" = "$first" ] || arg="$GITHUB_SHA $site"
+            # Сайт передаём всегда: без имени на хостинге деплоится сайт по умолчанию (botmi.ru)
+            arg="$GITHUB_SHA $site"
             ssh -i ~/.ssh/beget -o BatchMode=yes -o ServerAliveInterval=30 "$BEGET_USER@$BEGET_HOST" "$arg" < "$RUNNER_TEMP/app.tar.gz" 2>&1 | tee "deploy-$site.log"
             echo "::endgroup::"
             grep -q "Готово" "deploy-$site.log" || { echo "::error::Деплой $site завершился с ошибкой"; exit 1; }
