@@ -883,7 +883,8 @@ test('вход по email: чужой неподтверждённый адре�
 test('права продавца: без раздела «Клиенты» и без возврата денег; реклама — только по отдельному согласию', async () => {
   const login = `seller${Date.now()}`;
   await ok('/users', { method: 'POST', body: { login, name: 'Продавец', role: 'seller', password: 'seller-pass-123' } });
-  const st = (await api('/auth/login', { method: 'POST', auth: false, body: { login, password: 'seller-pass-123' } })).data.token;
+  // свой IP: после тестов на подбор пароля вход с 127.0.0.1 требует капчу
+  const st = (await fetch(BASE + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '198.51.100.25' }, body: JSON.stringify({ login, password: 'seller-pass-123' }) }).then((r) => r.json())).token;
   assert.ok(st);
   const as = (p, opt = {}) => fetch(BASE + '/api' + p, { method: opt.method || 'GET', headers: { Authorization: 'Bearer ' + st, 'Content-Type': 'application/json' }, body: opt.body && JSON.stringify(opt.body) });
   assert.equal((await as('/customers')).status, 403, 'список клиентов');
