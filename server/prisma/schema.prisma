@@ -290,6 +290,14 @@ model Customer {
   createdAt DateTime @default(now())
   lastLogin DateTime?
   consentAt DateTime? // согласие на обработку персональных данных
+  emailVerifiedAt  DateTime? // email подтверждён кодом
+  avatar           String? // /uploads/avatars/...
+  birthDate        DateTime? @db.Date
+  gender           String? // male | female | null
+  authMethod       String    @default("phone") // phone | email
+  marketingConsentAt DateTime? // согласие на рекламные сообщения
+  marketingSms     Boolean   @default(true)
+  marketingPush    Boolean   @default(true)
   cart          String?   @db.Text // корзина (для напоминания о брошенной корзине)
   cartUpdatedAt DateTime?
   cartReminded  Int       @default(0) // 0 — не напоминали, 1 — через 2 ч, 2 — через сутки
@@ -298,6 +306,110 @@ model Customer {
   favorites Favorite[]
   waitlist  StockSubscription[]
   reviews   Review[]
+  visits        VisitSession[]
+  phoneChanges  CustomerPhoneChange[]
+  emailCodes    EmailCode[]
+
+  @@index([email])
+  @@index([birthDate])
+}
+
+// ---------- Клиенты: подтверждение email, посещения, рассылки ----------
+
+model EmailCode {
+  id        Int      @id @default(autoincrement())
+  email     String
+  codeHash  String
+  ip        String?
+  attempts  Int      @default(0)
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  customerId Int?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([email, createdAt])
+}
+
+// Сессия посещения сайта (анонимная или привязанная к клиенту)
+model VisitSession {
+  id          Int      @id @default(autoincrement())
+  customerId  Int?
+  visitorKey  String // идентификатор браузера
+  startedAt   DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  durationSec Int      @default(0)
+  referrer    String?  @db.VarChar(500)
+  ua          String?  @db.VarChar(300)
+  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  events      VisitEvent[]
+
+  @@index([customerId, startedAt])
+  @@index([visitorKey, startedAt])
+}
+
+// Событие посещения: страница / товар / поисковый запрос
+model VisitEvent {
+  id         Int      @id @default(autoincrement())
+  sessionId  Int
+  customerId Int?
+  type       String // page | product | search
+  path       String?  @db.VarChar(500)
+  productId  Int?
+  query      String?  @db.VarChar(300)
+  createdAt  DateTime @default(now())
+  session    VisitSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, createdAt])
+  @@index([productId, createdAt])
+  @@index([sessionId])
+}
+
+// Массовая рассылка клиентам (SMS или push)
+model BulkMessage {
+  id          Int      @id @default(autoincrement())
+  channel     String // sms | push
+  text        String   @db.Text
+  filter      String?  @db.Text // JSON фильтра, по которому выбраны получатели
+  total       Int      @default(0)
+  sent        Int      @default(0)
+  failed      Int      @default(0)
+  skipped     Int      @default(0)
+  status      String   @default("running") // running | done | cancelled | error
+  error       String?  @db.Text
+  byUserId    Int?
+  createdAt   DateTime @default(now())
+  finishedAt  DateTime?
+  recipients  BulkRecipient[]
+
+  @@index([createdAt])
+}
+
+model BulkRecipient {
+  id         Int    @id @default(autoincrement())
+  bulkId     Int
+  customerId Int
+  status     String @default("pending") // pending | sent | failed | skipped
+  error      String? @db.VarChar(300)
+  sentAt     DateTime?
+  bulk       BulkMessage @relation(fields: [bulkId], references: [id], onDelete: Cascade)
+
+  @@unique([bulkId, customerId])
+  @@index([bulkId, status])
+}
+
+// Журнал смены номера телефона (в том числе администратором)
+model CustomerPhoneChange {
+  id         Int      @id @default(autoincrement())
+  customerId Int
+  oldPhone   String
+  newPhone   String
+  reason     String?  @db.VarChar(500)
+  byUserId   Int?
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, createdAt])
 }
 
 model SmsCode {

@@ -25,4 +25,23 @@ async function sendSms(settings, phone, text) {
   return { sent: true };
 }
 
-module.exports = { sendSms };
+
+/** Баланс и дневной лимит SMS.ru (для настроек магазина) */
+async function status(apiId) {
+  if (!apiId) throw Object.assign(new Error('Укажите API-ключ SMS.ru'), { status: 400 });
+  const q = new URLSearchParams({ api_id: apiId, json: '1' });
+  const [balRaw, limRaw] = await Promise.all([
+    get('https://sms.ru/my/balance?' + q).catch(() => ''),
+    get('https://sms.ru/my/limit?' + q).catch(() => ''),
+  ]);
+  const parse = (raw) => { try { return JSON.parse(raw); } catch { return null; } };
+  const bal = parse(balRaw); const lim = parse(limRaw);
+  if (!bal || bal.status !== 'OK') {
+    const msg = bal && bal.status_text ? 'SMS.ru: ' + bal.status_text : 'SMS.ru: не удалось получить баланс (проверьте API-ключ)';
+    throw Object.assign(new Error(msg), { status: 502 });
+  }
+  const okLim = lim && lim.status === 'OK';
+  return { balance: Number(bal.balance) || 0, totalLimit: okLim ? Number(lim.total_limit) : null, usedToday: okLim ? Number(lim.used_today) : null };
+}
+
+module.exports = { sendSms, status };

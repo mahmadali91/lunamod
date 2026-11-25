@@ -1,27 +1,143 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
-import { LogOut, Package } from 'lucide-react';
-import { shopApi, fmtPhone } from '../api';
+import { LogOut, Package, MessageCircle, UserRound, Upload, BadgeCheck, Phone, Mail, Loader2 } from 'lucide-react';
+import { shopApi, shopToken, fmtPhone } from '../api';
 import { useShop } from '../store';
 import { STATUS, PAY } from './Order';
 import Img from '../Img';
+import { solveCaptcha } from '../../captcha';
+
+const GENDERS = [['', 'Не указан'], ['female', 'Женский'], ['male', 'Мужской']];
 
 export default function Account() {
-  const { auth, money, notify } = useShop();
+  const { auth, money, notify, config } = useShop();
+  const [tab, setTab] = useState('orders');
   const [orders, setOrders] = useState(null);
   const [f, setF] = useState(null);
-  useEffect(() => { if (auth.me) { shopApi('/orders').then(setOrders); setF({ name: auth.me.name || '', email: auth.me.email || '', address: auth.me.address || '' }); } }, [auth.me]);
+  const [busy, setBusy] = useState(false);
+  const [visits, setVisits] = useState(null);
+  const [chats, setChats] = useState(null);
+  const [chatMore, setChatMore] = useState(false);
+  const [emailStep, setEmailStep] = useState(null); // { email, sent, code }
+  const [phoneStep, setPhoneStep] = useState(null); // { phone, sent, code }
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
+
+  useEffect(() => {
+    if (!auth.me) return;
+    shopApi('/orders').then(setOrders).catch(() => setOrders([]));
+    shopApi('/me/visits').then(setVisits).catch(() => {});
+    setF({
+      name: auth.me.name || '', email: auth.me.email || '', address: auth.me.address || '',
+      birthDate: auth.me.birthDate ? String(auth.me.birthDate).slice(0, 10) : '',
+      gender: auth.me.gender || '',
+      authMethod: auth.me.authMethod || 'phone',
+      marketingSms: auth.me.marketingSms !== false, marketingPush: auth.me.marketingPush !== false,
+    });
+  }, [auth.me]);
   if (!auth.me) return <Navigate to="/" replace />;
-  const save = async (e) => { e.preventDefault(); await shopApi('/me', { method: 'PUT', body: f }); await auth.refresh(); notify('Сохранено'); };
+
+  const saveProfile = async (e) => {
+    e?.preventDefault();
+    setBusy(true);
+    try {
+      const body = { ...f };
+      if (body.email !== (auth.me.email || '')) delete body.email; // email меняется только через подтверждение
+      await shopApi('/me', { method: 'PUT', body });
+      await auth.refresh();
+      notify('Профиль сохранён');
+    } catch (err) { notify(err.message, 'error'); } finally { setBusy(false); }
+  };
+
+  const toggleMarketing = async (key, value) => {
+    setF((s) => ({ ...s, [key]: value }));
+    try { await shopApi('/me', { method: 'PUT', body: { [key]: value } }); await auth.refresh(); } catch (err) { notify(err.message, 'error'); }
+  };
+
+  const uploadAvatar = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('avatar', file);
+      await shopApi('/me/avatar', { method: 'POST', body: fd });
+      await auth.refresh();
+      notify('Фото обновлено');
+    } catch (err) { notify(err.message, 'error'); } finally { setUploading(false); if (fileRef.current) fileRef.current.value = ''; }
+  };
+  const removeAvatar = async () => {
+    try { await shopApi('/me/avatar', { method: 'DELETE' }); await auth.refresh(); notify('Фото удалено'); } catch (err) { notify(err.message, 'error'); }
+  };
+
+  const requestEmail = async () => {
+    try {
+      const r = await shopApi('/me/email/request-code', { method: 'POST', body: { email: (emailStep?.email || f.email || '').trim().toLowerCase() } });
+      setEmailStep({ email: r.email, sent: true, code: '' });
+      notify('Код отправлен на email');
+    } catch (err) { notify(err.message, 'error'); }
+  };
+  const verifyEmail = async () => {
+    try {
+      await shopApi('/me/email/verify', { method: 'POST', body: { email: emailStep.email, code: emailStep.code } });
+      setEmailStep(null);
+      await auth.refresh();
+      notify('Email подтверждён');
+    } catch (err) { notify(err.message, 'error'); }
+  };
+
+  const requestPhone = async () => {
+    try {
+      const r = await shopApi('/me/phone/request-code', { method: 'POST', body: { phone: phoneStep.phone, captcha: await solveCaptcha() } });
+      setPhoneStep({ ...phoneStep, sent: true, code: '' });
+      notify('Код отправлен на новый номер');
+      if (r && r.testCode) setPhoneStep((s) => ({ ...s, sent: true, code: '', test: r.testCode }));
+    } catch (err) { notify(err.message, 'error'); }
+  };
+  const verifyPhone = async () => {
+    try {
+      const r = await shopApi('/me/phone/verify', { method: 'POST', body: { phone: phoneStep.phone, code: phoneStep.code } });
+      shopToken.set(r.token);
+      setPhoneStep(null);
+      await auth.refresh();
+      notify('Номер изменён');
+    } catch (err) { notify(err.message, 'error'); }
+  };
+
+  const loadChats = async (before) => {
+    try {
+      const r = await shopApi('/chat/history' + (before ? `?before=${before}` : ''));
+      setChats((cur) => ({ messages: before ? [...r.messages, ...(cur?.messages || [])] : r.messages, hasMore: r.hasMore }));
+    } catch { setChats({ messages: [], hasMore: false }); }
+  };
+  const emailVerified = Boolean(auth.me.emailVerifiedAt);
+  const emailDraft = emailStep?.email !== undefined ? emailStep.email : f.email;
 
   return (
-    <div className="mx-auto max-w-5xl px-4 pt-8">
-      <div className="mb-6 flex items-center justify-between">
-        <div><h1 className="text-3xl font-bold tracking-tight">Мои заказы</h1><p className="text-slate-500">{fmtPhone(auth.me.phone)}</p></div>
+    <div className="mx-auto max-w-5xl px-4 pt-8 pb-16">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="h-14 w-14 overflow-hidden rounded-full bg-slate-100">
+            {auth.me.avatar ? <Img src={auth.me.avatar} icon={20} /> : <div className="flex h-full items-center justify-center text-slate-300"><UserRound size={24} /></div>}
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Личный кабинет</h1>
+            <p className="text-sm text-slate-500">{auth.me.name || 'Покупатель'} · {fmtPhone(auth.me.phone)}</p>
+          </div>
+        </div>
         <button onClick={auth.logout} className="flex items-center gap-2 rounded-full border border-slate-300 px-4 py-2 text-sm"><LogOut size={16} /> Выйти</button>
       </div>
-      <div className="grid gap-8 lg:grid-cols-3">
-        <div className="space-y-3 lg:col-span-2">
+
+      <div className="mb-6 flex gap-1 rounded-2xl bg-slate-100 p-1 text-sm">
+        {[['orders', 'Мои заказы', Package], ['chats', 'Чаты', MessageCircle], ['profile', 'Профиль', UserRound]].map(([id, label, Icon]) => (
+          <button key={id} onClick={() => { setTab(id); if (id === 'chats' && !chats) loadChats(0); }}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 ${tab === id ? 'bg-white font-semibold shadow' : 'text-slate-600'}`}>
+            <Icon size={16} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'orders' && (
+        <div className="space-y-3">
           {!orders ? <div className="text-slate-400">Загрузка…</div> : orders.length === 0 ? (
             <div className="rounded-3xl bg-slate-50 p-10 text-center"><Package className="mx-auto text-slate-300" size={40} /><p className="mt-3 text-slate-500">Заказов пока нет</p><Link to="/" className="mt-4 inline-block underline">В каталог</Link></div>
           ) : orders.map((o) => (
@@ -35,16 +151,143 @@ export default function Account() {
             </Link>
           ))}
         </div>
-        {f && (
-          <form onSubmit={save} className="h-fit space-y-3 rounded-3xl bg-slate-50 p-6">
+      )}
+
+      {tab === 'chats' && (
+        <div className="rounded-3xl border border-slate-200 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-semibold">Переписка с поддержкой</h2>
+            <button onClick={() => { setChats(null); loadChats(0); }} className="text-sm text-slate-500 underline">Обновить</button>
+          </div>
+          {!chats ? <div className="text-slate-400">Загрузка…</div> : chats.messages.length === 0 ? (
+            <p className="py-8 text-center text-slate-500">Переписки ещё не было. Напишите нам через кнопку чата на сайте.</p>
+          ) : (
+            <div className="space-y-2">
+              {chats.hasMore && <button onClick={() => loadChats(chats.messages[0].id)} className="mb-2 text-sm text-slate-500 underline">Показать более ранние</button>}
+              {chats.messages.map((m) => (
+                <div key={m.id} className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${m.sender === 'customer' ? 'ml-auto bg-slate-900 text-white' : 'bg-slate-100'}`}>
+                  {m.text && <div className="whitespace-pre-wrap">{m.text}</div>}
+                  {m.image && <img src={m.image} alt="" className="mt-1 max-h-52 rounded-xl" />}
+                  {m.audio && <audio controls src={m.audio} className="mt-1 h-9" />}
+                  <div className={`mt-1 text-[10px] ${m.sender === 'customer' ? 'text-slate-300' : 'text-slate-400'}`}>{new Date(m.createdAt).toLocaleString('ru-RU')}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'profile' && f && (
+        <div className="grid gap-6 lg:grid-cols-3">
+          <form onSubmit={saveProfile} className="space-y-3 rounded-3xl bg-slate-50 p-6 lg:col-span-2">
             <h2 className="font-semibold">Мои данные</h2>
+            <div className="flex items-center gap-4">
+              <div className="h-20 w-20 overflow-hidden rounded-full bg-white">
+                {auth.me.avatar ? <Img src={auth.me.avatar} icon={24} /> : <div className="flex h-full items-center justify-center text-slate-300"><UserRound size={30} /></div>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading} className="flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm">
+                  {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} Загрузить фото
+                </button>
+                {auth.me.avatar && <button type="button" onClick={removeAvatar} className="rounded-full px-3 py-2 text-sm text-rose-600">Удалить</button>}
+                <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => uploadAvatar(e.target.files?.[0])} />
+              </div>
+            </div>
             <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Имя" className="w-full rounded-xl border border-slate-300 px-3 py-2.5 outline-none focus:border-slate-900" />
-            <input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="Email" className="w-full rounded-xl border border-slate-300 px-3 py-2.5 outline-none focus:border-slate-900" />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm">
+                <span className="mb-1 block text-slate-500">Дата рождения</span>
+                <input type="date" value={f.birthDate} onChange={(e) => setF({ ...f, birthDate: e.target.value })} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 outline-none focus:border-slate-900" />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-slate-500">Пол</span>
+                <select value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 outline-none focus:border-slate-900">
+                  {GENDERS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </label>
+            </div>
             <textarea rows={2} value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} placeholder="Адрес доставки" className="w-full rounded-xl border border-slate-300 px-3 py-2.5 outline-none focus:border-slate-900" />
-            <button className="w-full rounded-full bg-slate-900 py-2.5 text-sm font-semibold text-white">Сохранить</button>
+            <button disabled={busy} className="w-full rounded-full bg-slate-900 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? 'Сохраняем…' : 'Сохранить'}</button>
           </form>
-        )}
-      </div>
+
+          <div className="space-y-4">
+            <div className="rounded-3xl bg-slate-50 p-5">
+              <h3 className="mb-2 flex items-center gap-2 font-semibold"><Mail size={16} /> Email</h3>
+              {emailVerified && !emailStep && <p className="flex items-center gap-1.5 text-sm text-emerald-700"><BadgeCheck size={16} /> {auth.me.email} подтверждён</p>}
+              {!emailStep ? (
+                <div className="mt-2 space-y-2">
+                  <input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} type="email" placeholder="you@example.ru" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900" />
+                  <button type="button" onClick={() => { setEmailStep({ email: f.email, sent: false, code: '' }); }} disabled={!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email)} className="rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm disabled:opacity-40">Подтвердить email</button>
+                </div>
+              ) : emailStep.sent ? (
+                <div className="mt-2 space-y-2">
+                  <p className="text-xs text-slate-500">Код отправлен на {emailStep.email}</p>
+                  <input value={emailStep.code} onChange={(e) => setEmailStep({ ...emailStep, code: e.target.value.replace(/\D/g, '').slice(0, 6) })} inputMode="numeric" placeholder="Код из письма" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm tracking-widest outline-none focus:border-slate-900" />
+                  <div className="flex gap-2">
+                    <button type="button" onClick={verifyEmail} className="rounded-full bg-slate-900 px-4 py-1.5 text-sm text-white">Подтвердить</button>
+                    <button type="button" onClick={() => setEmailStep(null)} className="text-sm text-slate-500 underline">Отмена</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  <p className="text-xs text-slate-500">Отправим код на {emailDraft}</p>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={requestEmail} className="rounded-full bg-slate-900 px-4 py-1.5 text-sm text-white">Отправить код</button>
+                    <button type="button" onClick={() => setEmailStep(null)} className="text-sm text-slate-500 underline">Отмена</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-3xl bg-slate-50 p-5">
+              <h3 className="mb-2 flex items-center gap-2 font-semibold"><Phone size={16} /> Номер телефона</h3>
+              <p className="mb-2 text-sm text-slate-600">Текущий: {fmtPhone(auth.me.phone)}</p>
+              {!phoneStep ? (
+                <button type="button" onClick={() => setPhoneStep({ phone: '', sent: false, code: '' })} className="rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm">Сменить номер</button>
+              ) : phoneStep.sent ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-500">Код отправлен на {fmtPhone(phoneStep.phone.replace(/\D/g, ''))}</p>
+                  {phoneStep.test && <p className="text-xs text-amber-700">Тестовый режим, код: <b>{phoneStep.test}</b></p>}
+                  <input value={phoneStep.code} onChange={(e) => setPhoneStep({ ...phoneStep, code: e.target.value.replace(/\D/g, '').slice(0, 6) })} inputMode="numeric" placeholder="Код из SMS" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm tracking-widest outline-none focus:border-slate-900" />
+                  <div className="flex gap-2">
+                    <button type="button" onClick={verifyPhone} className="rounded-full bg-slate-900 px-4 py-1.5 text-sm text-white">Подтвердить</button>
+                    <button type="button" onClick={() => setPhoneStep(null)} className="text-sm text-slate-500 underline">Отмена</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <input value={phoneStep.phone} onChange={(e) => setPhoneStep({ ...phoneStep, phone: e.target.value })} inputMode="tel" placeholder="+7 (900) 000-00-00" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900" />
+                  <div className="flex gap-2">
+                    <button type="button" onClick={requestPhone} disabled={(phoneStep.phone || '').replace(/\D/g, '').length !== 11} className="rounded-full bg-slate-900 px-4 py-1.5 text-sm text-white disabled:opacity-40">Отправить SMS</button>
+                    <button type="button" onClick={() => setPhoneStep(null)} className="text-sm text-slate-500 underline">Отмена</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-3xl bg-slate-50 p-5">
+              <h3 className="mb-2 font-semibold">Способ входа</h3>
+              <label className="flex items-center gap-2 text-sm"><input type="radio" checked={f.authMethod === 'phone'} onChange={() => setF({ ...f, authMethod: 'phone' })} /> По SMS на телефон</label>
+              <label className={`mt-1 flex items-center gap-2 text-sm ${emailVerified ? '' : 'opacity-50'}`}><input type="radio" disabled={!emailVerified} checked={f.authMethod === 'email'} onChange={() => setF({ ...f, authMethod: 'email' })} /> По коду на email</label>
+              <button type="button" onClick={async () => { try { await shopApi('/me', { method: 'PUT', body: { authMethod: f.authMethod } }); await auth.refresh(); notify('Способ входа сохранён'); } catch (err) { notify(err.message, 'error'); } }} className="mt-2 rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm">Сохранить способ</button>
+            </div>
+
+            <div className="rounded-3xl bg-slate-50 p-5">
+              <h3 className="mb-2 font-semibold">Уведомления и реклама</h3>
+              <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5" checked={f.marketingSms} onChange={(e) => toggleMarketing('marketingSms', e.target.checked)} /> <span>SMS о скидках и новинках</span></label>
+              <label className="mt-1 flex items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5" checked={f.marketingPush} onChange={(e) => toggleMarketing('marketingPush', e.target.checked)} /> <span>Push-уведомления о скидках и новинках</span></label>
+              <p className="mt-2 text-xs text-slate-500">Отказаться можно в любой момент. Заказы и коды входа приходят независимо от этих настроек.</p>
+            </div>
+
+            {visits && (
+              <div className="rounded-3xl bg-slate-50 p-5 text-sm">
+                <h3 className="mb-1 font-semibold">Статистика</h3>
+                <p className="text-slate-600">Посещений за 30 дней: {visits.sessions} · время на сайте: {Math.round((visits.totalSec || 0) / 60)} мин</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

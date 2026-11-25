@@ -132,6 +132,7 @@ r.get('/config', ah(async (req, res) => {
     seller: { name: s.sellerName, inn: s.sellerInn, ogrn: s.sellerOgrn, address: s.sellerAddress, email: s.sellerEmail || s.email, phone: s.sellerPhone || s.phone },
     legal: Object.entries(legal.DOCS).map(([id, title]) => ({ id, title })),
     chat: { enabled: s.chatEnabled === '1', greeting: s.chatGreeting },
+    emailAuth: Boolean(String(s.smtpHost || '').trim() && String(s.smtpFrom || s.smtpUser || '').trim()),
     vapidKey: (await getVapid()).publicKey,
     payments: { cash: s.cashEnabled === '1', tbank: tbankReady(s) || (s.tbankEnabled === '1' && s.smsMode === 'test'),
       sbp: s.sbpEnabled === '1' && (tbankReady(s) || s.smsMode === 'test') },
@@ -636,5 +637,274 @@ r.post('/push/subscribe', customerAuth(), ah(async (req, res) => {
   await prisma.pushSubscription.create({ data: { endpoint: sub.endpoint, keys: JSON.stringify(sub.keys), visitorKey: 'cust-' + req.customer.cid } });
   res.json({ ok: true });
 }));
+
+// ---------- профиль клиента, посещения, рассылки ----------
+const avatarUpload = require('../avatar');
+const mail = require('../shop/mail');
+const hashEmail = (email, code) => crypto.createHash('sha256').update(`${email}:${code}:${SECRET}`).digest('hex');
+const normEmail = (v) => {
+  const e = String(v || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(e) || e.length > 200) throw new HttpError(400, 'Введите корректный email');
+  return e;
+};
+const GENDERS = ['male', 'female'];
+const parseBirth = (v) => {
+  if (v === null || v === undefined || v === '') return null;
+  const d = new Date(String(v).slice(0, 10) + 'T00:00:00Z');
+  if (Number.isNaN(d.getTime())) throw new HttpError(400, 'Неверная дата рождения');
+  if (d.getUTCFullYear() < 1900 || d > new Date()) throw new HttpError(400, 'Неверная дата рождения');
+  return d;
+};
+const emailReady = (s) => Boolean(String(s.smtpHost || '').trim() && String(s.smtpFrom || s.smtpUser || '').trim());
+const code6 = () => String(crypto.randomInt(100000, 1000000));
+
+/** Лимиты на почтовые коды — как у SMS (защита от рассылки по чужим адресам) */
+async function emailCodeLimits(email, ip) {
+  const last = await prisma.emailCode.findFirst({ where: { email }, orderBy: { id: 'desc' } });
+  if (last && Date.now() - last.createdAt.getTime() < 60e3) throw new HttpError(429, 'Код уже отправлен. Повторите через минуту.');
+  const hourAgo = new Date(Date.now() - 3600e3);
+  if (await prisma.emailCode.count({ where: { email, createdAt: { gte: hourAgo } } }) >= 5) throw new HttpError(429, 'Слишком много запросов кода. Попробуйте через час.');
+  if (ip && await prisma.emailCode.count({ where: { ip, createdAt: { gte: hourAgo } } }) >= 20) throw new HttpError(429, 'Слишком много запросов. Попробуйте позже.');
+}
+
+/** Отправить письмо с кодом и сохранить его хэш */
+async function sendEmailCode(s, customer, email) {
+  if (!emailReady(s)) throw new HttpError(503, 'Почта на сайте ещё не настроена — напишите нам');
+  const code = code6();
+  await mail.sendMail(s, { to: email, subject: 'Код для входа', text: `Ваш код для входа на сайт ${s.title || ''}: ${code}\n\nКод действует 5 минут. Если вы не запрашивали код — просто проигнорируйте письмо.` });
+  await prisma.emailCode.create({ data: { email, codeHash: hashEmail(email, code), expiresAt: new Date(Date.now() + 5 * 60e3), customerId: customer?.id || null } });
+  return code;
+}
+
+// Вход по email: только для аккаунта с подтверждённым email
+r.post('/auth/email/request-code', ah(async (req, res) => {
+  if (!captcha.check(req)) return res.status(428).json({ error: 'Подтвердите, что вы не робот', captcha: true });
+  const s = await getShopSettings();
+  if (!emailReady(s)) throw new HttpError(503, 'Вход по email пока недоступен — войдите по номеру телефона');
+  const email = normEmail(req.body.email);
+  const ip = ipOf(req);
+  await emailCodeLimits(email, ip);
+  const customer = await prisma.customer.findFirst({ where: { email, emailVerifiedAt: { not: null } } });
+  if (customer) await sendEmailCode(s, customer, email);
+  // ответ одинаковый, чтобы нельзя было подбирать адреса
+  res.json({ ok: true, email });
+}));
+
+r.post('/auth/email/verify', ah(async (req, res) => {
+  const email = normEmail(req.body.email);
+  const code = String(req.body.code || '').replace(/\D/g, '');
+  const rec = await prisma.emailCode.findFirst({ where: { email, used: false }, orderBy: { id: 'desc' } });
+  if (!rec || rec.expiresAt < new Date()) throw new HttpError(400, 'Код устарел. Запросите новый.');
+  if (rec.attempts >= 5) throw new HttpError(429, 'Слишком много неверных попыток. Запросите новый код.');
+  if (rec.codeHash !== hashEmail(email, code)) {
+    await prisma.emailCode.update({ where: { id: rec.id }, data: { attempts: { increment: 1 } } });
+    throw new HttpError(400, 'Неверный код');
+  }
+  const customer = await prisma.customer.findFirst({ where: { email, emailVerifiedAt: { not: null } } });
+  if (!customer) throw new HttpError(400, 'Аккаунт с таким email не найден');
+  await prisma.emailCode.update({ where: { id: rec.id }, data: { used: true } });
+  await prisma.customer.update({ where: { id: customer.id }, data: { lastLogin: new Date(), authMethod: 'email' } });
+  res.json({ token: jwt.sign({ cid: customer.id, phone: customer.phone }, SECRET, { expiresIn: '90d' }), customer });
+}));
+
+// Профиль: расширенные поля
+r.put('/me', customerAuth(), ah(async (req, res) => {
+  const id = req.customer.cid;
+  const cur = await prisma.customer.findUnique({ where: { id } });
+  if (!cur) throw new HttpError(401, 'Войдите заново');
+  const data = { name: str(req.body.name), address: str(req.body.address) };
+  if (req.body.birthDate !== undefined) data.birthDate = parseBirth(req.body.birthDate);
+  if (req.body.gender !== undefined) {
+    const g = req.body.gender === '' || req.body.gender === null ? null : String(req.body.gender);
+    if (g !== null && !GENDERS.includes(g)) throw new HttpError(400, 'Неверный пол');
+    data.gender = g;
+  }
+  if (req.body.marketingSms !== undefined || req.body.marketingPush !== undefined) {
+    if (req.body.marketingSms !== undefined) data.marketingSms = Boolean(req.body.marketingSms);
+    if (req.body.marketingPush !== undefined) data.marketingPush = Boolean(req.body.marketingPush);
+    if (!cur.marketingConsentAt) data.marketingConsentAt = new Date();
+  }
+  if (req.body.email !== undefined) {
+    const raw = String(req.body.email || '').trim();
+    if (raw === '') { data.email = null; data.emailVerifiedAt = null; data.authMethod = 'phone'; }
+    else {
+      const email = normEmail(raw);
+      if (email !== cur.email) {
+        const busy = await prisma.customer.findFirst({ where: { email, id: { not: id }, emailVerifiedAt: { not: null } } });
+        if (busy) throw new HttpError(400, 'Этот email уже привязан к другому аккаунту');
+        data.email = email; data.emailVerifiedAt = null; data.authMethod = 'phone';
+      }
+    }
+  }
+  if (req.body.authMethod !== undefined) {
+    const m = String(req.body.authMethod);
+    if (!['phone', 'email'].includes(m)) throw new HttpError(400, 'Неверный способ входа');
+    const email = data.email !== undefined ? data.email : cur.email;
+    const verified = data.emailVerifiedAt !== undefined ? data.emailVerifiedAt : cur.emailVerifiedAt;
+    if (m === 'email' && (!email || !verified)) throw new HttpError(400, 'Сначала подтвердите email кодом');
+    data.authMethod = m;
+  }
+  res.json(await prisma.customer.update({ where: { id }, data }));
+}));
+
+// Фото профиля
+r.post('/me/avatar', customerAuth(), avatarUpload.upload, ah(async (req, res) => {
+  const file = avatarUpload.uploaded(req);
+  if (!file) throw new HttpError(400, 'Выберите фото (JPG, PNG или WEBP до 3 МБ)');
+  const cur = await prisma.customer.findUnique({ where: { id: req.customer.cid } });
+  if (!cur) throw new HttpError(401, 'Войдите заново');
+  avatarUpload.removeOld(cur.avatar);
+  res.json(await prisma.customer.update({ where: { id: cur.id }, data: { avatar: file } }));
+}));
+r.delete('/me/avatar', customerAuth(), ah(async (req, res) => {
+  const cur = await prisma.customer.findUnique({ where: { id: req.customer.cid } });
+  if (!cur) throw new HttpError(401, 'Войдите заново');
+  avatarUpload.removeOld(cur.avatar);
+  res.json(await prisma.customer.update({ where: { id: cur.id }, data: { avatar: null } }));
+}));
+
+// Подтверждение email (код на новый адрес)
+r.post('/me/email/request-code', customerAuth(), ah(async (req, res) => {
+  const s = await getShopSettings();
+  const email = normEmail(req.body.email);
+  const busy = await prisma.customer.findFirst({ where: { email, id: { not: req.customer.cid }, emailVerifiedAt: { not: null } } });
+  if (busy) throw new HttpError(400, 'Этот email уже привязан к другому аккаунту');
+  await emailCodeLimits(email, ipOf(req));
+  await prisma.customer.update({ where: { id: req.customer.cid }, data: { email } });
+  await sendEmailCode(s, { id: req.customer.cid }, email);
+  res.json({ ok: true, email });
+}));
+r.post('/me/email/verify', customerAuth(), ah(async (req, res) => {
+  const email = normEmail(req.body.email);
+  const code = String(req.body.code || '').replace(/\D/g, '');
+  const rec = await prisma.emailCode.findFirst({ where: { email, used: false }, orderBy: { id: 'desc' } });
+  if (!rec || rec.expiresAt < new Date()) throw new HttpError(400, 'Код устарел. Запросите новый.');
+  if (rec.attempts >= 5) throw new HttpError(429, 'Слишком много неверных попыток');
+  if (rec.codeHash !== hashEmail(email, code)) {
+    await prisma.emailCode.update({ where: { id: rec.id }, data: { attempts: { increment: 1 } } });
+    throw new HttpError(400, 'Неверный код');
+  }
+  await prisma.emailCode.update({ where: { id: rec.id }, data: { used: true } });
+  res.json(await prisma.customer.update({ where: { id: req.customer.cid }, data: { email, emailVerifiedAt: new Date(), authMethod: 'email' } }));
+}));
+
+// Смена номера самим клиентом (код приходит SMS на новый номер)
+r.post('/me/phone/request-code', customerAuth(), ah(async (req, res) => {
+  if (!captcha.check(req)) return res.status(428).json({ error: 'Подтвердите, что вы не робот', captcha: true });
+  const s = await getShopSettings();
+  const phone = normPhone(req.body.phone);
+  if (phone === req.customer.phone) throw new HttpError(400, 'Это ваш текущий номер');
+  if (await prisma.customer.findUnique({ where: { phone } })) throw new HttpError(400, 'Этот номер уже используется другим аккаунтом');
+  const last = await prisma.smsCode.findFirst({ where: { phone }, orderBy: { id: 'desc' } });
+  if (last && Date.now() - last.createdAt.getTime() < 60e3) throw new HttpError(429, 'Код уже отправлен. Повторите через минуту.');
+  const code = code6();
+  await sendSms(s, phone, `Код для смены номера: ${code}`);
+  await prisma.smsCode.create({ data: { phone, ip: ipOf(req), codeHash: hashCode(phone, code), expiresAt: new Date(Date.now() + 5 * 60e3) } });
+  res.json({ ok: true, phone });
+}));
+r.post('/me/phone/verify', customerAuth(), ah(async (req, res) => {
+  const phone = normPhone(req.body.phone);
+  const code = String(req.body.code || '').replace(/\D/g, '');
+  const rec = await prisma.smsCode.findFirst({ where: { phone, used: false }, orderBy: { id: 'desc' } });
+  if (!rec || rec.expiresAt < new Date()) throw new HttpError(400, 'Код устарел. Запросите новый.');
+  if (rec.attempts >= 5) throw new HttpError(429, 'Слишком много неверных попыток');
+  if (rec.codeHash !== hashCode(phone, code)) {
+    await prisma.smsCode.update({ where: { id: rec.id }, data: { attempts: { increment: 1 } } });
+    throw new HttpError(400, 'Неверный код');
+  }
+  if (phone !== req.customer.phone && await prisma.customer.findUnique({ where: { phone } })) throw new HttpError(400, 'Этот номер уже используется другим аккаунтом');
+  await prisma.smsCode.update({ where: { id: rec.id }, data: { used: true } });
+  const old = req.customer.phone;
+  const customer = await prisma.customer.update({ where: { id: req.customer.cid }, data: { phone } });
+  await prisma.customerPhoneChange.create({ data: { customerId: customer.id, oldPhone: old, newPhone: phone, reason: 'клиент сменил номер в профиле' } });
+  await prisma.conversation.updateMany({ where: { customerId: customer.id, status: 'open' }, data: { phone } });
+  res.json({ token: jwt.sign({ cid: customer.id, phone }, SECRET, { expiresIn: '90d' }), customer });
+}));
+
+// История переписки (для профиля): листание назад
+r.get('/chat/history', customerAuth(), ah(async (req, res) => {
+  const before = Number(req.query.before) || 0;
+  const conv = await prisma.conversation.findFirst({ where: { customerId: req.customer.cid } });
+  if (!conv) return res.json({ messages: [], hasMore: false });
+  const where = { conversationId: conv.id, ...(before ? { id: { lt: before } } : {}) };
+  const rows = await prisma.chatMessage.findMany({ where, orderBy: { id: 'desc' }, take: 50, select: { id: true, sender: true, text: true, image: true, audio: true, duration: true, createdAt: true } });
+  res.json({ messages: rows.reverse(), hasMore: rows.length === 50 });
+}));
+
+// ---------- посещения сайта ----------
+const trackHits = new Map(); // ip -> { count, reset }
+function trackLimit(ip) {
+  const now = Date.now();
+  const rec = trackHits.get(ip);
+  if (!rec || now > rec.reset) { trackHits.set(ip, { count: 1, reset: now + 60e3 }); return; }
+  rec.count++;
+  if (rec.count > 60) throw new HttpError(429, 'Слишком много событий');
+  if (trackHits.size > 5000) trackHits.clear();
+}
+const visitKey = (v) => { const k = String(v || '').trim(); return /^[A-Za-z0-9_-]{8,64}$/.test(k) ? k : null; };
+
+r.post('/track', customerAuth(false), ah(async (req, res) => {
+  const s = await getShopSettings();
+  if (s.trackVisits === '0') return res.json({ ok: true, off: true });
+  trackLimit(ipOf(req));
+  const visitorKey = visitKey(req.body.visitorKey);
+  if (!visitorKey) throw new HttpError(400, 'Неверный идентификатор посетителя');
+  const cid = req.customer?.cid || null;
+  // та же сессия, если активна последние 30 минут
+  let sess = null;
+  const sid = Number(req.body.sessionId) || 0;
+  if (sid) {
+    sess = await prisma.visitSession.findFirst({ where: { id: sid, visitorKey, lastSeenAt: { gte: new Date(Date.now() - 30 * 60e3) } } });
+  }
+  if (!sess) {
+    sess = await prisma.visitSession.create({ data: { customerId: cid, visitorKey, referrer: str(req.body.referrer)?.slice(0, 500) || null, ua: String(req.headers['user-agent'] || '').slice(0, 300) } });
+    // при входе подтягиваем прошлые анонимные сессии этого браузера (30 дней)
+    if (cid) await prisma.visitSession.updateMany({ where: { visitorKey, customerId: null, startedAt: { gte: new Date(Date.now() - 30 * 864e5) } }, data: { customerId: cid } });
+  } else {
+    await prisma.visitSession.update({ where: { id: sess.id }, data: { lastSeenAt: new Date(), ...(cid && sess.customerId !== cid ? { customerId: cid } : {}) } });
+  }
+  const events = Array.isArray(req.body.events) ? req.body.events.slice(0, 20) : [];
+  const rows = [];
+  for (const e of events) {
+    const type = ['page', 'product', 'search'].includes(e?.type) ? e.type : null;
+    if (!type) continue;
+    const productId = Number(e.productId) || null;
+    rows.push({ sessionId: sess.id, customerId: cid, type, path: str(e.path)?.slice(0, 500) || null, productId: type === 'product' ? productId : null, query: str(e.query)?.slice(0, 300) || null });
+  }
+  if (rows.length) await prisma.visitEvent.createMany({ data: rows });
+  res.json({ ok: true, sessionId: sess.id });
+}));
+
+r.post('/track/beat', customerAuth(false), ah(async (req, res) => {
+  const sid = Number(req.body.sessionId) || 0;
+  const secs = Math.max(0, Math.min(60, Number(req.body.seconds) || 0));
+  if (!sid) return res.json({ ok: true });
+  const sess = await prisma.visitSession.findUnique({ where: { id: sid } });
+  if (!sess) return res.json({ ok: true });
+  await prisma.visitSession.update({ where: { id: sid }, data: { durationSec: sess.durationSec + secs, lastSeenAt: new Date() } });
+  res.json({ ok: true });
+}));
+
+// Сводка посещений для профиля клиента
+r.get('/me/visits', customerAuth(), ah(async (req, res) => {
+  const since = new Date(Date.now() - 30 * 864e5);
+  const sessions = await prisma.visitSession.findMany({ where: { customerId: req.customer.cid, startedAt: { gte: since } }, orderBy: { startedAt: 'desc' }, take: 50 });
+  const totalSec = sessions.reduce((a, x) => a + x.durationSec, 0);
+  const events = await prisma.visitEvent.findMany({ where: { customerId: req.customer.cid, createdAt: { gte: since } }, orderBy: { createdAt: 'desc' }, take: 500 });
+  const searches = [...new Set(events.filter((e) => e.type === 'search' && e.query).map((e) => e.query))].slice(0, 10);
+  res.json({ sessions: sessions.length, totalSec, recent: sessions.slice(0, 10).map((x) => ({ startedAt: x.startedAt, durationSec: x.durationSec })), searches });
+}));
+
+// Отписка от рекламных сообщений по ссылке из SMS/письма
+r.get('/unsubscribe', ah(async (req, res) => {
+  let p;
+  try { p = jwt.verify(String(req.query.token || ''), SECRET); } catch { p = null; }
+  if (!p || p.purpose !== 'unsub') return res.status(400).send('Ссылка устарела — отключите рассылку в личном кабинете.');
+  const data = p.ch === 'push' ? { marketingPush: false } : { marketingSms: false };
+  await prisma.customer.update({ where: { id: p.cid }, data }).catch(() => {});
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send('<!doctype html><meta charset="utf-8"><title>Отписка</title><body style="font-family:system-ui;padding:40px;text-align:center"><h2>Вы отписались от рассылки</h2><p>Больше не будем присылать рекламные сообщения. Вернуть можно в личном кабинете.</p><a href="/account">В личный кабинет</a></body>');
+}));
+
 
 module.exports = { router: r, normPhone, applyPaymentStatus, socialLinks, productWhere, publicProduct, cardInclude, reviewSummary };

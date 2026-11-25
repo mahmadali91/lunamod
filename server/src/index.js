@@ -87,6 +87,7 @@ app.use('/api/stats', require('./routes/stats'));
 app.use('/api/orders', require('./routes/orders'));
 app.use('/api/reviews', require('./routes/reviews'));
 app.use('/api/wb', require('./routes/wb'));
+app.use('/api/customers', require('./routes/customers'));
 app.use('/api/chats', require('./routes/chats').chats);
 app.use('/api/push', require('./routes/chats').push);
 app.use('/api/dashboard', require('./routes/dashboard'));

@@ -48,12 +48,21 @@ async function carts(s) {
   return sent;
 }
 
+// Чистка старых данных: посещения (события удаляются каскадом) и почтовые коды
+async function cleanupOld(s) {
+  const days = Math.max(1, Number(s.visitRetentionDays) || 90);
+  const before = new Date(Date.now() - days * 864e5);
+  const visits = await prisma.visitSession.deleteMany({ where: { startedAt: { lt: before } } });
+  const codes = await prisma.emailCode.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 7 * 864e5) } } });
+  return { visits: visits.count, codes: codes.count };
+}
+
 async function run(force) {
   if (running || (!force && Date.now() - lastRun < 5 * 60e3)) return null;
   running = true; lastRun = Date.now();
   try {
     const s = await getShopSettings();
-    return { waitlist: await waitlist(s), carts: await carts(s) };
+    return { waitlist: await waitlist(s), carts: await carts(s), cleanup: await cleanupOld(s) };
   } catch (e) { console.error('jobs:', e.message); return null; } finally { running = false; }
 }
 

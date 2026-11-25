@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Megaphone, Rss, Save, ExternalLink, Search as SearchIcon, BarChart3, Share2, Send, History, CheckCircle2, XCircle, AlertTriangle, CreditCard, MessageSquare, Truck, Store, ShieldCheck, FileText, Bell, MessagesSquare, Plus, Trash2, RotateCcw, ChevronDown } from 'lucide-react';
+import { Mail, Megaphone, Rss, Save, ExternalLink, Search as SearchIcon, BarChart3, Share2, Send, History, CheckCircle2, XCircle, AlertTriangle, CreditCard, MessageSquare, Truck, Store, ShieldCheck, FileText, Bell, MessagesSquare, Plus, Trash2, RotateCcw, ChevronDown } from 'lucide-react';
 import PushToggle from '../components/PushToggle';
 import { api } from '../api';
 import { Button, Field, PasswordInput, PageHeader, RefSelect, Spinner, useToast } from '../ui';
 
-function Section({ icon: Icon, title, children, hint }) {
+function Section({ icon: Icon, title, children, hint, onSave, saving }) {
   return (
     <div className="card p-6">
-      <h2 className="mb-1 flex items-center gap-2 font-semibold"><Icon size={18} /> {title}</h2>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 font-semibold"><Icon size={18} /> {title}</h2>
+        {onSave && <Button size="sm" variant="secondary" icon={Save} loading={saving} onClick={onSave}>Сохранить</Button>}
+      </div>
       {hint && <p className="mb-4 text-sm text-slate-500">{hint}</p>}
       <div className="space-y-4">{children}</div>
     </div>
@@ -22,11 +25,20 @@ export default function ShopSettings() {
   const [tpl, setTpl] = useState(null);
   const [methods, setMethods] = useState([]);
   const [doc, setDoc] = useState('privacy');
+  const [savingSection, setSavingSection] = useState('');
+  const [smsStatus, setSmsStatus] = useState(null);
+  const [smtpBusy, setSmtpBusy] = useState(false);
+  const [smsBusy, setSmsBusy] = useState(false);
   const toast = useToast();
   useEffect(() => {
     api('/orders/settings').then(setS).catch((e) => toast(e.message, 'error'));
     api('/orders/settings/templates').then((t) => { setTpl(t); setMethods(t.methods); }).catch(() => {});
   }, [toast]);
+  const loadSmsStatus = async () => {
+    setSmsBusy(true);
+    try { setSmsStatus(await api('/orders/settings/sms-status')); } catch (e) { setSmsStatus({ error: e.message }); } finally { setSmsBusy(false); }
+  };
+  useEffect(() => { if (s && s.smsMode === 'smsru' && s.smsruApiId) loadSmsStatus(); }, [s && s.smsMode, s && s.smsruApiId]);
   if (!s || !tpl) return <Spinner />;
   const setM = (i, patch) => setMethods(methods.map((m, j) => (i === j ? { ...m, ...patch } : m)));
   const addMethod = (carrier) => setMethods([...methods, { id: carrier + '_' + Date.now().toString(36), carrier, name: tpl.carriers[carrier].name, enabled: true, price: 0, markupFixed: 0, markupPercent: 0, freeFrom: 0, days: '', description: '' }]);
@@ -38,7 +50,27 @@ export default function ShopSettings() {
 
   const save = async () => {
     setSaving(true);
-    try { setS(await api('/orders/settings', { method: 'PUT', body: { ...s, deliveryMethods: JSON.stringify(methods.map(({ needs, api: _a, ...m }) => ({ ...m, price: Number(m.price) || 0, markupFixed: Number(m.markupFixed) || 0, markupPercent: Number(m.markupPercent) || 0, freeFrom: Number(m.freeFrom) || 0 }))) } })); toast('Настройки магазина сохранены'); } catch (e) { toast(e.message, 'error'); } finally { setSaving(false); }
+    try { setS(await api('/orders/settings', { method: 'PUT', body: { ...s, deliveryMethods: deliveryJson() } })); toast('Настройки магазина сохранены'); } catch (e) { toast(e.message, 'error'); } finally { setSaving(false); }
+  };
+  const deliveryJson = () => JSON.stringify(methods.map(({ needs, api: _a, ...m }) => ({ ...m, price: Number(m.price) || 0, markupFixed: Number(m.markupFixed) || 0, markupPercent: Number(m.markupPercent) || 0, freeFrom: Number(m.freeFrom) || 0 })));
+  // Сохранение только полей одного раздела (без перезагрузки страницы)
+  const saveKeys = async (keys, title) => {
+    setSavingSection(title);
+    try {
+      const body = {};
+      for (const k of keys) body[k] = s[k];
+      if (keys.includes('deliveryMethods')) body.deliveryMethods = deliveryJson();
+      setS(await api('/orders/settings', { method: 'PUT', body }));
+      toast('Сохранено: ' + title);
+    } catch (e) { toast(e.message, 'error'); } finally { setSavingSection(''); }
+  };
+  const testSmtp = async () => {
+    setSmtpBusy(true);
+    try {
+      await saveKeys(['smtpHost','smtpPort','smtpSecure','smtpUser','smtpPass','smtpFrom','smtpFromName'], 'Почта и рассылки');
+      const r = await api('/orders/settings/smtp-test', { method: 'POST', body: {} });
+      toast(r.message || 'Письмо отправлено');
+    } catch (e) { toast(e.message, 'error'); } finally { setSmtpBusy(false); }
   };
   const testTbank = async () => {
     setTesting(true);
@@ -59,7 +91,7 @@ export default function ShopSettings() {
         </div>
       )}
 
-      <Section icon={Store} title="Витрина">
+      <Section icon={Store} title="Витрина" onSave={() => saveKeys(['enabled','title','tagline','phone','email','address','workHours','siteUrl','warehouseId','showOutOfStock','allowBackorder'], 'Витрина')} saving={savingSection === 'Витрина'}>
         <Check v={s.enabled} set={f('enabled')} label="Магазин открыт (если выключить — на сайте будет страница «Скоро открытие»)" />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Название магазина">{inp('title')}</Field>
@@ -76,7 +108,7 @@ export default function ShopSettings() {
         <p className="text-xs text-slate-500">Скрыть отдельный товар из магазина можно в его карточке — флажок «Показывать в интернет-магазине».</p>
       </Section>
 
-      <Section icon={Truck} title="Доставка" hint="Цена для покупателя = тариф (фиксированный или рассчитанный службой) + наценка в % + наценка в ₽. «Бесплатно от» — порог суммы заказа.">
+      <Section icon={Truck} title="Доставка" onSave={() => saveKeys(['deliveryMethods','defaultWeight','pochtaFromIndex','pochtaObject','cdekFromCityCode','cdekClientId','cdekClientSecret','cdekTest'], 'Доставка')} saving={savingSection === 'Доставка'} hint="Цена для покупателя = тариф (фиксированный или рассчитанный службой) + наценка в % + наценка в ₽. «Бесплатно от» — порог суммы заказа.">
         <div className="space-y-3">
           {methods.map((m, i) => {
             const c = tpl.carriers[m.carrier];
@@ -125,7 +157,7 @@ export default function ShopSettings() {
         </div>
       </Section>
 
-      <Section icon={CreditCard} title="Оплата" hint="Покупатель выбирает способ оплаты при оформлении заказа.">
+      <Section icon={CreditCard} title="Оплата" onSave={() => saveKeys(['cashEnabled','tbankEnabled','sbpEnabled','tbankTerminalKey','tbankPassword','tbankReceipt','tbankTaxation','tbankTax'], 'Оплата')} saving={savingSection === 'Оплата'} hint="Покупатель выбирает способ оплаты при оформлении заказа.">
         <Check v={s.cashEnabled} set={f('cashEnabled')} label="Наличными / картой при получении" />
         <Check v={s.tbankEnabled} set={f('tbankEnabled')} label="Онлайн-оплата картой через Т-Банк (карта, T-Pay)" />
         <Check v={s.sbpEnabled} set={f('sbpEnabled')} label="СБП — отдельной кнопкой: QR-код и переход в приложение банка (через тот же терминал Т-Банка)" />
@@ -139,17 +171,20 @@ export default function ShopSettings() {
             </div>
             <Check v={s.tbankReceipt} set={f('tbankReceipt')} label="Передавать чек (онлайн-касса Т-Банка, 54-ФЗ)" />
             {s.tbankReceipt === '1' && (
+              <>
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Система налогообложения"><select className="input" value={s.tbankTaxation} onChange={(e) => f('tbankTaxation')(e.target.value)}>{[['osn', 'ОСН'], ['usn_income', 'УСН доходы'], ['usn_income_outcome', 'УСН доходы − расходы'], ['esn', 'ЕСХН'], ['patent', 'Патент']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
+                <Field label="Система налогообложения"><select className="input" value={s.tbankTaxation} onChange={(e) => { const v = e.target.value; setS((prev) => ({ ...prev, tbankTaxation: v, ...(v.startsWith('ausn') ? { tbankTax: 'none' } : {}) })) }}>{[['osn', 'ОСН'], ['usn_income', 'УСН доходы'], ['usn_income_outcome', 'УСН доходы − расходы'], ['ausn_income', 'АУСН доходы'], ['ausn_income_outcome', 'АУСН доходы − расходы'], ['esn', 'ЕСХН'], ['patent', 'Патент']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
                 <Field label="НДС"><select className="input" value={s.tbankTax} onChange={(e) => f('tbankTax')(e.target.value)}>{[['none', 'Без НДС'], ['vat0', '0%'], ['vat5', '5%'], ['vat7', '7%'], ['vat10', '10%'], ['vat20', '20%'], ['vat22', '22%']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
               </div>
+              {String(s.tbankTaxation || '').startsWith('ausn') && <p className="text-xs text-slate-500">АУСН: в банк чек уходит как «УСН доходы» или «УСН доходы − расходы» с тем же объектом — отдельных кодов АУСН в API Т-Банка нет, так требует ФНС. НДС для АУСН — «Без НДС» (ставится автоматически).</p>}
+              </>
             )}
             <Button variant="secondary" size="sm" icon={ShieldCheck} loading={testing} onClick={testTbank}>Проверить ключи</Button>
           </div>
         )}
       </Section>
 
-      <Section icon={FileText} title="Продавец и документы" hint="Реквизиты показываются в подвале сайта и подставляются в документы. Тексты — типовые шаблоны: проверьте их у юриста под ваш бизнес.">
+      <Section icon={FileText} title="Продавец и документы" onSave={() => saveKeys(['sellerName','sellerInn','sellerOgrn','sellerAddress','sellerEmail','sellerPhone','returnAddress','legalDate','legal_privacy','legal_consent','legal_offer','legal_returns','legal_terms'], 'Продавец и документы')} saving={savingSection === 'Продавец и документы'} hint="Реквизиты показываются в подвале сайта и подставляются в документы. Тексты — типовые шаблоны: проверьте их у юриста под ваш бизнес.">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Продавец (ИП Иванов И.И. / ООО «…»)">{inp('sellerName')}</Field>
           <Field label="ИНН">{inp('sellerInn', { inputMode: 'numeric' })}</Field>
@@ -178,7 +213,29 @@ export default function ShopSettings() {
         <p className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-900"><AlertTriangle size={14} className="mt-0.5 shrink-0" /> Обработка персональных данных требует уведомить Роскомнадзор (pd.rkn.gov.ru) до начала обработки, если вы ещё не подавали уведомление.</p>
       </Section>
 
-      <Section icon={Megaphone} title="Покупатели: напоминания и отзывы">
+
+      <Section icon={Mail} title="Почта и рассылки" onSave={() => saveKeys(['smtpHost','smtpPort','smtpSecure','smtpUser','smtpPass','smtpFrom','smtpFromName','smsPrice','visitRetentionDays','trackVisits'], 'Почта и рассылки')} saving={savingSection === 'Почта и рассылки'} hint="Почта нужна для входа покупателей по коду на email и уведомлений. Для Beget: smtp.beget.com, порт 465, SSL включён, логин — полный адрес почты.">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="SMTP-сервер">{inp('smtpHost', { placeholder: 'smtp.beget.com' })}</Field>
+          <Field label="Порт">{inp('smtpPort', { placeholder: '465', inputMode: 'numeric' })}</Field>
+          <Field label="Логин (почта)">{inp('smtpUser', { autoComplete: 'off', placeholder: 'shop@lunaramod.ru' })}</Field>
+          <Field label="Пароль почты">{inp('smtpPass', { type: 'password', autoComplete: 'new-password' })}</Field>
+          <Field label="Адрес отправителя">{inp('smtpFrom', { placeholder: 'shop@lunaramod.ru' })}</Field>
+          <Field label="Имя отправителя">{inp('smtpFromName', { placeholder: 'ЛУНАРА' })}</Field>
+        </div>
+        <Check v={s.smtpSecure} set={f('smtpSecure')} label="SSL сразу при подключении (порт 465). Снимите для STARTTLS (обычно 587)" />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="secondary" size="sm" loading={smtpBusy} onClick={testSmtp}>Проверить почту</Button>
+          <span className="text-xs text-slate-500">Письмо придёт на адрес продавца из раздела «Продавец и документы»</span>
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Field label="Цена одного SMS, ₽">{inp('smsPrice', { placeholder: '0', inputMode: 'numeric' })}</Field>
+          <Field label="Хранить посещения, дней">{inp('visitRetentionDays', { placeholder: '90', inputMode: 'numeric' })}</Field>
+          <div className="self-end"><Check v={s.trackVisits} set={f('trackVisits')} label="Собирать статистику посещений" /></div>
+        </div>
+      </Section>
+
+      <Section icon={Megaphone} title="Покупатели: напоминания и отзывы" onSave={() => saveKeys(['cartReminders','remindSms','reviewsEnabled'], 'Покупатели')} saving={savingSection === 'Покупатели'}>
         <Check v={s.cartReminders} set={f('cartReminders')} label="Напоминать о брошенной корзине (пуш через 2 часа и через сутки)" />
         <Check v={s.remindSms} set={f('remindSms')} label="Дублировать по SMS: «снова в наличии» и напоминание через сутки (только с SMS.ru, платно)" />
         <p className="text-xs text-slate-500">«Сообщить о поступлении»: покупатель подписывается на нужный размер, которого нет. Когда товар придёт (приход, корректировка остатков) — получит пуш-уведомление{s.remindSms === '1' ? ' и SMS' : ''}.</p>
@@ -194,17 +251,17 @@ export default function ShopSettings() {
         <p className="text-xs text-slate-500">Яндекс: <a className="text-indigo-600 underline" href="https://partner.market.yandex.ru" target="_blank" rel="noreferrer">Яндекс Товары</a> → Товары → Загрузить по ссылке. VK: Реклама → Каталоги товаров → Фид. Укажите бренды и описания товаров — это повышает показы.</p>
       </Section>
 
-      <Section icon={MessagesSquare} title="Чат на сайте">
+      <Section icon={MessagesSquare} title="Чат на сайте" onSave={() => saveKeys(['chatEnabled','chatGreeting'], 'Чат на сайте')} saving={savingSection === 'Чат на сайте'}>
         <Check v={s.chatEnabled} set={f('chatEnabled')} label="Показывать кнопку чата на сайте" />
         <Field label="Приветствие в чате">{inp('chatGreeting')}</Field>
       </Section>
 
-      <Section icon={Bell} title="Уведомления о заказах и сообщениях" hint="Пуш приходят в браузер или на телефон, где вы их включили. Дополнительно можно получать сообщения в мессенджер. Важно: с российских серверов Telegram часто недоступен (блокировка с весны 2026) — надёжнее MAX.">
+      <Section icon={Bell} title="Уведомления о заказах и сообщениях" onSave={() => saveKeys(['tgBotToken','tgChatId','tgApiBase','maxBotToken','maxChatId'], 'Уведомления')} saving={savingSection === 'Уведомления'} hint="Пуш приходят в браузер или на телефон, где вы их включили. Дополнительно можно получать сообщения в мессенджер. Важно: с российских серверов Telegram часто недоступен (блокировка с весны 2026) — надёжнее MAX.">
         <PushToggle />
         <NotifyChannels s={s} f={f} inp={inp} />
       </Section>
 
-      <Section icon={Share2} title="Соцсети в шапке сайта" hint="Заполненные ссылки показываются иконками вверху сайта и в подвале. Пустые — скрыты.">
+      <Section icon={Share2} title="Соцсети в шапке сайта" onSave={() => saveKeys(['socialTelegram','socialVk','socialMax','socialInstagram','socialWhatsapp'], 'Соцсети')} saving={savingSection === 'Соцсети'} hint="Заполненные ссылки показываются иконками вверху сайта и в подвале. Пустые — скрыты.">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Telegram">{inp('socialTelegram', { placeholder: 'https://t.me/ваш_канал' })}</Field>
           <Field label="ВКонтакте">{inp('socialVk', { placeholder: 'https://vk.com/ваша_группа' })}</Field>
@@ -215,7 +272,7 @@ export default function ShopSettings() {
         <p className="text-xs text-slate-500">Instagram принадлежит компании Meta, признанной экстремистской и запрещённой в РФ — при заполнении ссылки в подвале сайта автоматически появится обязательная пометка.</p>
       </Section>
 
-      <Section icon={SearchIcon} title="Поисковики (SEO)" hint="Сайт сам отдаёт поисковикам заголовки, описания, карту сайта (/sitemap.xml) и robots.txt. Здесь — то, что нужно ввести вручную.">
+      <Section icon={SearchIcon} title="Поисковики (SEO)" onSave={() => saveKeys(['seoDescription','noindex','yandexVerification','googleVerification'], 'SEO')} saving={savingSection === 'SEO'} hint="Сайт сам отдаёт поисковикам заголовки, описания, карту сайта (/sitemap.xml) и robots.txt. Здесь — то, что нужно ввести вручную.">
         <Field label="Описание магазина для поисковиков (до 160 символов)">
           <textarea className="input min-h-[70px]" maxLength={300} value={s.seoDescription ?? ''} onChange={(e) => f('seoDescription')(e.target.value)} placeholder="Например: Одежда и обувь с доставкой по России. Примерка при получении, оплата картой или наличными." />
         </Field>
@@ -227,14 +284,14 @@ export default function ShopSettings() {
         <p className="text-xs text-slate-500">Добавьте сайт в <a className="text-indigo-600 underline" href="https://webmaster.yandex.ru" target="_blank" rel="noreferrer">Яндекс Вебмастер</a>, выберите подтверждение «Мета-тег», вставьте сюда код и сохраните. Затем укажите там карту сайта: {location.origin}/sitemap.xml</p>
       </Section>
 
-      <Section icon={BarChart3} title="Яндекс Метрика" hint="Счётчик ставится только на страницы магазина — админка не отслеживается.">
+      <Section icon={BarChart3} title="Яндекс Метрика" onSave={() => saveKeys(['metrikaId','metrikaWebvisor','metrikaEcommerce'], 'Яндекс Метрика')} saving={savingSection === 'Яндекс Метрика'} hint="Счётчик ставится только на страницы магазина — админка не отслеживается.">
         <Field label="Номер счётчика">{inp('metrikaId', { placeholder: 'например, 98765432', inputMode: 'numeric' })}</Field>
         <Check v={s.metrikaWebvisor} set={f('metrikaWebvisor')} label="Вебвизор (запись действий посетителей) и карта кликов" />
         <Check v={s.metrikaEcommerce} set={f('metrikaEcommerce')} label="Электронная коммерция (просмотры товаров, корзина, покупки)" />
         <p className="text-xs text-slate-500">Создайте счётчик на <a className="text-indigo-600 underline" href="https://metrika.yandex.ru" target="_blank" rel="noreferrer">metrika.yandex.ru</a> с адресом {location.host} и скопируйте его номер. О метрике автоматически сообщается в уведомлении о cookie и в политике конфиденциальности.</p>
       </Section>
 
-      <Section icon={MessageSquare} title="SMS для входа покупателей" hint="Покупатель вводит номер телефона и получает код по SMS.">
+      <Section icon={MessageSquare} title="SMS для входа покупателей" onSave={() => saveKeys(['smsMode','smsruApiId','smsSender'], 'SMS')} saving={savingSection === 'SMS'} hint="Покупатель вводит номер телефона и получает код по SMS.">
         <div className="inline-flex rounded-lg border border-slate-200 p-0.5 text-sm">
           {[['test', 'Тестовый режим'], ['smsru', 'SMS.ru']].map(([v, l]) => <button key={v} onClick={() => f('smsMode')(v)} className={`rounded-md px-3 py-1.5 ${s.smsMode === v ? 'bg-indigo-600 text-white' : 'text-slate-600'}`}>{l}</button>)}
         </div>
@@ -245,6 +302,22 @@ export default function ShopSettings() {
             <p className="text-xs text-slate-500 sm:col-span-2">Ключ — в кабинете sms.ru → «Программистам». Пополните баланс; одно SMS стоит несколько рублей.</p>
           </div>
         )}
+        <div className="rounded-xl bg-slate-50 p-4">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium">Баланс и лимит SMS.ru</span>
+            <Button size="sm" variant="secondary" loading={smsBusy} onClick={loadSmsStatus}>Проверить</Button>
+            {s.smsMode !== 'smsru' && <Button size="sm" variant="secondary" onClick={() => { f('smsMode')('smsru'); toast('Нажмите «Сохранить» в разделе, чтобы включить вход по SMS'); }}>Включить вход по SMS</Button>}
+          </div>
+          {!s.smsruApiId && <p className="text-xs text-amber-700">API-ключ не задан — вставьте api_id из кабинета sms.ru и сохраните раздел.</p>}
+          {smsStatus && !smsStatus.error && (
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+              <span>Баланс: <b>{Number(smsStatus.balance).toFixed(2)} ₽</b></span>
+              {smsStatus.totalLimit !== null && <span>Дневной лимит: <b>{smsStatus.usedToday} из {smsStatus.totalLimit}</b> номеров</span>}
+            </div>
+          )}
+          {smsStatus && smsStatus.error && <p className="text-xs text-rose-600">{smsStatus.error}</p>}
+          {s.smsMode === 'test' && <p className="mt-2 text-xs text-amber-700">Сейчас тестовый режим: код показывается на экране, SMS не отправляются и деньги не расходуются. «Включить вход по SMS» + «Сохранить» — реальная отправка (платно).</p>}
+        </div>
       </Section>
 
       <div className="flex justify-end"><Button icon={Save} loading={saving} onClick={save}>Сохранить</Button></div>
