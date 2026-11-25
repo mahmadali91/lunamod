@@ -492,6 +492,7 @@ model PushSubscription {
   keys       String   @db.Text // JSON { p256dh, auth }
   userId     Int? // сотрудник (админка)
   visitorKey String? // покупатель (чат)
+  userAgent  String? @db.VarChar(300) // чтобы в профиле было видно устройства
   createdAt  DateTime @default(now())
 
   @@unique([endpoint(length: 500)])

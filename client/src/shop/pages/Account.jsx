@@ -55,11 +55,16 @@ export default function Account() {
   const fileRef = useRef(null);
   const phoneRef = useRef(null);
   const [pushState, setPushState] = useState('checking'); // checking | on | off | denied | unsupported
+  const [pushDevices, setPushDevices] = useState([]);
 
   useEffect(() => {
     if (!pushSupported()) { setPushState('unsupported'); return; }
     currentSubscription().then((sub) => setPushState(sub ? 'on' : 'off')).catch(() => setPushState('off'));
   }, []);
+  useEffect(() => {
+    if (!auth.me) return;
+    shopApi('/push/devices').then((r) => setPushDevices(r.devices || [])).catch(() => {});
+  }, [auth.me, pushState]);
 
   useEffect(() => {
     if (!auth.me) return;
@@ -288,6 +293,14 @@ export default function Account() {
               {pushState === 'on' && (
                 <div className="mt-2 space-y-1">
                   <p className="flex items-center gap-1.5 text-sm text-emerald-700"><BadgeCheck size={16} /> Уведомления включены в этом браузере</p>
+                  {pushDevices.length > 0 && (
+                    <div className="text-xs text-slate-500">
+                      Устройств с уведомлениями: <b>{pushDevices.length}</b>
+                      <ul className="mt-1 space-y-0.5">
+                        {pushDevices.map((d) => <li key={d.id}>• {d.label}</li>)}
+                      </ul>
+                    </div>
+                  )}
                   <button type="button" onClick={async () => {
                     try {
                       const reg = await navigator.serviceWorker.ready;
@@ -295,7 +308,7 @@ export default function Account() {
                       notify('Отправили проверочное уведомление на это устройство');
                     } catch (e) { notify('Не удалось показать: ' + (e.message || 'браузер блокирует уведомления'), 'error'); }
                   }} className="block text-xs text-slate-600 underline">Проверить уведомление на этом устройстве</button>
-                  <button type="button" onClick={async () => { setPushState('checking'); await unsubscribePush(); setPushState('off'); notify('Уведомления отключены в этом браузере'); }} className="block text-xs text-slate-400 underline">Отключить в этом браузере</button>
+                  <button type="button" onClick={async () => { setPushState('checking'); await unsubscribePush(); setPushState('off'); shopApi('/push/devices').then((r) => setPushDevices(r.devices || [])).catch(() => {}); notify('Уведомления отключены в этом браузере'); }} className="block text-xs text-slate-400 underline">Отключить в этом браузере</button>
                 </div>
               )}
               {pushState === 'off' && (
@@ -305,7 +318,7 @@ export default function Account() {
                     let ok = false, err = '';
                     try { ok = await subscribePush(config?.vapidKey); }
                     catch (e) { err = e.message || ''; }
-                    if (ok) { setPushState('on'); notify('Уведомления включены'); if (!f.marketingPush) toggleMarketing('marketingPush', true); }
+                    if (ok) { setPushState('on'); notify('Уведомления включены'); shopApi('/push/devices').then((r) => setPushDevices(r.devices || [])).catch(() => {}); if (!f.marketingPush) toggleMarketing('marketingPush', true); }
                     else { setPushState(typeof Notification !== 'undefined' && Notification.permission === 'denied' ? 'denied' : 'off'); if (err) notify(err, 'error'); }
                   }} className="rounded-full bg-slate-900 px-4 py-1.5 text-sm text-white">Включить уведомления в этом браузере</button>
                   {isIosSafari() && <p className="text-xs text-amber-700">На iPhone: «Поделиться» → «На экран Домой», откройте сайт из иконки и включите уведомления там.</p>}

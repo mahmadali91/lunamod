@@ -584,11 +584,23 @@ r.post('/push/subscribe', customerAuth(), ah(async (req, res) => {
   const sub = req.body;
   if (!sub?.endpoint || !sub?.keys?.p256dh || !pushEndpointOk(sub.endpoint)) throw new HttpError(400, 'Неверная подписка');
   await prisma.pushSubscription.deleteMany({ where: { endpoint: sub.endpoint } });
-  await prisma.pushSubscription.create({ data: { endpoint: sub.endpoint, keys: JSON.stringify(sub.keys), visitorKey: 'cust-' + req.customer.cid } });
+  await prisma.pushSubscription.create({ data: { endpoint: sub.endpoint, keys: JSON.stringify(sub.keys), visitorKey: 'cust-' + req.customer.cid, userAgent: String(req.headers['user-agent'] || '').slice(0, 300) } });
   // явная подписка в браузере = согласие на пуш-уведомления
   const me = await prisma.customer.findUnique({ where: { id: req.customer.cid } });
   await prisma.customer.update({ where: { id: req.customer.cid }, data: { marketingPush: true, marketingConsentAt: me.marketingConsentAt || new Date() } }).catch(() => {});
   res.json({ ok: true });
+}));
+
+// Устройства, на которых включены пуш-уведомления
+r.get('/push/devices', customerAuth(), ah(async (req, res) => {
+  const rows = await prisma.pushSubscription.findMany({ where: { visitorKey: 'cust-' + req.customer.cid }, select: { id: true, userAgent: true, createdAt: true } });
+  const label = (ua) => {
+    const u = String(ua || '');
+    const device = /iphone|ipad|ipod/i.test(u) ? 'iPhone/iPad' : /android/i.test(u) ? 'Android' : /macintosh|mac os/i.test(u) ? 'Mac' : /windows/i.test(u) ? 'Windows' : /linux/i.test(u) ? 'Linux' : 'Устройство';
+    const browser = /edg\//i.test(u) ? 'Edge' : /yandex/i.test(u) ? 'Яндекс' : /firefox/i.test(u) ? 'Firefox' : /chrome/i.test(u) ? 'Chrome' : /safari/i.test(u) ? 'Safari' : 'браузер';
+    return device + ' · ' + browser;
+  };
+  res.json({ total: rows.length, devices: rows.map((x) => ({ id: x.id, label: label(x.userAgent), createdAt: x.createdAt })) });
 }));
 
 // Отписка браузера от пуш-уведомлений
