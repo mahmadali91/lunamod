@@ -61,6 +61,8 @@ function PickList({ o, onClose }) {
 }
 
 function OrderModal({ id, onClose, onChange }) {
+  // возврат денег через Т-Банк — только администратор (сервер тоже проверяет)
+  const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'admin';
   const [o, setO] = useState(null);
   const [busy, setBusy] = useState(false);
   const [pick, setPick] = useState(false);
@@ -97,7 +99,7 @@ function OrderModal({ id, onClose, onChange }) {
         <>
           <div className="mr-auto flex flex-wrap gap-2">
             <Button variant="secondary" icon={XCircle} className="text-rose-600" loading={busy} onClick={() => setStatus('cancelled')}>Отменить</Button>
-            {paidOnline && <Button variant="secondary" icon={Undo2} loading={busy} onClick={refund}>Вернуть</Button>}
+            {paidOnline && isAdmin && <Button variant="secondary" icon={Undo2} loading={busy} onClick={refund}>Вернуть</Button>}
           </div>
           {o.paymentMethod === 'cash' && o.paymentStatus !== 'paid' && <Button variant="secondary" icon={Wallet} loading={busy} onClick={() => act('paid', {}, 'Оплата отмечена')}>Оплачен</Button>}
           {o.status === 'new' && <Button variant="secondary" loading={busy} onClick={() => setStatus('confirmed')}>Подтвердить</Button>}

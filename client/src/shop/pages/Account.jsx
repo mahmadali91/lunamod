@@ -73,7 +73,8 @@ export default function Account() {
     setF({
       name: auth.me.name || '', email: auth.me.email || '', address: auth.me.address || '',
       phone: digitsPhone(auth.me.phone || ''),
-      marketingPush: auth.me.marketingPush !== false,
+      // реклама — только при явном согласии (галочка), включённые push сами по себе согласием не считаются
+      marketingPush: Boolean(auth.me.marketingConsentAt) && auth.me.marketingPush !== false,
     });
   }, [auth.me]);
   if (!auth.me) {
@@ -288,7 +289,7 @@ export default function Account() {
 
             <div className="rounded-3xl bg-slate-50 p-5">
               <h3 className="mb-2 font-semibold">Уведомления и реклама</h3>
-              <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5" checked={f.marketingPush} onChange={(e) => toggleMarketing('marketingPush', e.target.checked)} /> <span>Получать новости о скидках и новинках</span></label>
+              <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5" checked={f.marketingPush} onChange={(e) => toggleMarketing('marketingPush', e.target.checked)} /> <span>Согласен получать рекламу: акции, скидки и новинки (push-уведомления)</span></label>
               {pushState === 'unsupported' && <p className="mt-2 text-xs text-slate-500">Этот браузер не поддерживает пуш-уведомления.</p>}
               {pushState === 'on' && (
                 <div className="mt-2 space-y-1">
@@ -318,7 +319,7 @@ export default function Account() {
                     let ok = false, err = '';
                     try { ok = await subscribePush(config?.vapidKey); }
                     catch (e) { err = e.message || ''; }
-                    if (ok) { setPushState('on'); notify('Уведомления включены'); shopApi('/push/devices').then((r) => setPushDevices(r.devices || [])).catch(() => {}); if (!f.marketingPush) toggleMarketing('marketingPush', true); }
+                    if (ok) { setPushState('on'); notify('Уведомления включены'); shopApi('/push/devices').then((r) => setPushDevices(r.devices || [])).catch(() => {}); }
                     else { setPushState(typeof Notification !== 'undefined' && Notification.permission === 'denied' ? 'denied' : 'off'); if (err) notify(err, 'error'); }
                   }} className="rounded-full bg-slate-900 px-4 py-1.5 text-sm text-white">Включить уведомления в этом браузере</button>
                   {isIosSafari() && <p className="text-xs text-amber-700">На iPhone: «Поделиться» → «На экран Домой», откройте сайт из иконки и включите уведомления там.</p>}

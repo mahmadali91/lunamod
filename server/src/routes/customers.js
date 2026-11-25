@@ -9,6 +9,8 @@ const { sendMail } = require('../shop/mail');
 const { notifyVisitor } = require('../notify');
 
 const r = express.Router();
+// весь раздел «Клиенты» (email, телефоны, посещения, рассылки) — только администратор
+r.use(requireAdmin);
 const CUSTOMER_SECRET = (process.env.JWT_SECRET || 'change-me-please') + ':customer';
 const normPhone = (p) => {
   let d = String(p || '').replace(/\D/g, '');

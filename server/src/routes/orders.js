@@ -83,7 +83,7 @@ r.post('/:id(\\d+)/status', ah(async (req, res) => {
 
 // Возврат денег покупателю (отдельное действие, как «Вернуть» в Т-Бизнесе). Заказ при этом не отменяется.
 const refunding = new Set(); // защита от двойного нажатия «Вернуть»: второй запрос в банк не уходит
-r.post('/:id(\\d+)/refund', ah(async (req, res) => {
+r.post('/:id(\\d+)/refund', requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
   if (refunding.has(id)) throw new HttpError(409, 'Возврат по этому заказу уже выполняется');
   refunding.add(id);

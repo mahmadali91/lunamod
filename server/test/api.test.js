@@ -879,3 +879,31 @@ test('вход по email: чужой неподтверждённый адре�
   const bulk = await api('/customers/bulk', { method: 'POST', body: { text: 'Акция', filter: { q: other } } });
   assert.equal(bulk.status, 400); assert.match(bulk.data.error, /push/);
 });
+
+test('права продавца: без раздела «Клиенты» и без возврата денег; реклама — только по отдельному согласию', async () => {
+  const login = `seller${Date.now()}`;
+  await ok('/users', { method: 'POST', body: { login, name: 'Продавец', role: 'seller', password: 'seller-pass-123' } });
+  const st = (await api('/auth/login', { method: 'POST', auth: false, body: { login, password: 'seller-pass-123' } })).data.token;
+  assert.ok(st);
+  const as = (p, opt = {}) => fetch(BASE + '/api' + p, { method: opt.method || 'GET', headers: { Authorization: 'Bearer ' + st, 'Content-Type': 'application/json' }, body: opt.body && JSON.stringify(opt.body) });
+  assert.equal((await as('/customers')).status, 403, 'список клиентов');
+  assert.equal((await as('/customers/bulk', { method: 'POST', body: { text: 'Акция' } })).status, 403, 'рассылка');
+  assert.equal((await as('/orders/1/refund', { method: 'POST', body: {} })).status, 403, 'возврат денег');
+  assert.equal((await api('/customers')).status, 200, 'админу раздел доступен');
+
+  // согласие на рекламу: по умолчанию нет; галочка ставит дату, снятие — отзывает
+  const sh = async (p, { method = 'GET', body, token: t } = {}) => {
+    const headers = { 'Content-Type': 'application/json', 'X-Forwarded-For': '198.51.100.24' };
+    if (t) headers.Authorization = 'Bearer ' + t;
+    const res = await fetch(BASE + '/api/shop' + p, { method, headers, body: body && JSON.stringify(body) });
+    return { status: res.status, data: await res.json().catch(() => ({})) };
+  };
+  const em = `mkt${Date.now()}@example.ru`;
+  const rc = await sh('/auth/email/request-code', { method: 'POST', body: { captcha: await cap(), email: em } });
+  const ct = (await sh('/auth/email/verify', { method: 'POST', body: { email: em, code: rc.data.testCode, consent: true } })).data.token;
+  assert.equal((await sh('/me', { token: ct })).data.marketingConsentAt, null, 'после регистрации согласия на рекламу нет');
+  assert.ok((await sh('/me', { method: 'PUT', token: ct, body: { marketingPush: true } })).data.marketingConsentAt, 'галочка — согласие с датой');
+  const off = (await sh('/me', { method: 'PUT', token: ct, body: { marketingPush: false } })).data;
+  assert.equal(off.marketingConsentAt, null, 'снятие галочки — отзыв согласия');
+  assert.equal(off.marketingPush, false);
+});
