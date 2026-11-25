@@ -308,9 +308,13 @@ async function startPayment(s, order) {
     const p = await tbank.initPayment(s, order, order.paymentId ? Date.now() % 100000 : 0);
     if (sbp) {
       // СБП: ссылка-QR из банка; покупатель сканирует QR или на телефоне сразу открывает приложение банка
-      const qr = await tbank.getQr(s, p.PaymentId);
-      await prisma.order.update({ where: { id: order.id }, data: { paymentId: String(p.PaymentId), paymentUrl: qr, paymentStatus: 'pending' } });
-      return `/order/${order.id}?sbp=1`;
+      let qr = null;
+      try { qr = await tbank.getQr(s, p.PaymentId); } catch (e) { if (!e.sbpUnavailable) throw e; console.warn(e.message); }
+      if (qr) {
+        await prisma.order.update({ where: { id: order.id }, data: { paymentId: String(p.PaymentId), paymentUrl: qr, paymentStatus: 'pending' } });
+        return `/order/${order.id}?sbp=1`;
+      }
+      // СБП-QR у терминала не включён — отправляем на платёжную страницу банка, чтобы покупатель всё равно мог оплатить
     }
     await prisma.order.update({ where: { id: order.id }, data: { paymentId: String(p.PaymentId), paymentUrl: p.PaymentURL, paymentStatus: 'pending' } });
     return p.PaymentURL;

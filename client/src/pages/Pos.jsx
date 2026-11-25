@@ -39,6 +39,14 @@ export default function Pos() {
 
   useEffect(() => { localStorage.setItem(LS, JSON.stringify({ warehouseId, channelId })); }, [warehouseId, channelId]);
   useEffect(() => { api('/orders/settings').then(setShop).catch(() => {}); }, []);
+  // пока открыт QR — каждые 4 с спрашиваем у банка, прошла ли оплата
+  useEffect(() => {
+    if (!sbp || sbp.paid) return undefined;
+    const t = setInterval(() => {
+      api(`/sales/${sbp.sale.id}/sbp-status`).then((r) => { if (r.paid) setSbp((x) => (x && x.sale.id === sbp.sale.id ? { ...x, paid: true } : x)); }).catch(() => {});
+    }, 4000);
+    return () => clearInterval(t);
+  }, [sbp?.sale?.id, sbp?.paid]);
 
   const downloadReceipt = async (sale) => {
     await receiptPdf(sale, {
@@ -66,7 +74,7 @@ export default function Pos() {
       if (paymentMethod === 'sbp_qr' && !consignment) {
         try {
           const q = await api(`/sales/${s.id}/sbp-qr`, { method: 'POST' });
-          setSbp({ sale: s, paymentUrl: q.paymentUrl });
+          setSbp({ sale: s, paymentUrl: q.paymentUrl, kind: q.kind || 'sbp', paid: false });
         } catch (e) {
           toast('Продажа проведена, но QR не создан: ' + e.message, 'error');
           setDone(s);
@@ -129,9 +137,9 @@ export default function Pos() {
           )}
           <div>
             <span className="label">{consignment ? 'Способ предоплаты' : 'Оплата'}</span>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               {payments.map(([k, l, Icon]) => (
-                <button key={k} onClick={() => setPaymentMethod(k)} className={`flex flex-col items-center gap-1 rounded-lg border py-2 text-xs font-medium transition ${paymentMethod === k ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                <button key={k} onClick={() => setPaymentMethod(k)} className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-lg border px-1 py-2 text-center text-xs leading-tight font-medium transition ${paymentMethod === k ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                   <Icon size={18} />{l}
                 </button>
               ))}
@@ -157,8 +165,12 @@ export default function Pos() {
         {sbp && (
           <div className="flex flex-col items-center py-2 text-center">
             <div className="mb-1 flex items-center gap-2 text-lg font-bold"><QrCode size={22} /> {money(sbp.sale.total)}</div>
-            <div className="mb-3 text-sm text-slate-500">Попросите покупателя отсканировать QR-код в приложении банка</div>
+            <div className="mb-3 text-sm text-slate-500">{sbp.kind === 'form' ? 'Попросите покупателя отсканировать QR-код камерой телефона — откроется страница оплаты Т-Банка' : 'Попросите покупателя отсканировать QR-код в приложении банка'}</div>
             <QrImage url={sbp.paymentUrl} />
+            {sbp.paid
+              ? <div className="mt-3 flex items-center gap-1.5 font-semibold text-emerald-600"><CheckCircle2 size={18} /> Оплата прошла</div>
+              : <div className="mt-3 text-xs text-slate-400">Ждём оплату — статус обновится сам</div>}
+            {sbp.kind === 'form' && <p className="mt-2 max-w-sm rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">QR-код СБП в Т-Банке для этого магазина не включён, поэтому QR ведёт на страницу оплаты банка. Чтобы был прямой QR СБП — включите СБП для терминала в личном кабинете Т-Бизнеса.</p>}
             <p className="mt-3 max-w-sm text-xs text-slate-500">Счёт выставлен через Т-Банк. После оплаты банк пришлёт фискальный чек, а ниже можно скачать товарный чек PDF для покупателя.</p>
           </div>
         )}
