@@ -30,8 +30,7 @@ export default function Account() {
       name: auth.me.name || '', email: auth.me.email || '', address: auth.me.address || '',
       birthDate: auth.me.birthDate ? String(auth.me.birthDate).slice(0, 10) : '',
       gender: auth.me.gender || '',
-      authMethod: auth.me.authMethod || 'phone',
-      marketingSms: auth.me.marketingSms !== false, marketingPush: auth.me.marketingPush !== false,
+      marketingPush: auth.me.marketingPush !== false,
     });
   }, [auth.me]);
   if (!auth.me) {
@@ -76,7 +75,7 @@ export default function Account() {
     try {
       const r = await shopApi('/me/email/request-code', { method: 'POST', body: { email: (emailStep?.email || f.email || '').trim().toLowerCase() } });
       setEmailStep({ email: r.email, sent: true, code: '', via: r.channel, test: r.testCode || null });
-      notify(r.channel === 'sms' ? 'Почта не настроена — код придёт SMS на ваш номер' : 'Код отправлен на email');
+      notify('Код отправлен на email');
     } catch (err) { notify(err.message, 'error'); }
   };
   const verifyEmail = async () => {
@@ -216,9 +215,8 @@ export default function Account() {
               ) : emailStep.sent ? (
                 <div className="mt-2 space-y-2">
                   <p className="text-xs text-slate-500">Код отправлен на {emailStep.email}</p>
-                  {emailStep.via === 'sms' && <p className="text-xs text-amber-700">Почта на сайте ещё не настроена, поэтому подтверждаем кодом из SMS на номер {fmtPhone(auth.me.phone)}</p>}
                   {emailStep.test && <p className="text-xs text-amber-700">Тестовый режим, код: <b>{emailStep.test}</b></p>}
-                  <input value={emailStep.code} onChange={(e) => setEmailStep({ ...emailStep, code: e.target.value.replace(/\D/g, '').slice(0, 6) })} inputMode="numeric" placeholder={emailStep.via === 'sms' ? 'Код из SMS' : 'Код из письма'} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm tracking-widest outline-none focus:border-slate-900" />
+                  <input value={emailStep.code} onChange={(e) => setEmailStep({ ...emailStep, code: e.target.value.replace(/\D/g, '').slice(0, 6) })} inputMode="numeric" placeholder="Код из письма" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm tracking-widest outline-none focus:border-slate-900" />
                   <div className="flex gap-2">
                     <button type="button" onClick={verifyEmail} className="rounded-full bg-slate-900 px-4 py-1.5 text-sm text-white">Подтвердить</button>
                     <button type="button" onClick={() => setEmailStep(null)} className="text-sm text-slate-500 underline">Отмена</button>
@@ -237,16 +235,8 @@ export default function Account() {
 
 
             <div className="rounded-3xl bg-slate-50 p-5">
-              <h3 className="mb-2 font-semibold">Способ входа</h3>
-              <label className="flex items-center gap-2 text-sm"><input type="radio" checked={f.authMethod === 'phone'} onChange={() => setF({ ...f, authMethod: 'phone' })} /> По SMS на телефон</label>
-              <label className={`mt-1 flex items-center gap-2 text-sm ${emailVerified ? '' : 'opacity-50'}`}><input type="radio" disabled={!emailVerified} checked={f.authMethod === 'email'} onChange={() => setF({ ...f, authMethod: 'email' })} /> По коду на email</label>
-              <button type="button" onClick={async () => { try { await shopApi('/me', { method: 'PUT', body: { authMethod: f.authMethod } }); await auth.refresh(); notify('Способ входа сохранён'); } catch (err) { notify(err.message, 'error'); } }} className="mt-2 rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm">Сохранить способ</button>
-            </div>
-
-            <div className="rounded-3xl bg-slate-50 p-5">
               <h3 className="mb-2 font-semibold">Уведомления и реклама</h3>
-              <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5" checked={f.marketingSms} onChange={(e) => toggleMarketing('marketingSms', e.target.checked)} /> <span>SMS о скидках и новинках</span></label>
-              <label className="mt-1 flex items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5" checked={f.marketingPush} onChange={(e) => toggleMarketing('marketingPush', e.target.checked)} /> <span>Push-уведомления о скидках и новинках</span></label>
+              <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5" checked={f.marketingPush} onChange={(e) => toggleMarketing('marketingPush', e.target.checked)} /> <span>Push-уведомления о скидках и новинках</span></label>
               <p className="mt-2 text-xs text-slate-500">Отказаться можно в любой момент. Заказы и коды входа приходят независимо от этих настроек.</p>
             </div>
 

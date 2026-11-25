@@ -5,7 +5,6 @@ const prisma = require('../db');
 const { ah, HttpError, str, clientIp } = require('../util');
 const { requireAdmin } = require('../auth');
 const { getShopSettings } = require('../shop/settings');
-const { sendSms } = require('../shop/sms');
 const { sendMail } = require('../shop/mail');
 const { notifyVisitor } = require('../notify');
 
@@ -43,7 +42,6 @@ async function buildWhere(f = {}) {
   if (f.hasEmail === '1') where.email = { not: null };
   if (f.verifiedEmail === '1') where.emailVerifiedAt = { not: null };
   if (f.marketing === '1') where.marketingConsentAt = { not: null };
-  if (f.smsOk === '1') where.marketingSms = true;
   if (f.pushOk === '1') where.marketingPush = true;
   if (f.hasOrders === '1') where.orders = { some: {} };
   if (f.hasOrders === '0') where.orders = { none: {} };
@@ -85,7 +83,7 @@ r.get('/', ah(async (req, res) => {
   const items = rows.map((c) => ({
     id: c.id, phone: c.phone, name: c.name, email: c.email, emailVerifiedAt: c.emailVerifiedAt, avatar: c.avatar,
     birthDate: c.birthDate, gender: c.gender, createdAt: c.createdAt, lastLogin: c.lastLogin,
-    marketingConsentAt: c.marketingConsentAt, marketingSms: c.marketingSms, marketingPush: c.marketingPush,
+    marketingConsentAt: c.marketingConsentAt, marketingPush: c.marketingPush,
     ordersCount: st.orders.get(c.id)?.count || 0, ordersSum: st.orders.get(c.id)?.sum || 0,
     lastVisitAt: st.visits.get(c.id) || null, lastChatAt: st.chats.get(c.id) || null,
   }));
@@ -145,18 +143,11 @@ r.get('/:id(\\d+)', ah(async (req, res) => {
 // ---------- сообщение одному клиенту ----------
 r.post('/:id(\\d+)/message', requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
-  const channel = String(req.body.channel);
   const text = str(req.body.text);
-  if (!['sms', 'push'].includes(channel)) throw new HttpError(400, 'Канал: sms или push');
   if (!text) throw new HttpError(400, 'Введите текст сообщения');
   const c = await prisma.customer.findUnique({ where: { id } });
   if (!c) throw new HttpError(404, 'Клиент не найден');
   const s = await getShopSettings();
-  if (channel === 'sms') {
-    if (!c.phone) throw new HttpError(400, 'У клиента нет номера телефона — напишите ему на email');
-    const r1 = await sendSms(s, c.phone, text.slice(0, 500));
-    return res.json({ ok: true, test: Boolean(r1.test) });
-  }
   const sent = await notifyVisitor('cust-' + id, { title: s.title || 'Магазин', body: text.slice(0, 300), url: '/' });
   res.json({ ok: true, sent });
 }));
@@ -177,8 +168,7 @@ r.post('/:id(\\d+)/phone', requireAdmin, ah(async (req, res) => {
   await prisma.customerPhoneChange.create({ data: { customerId: id, oldPhone: c.phone || '', newPhone: phone, reason, byUserId: req.user?.id || null } });
   await prisma.conversation.updateMany({ where: { customerId: id, status: 'open' }, data: { phone } });
   const s = await getShopSettings();
-  // предупреждаем клиента о смене номера — на новый номер и на подтверждённый email
-  sendSms(s, phone, `Номер вашего аккаунта на сайте ${s.title || ''} изменён. Если это не вы — напишите нам.`).catch(() => {});
+  // предупреждаем клиента о смене номера на подтверждённый email
   if (c.email && c.emailVerifiedAt) sendMail(s, { to: c.email, subject: 'Номер аккаунта изменён', text: `Номер вашего аккаунта изменён на новый. Если это не вы — ответьте на письмо.` }).catch(() => {});
   res.json(updated);
 }));
@@ -204,15 +194,8 @@ async function processBulk(bulkId) {
         const c = await prisma.customer.findUnique({ where: { id: rec.customerId } });
         if (!c) { await prisma.bulkRecipient.update({ where: { id: rec.id }, data: { status: 'skipped', error: 'клиент удалён' } }); await prisma.bulkMessage.update({ where: { id: bulkId }, data: { skipped: { increment: 1 } } }); continue; }
         try {
-          if (bulk.channel === 'sms') {
-            if (s.smsMode !== 'smsru') throw new Error('тестовый режим — SMS не отправлено');
-            if (!c.phone) throw new Error('нет номера телефона');
-            const link = `${base}/api/shop/unsubscribe?token=${unsubToken(c.id, 'sms')}`;
-            await sendSms(s, c.phone, `${bulk.text.slice(0, 400)}\nОтписаться: ${link}`);
-          } else {
-            const sent = await notifyVisitor('cust-' + c.id, { title: s.title || 'Магазин', body: bulk.text.slice(0, 300), url: '/' });
-            if (!sent) throw new Error('нет подписки на push');
-          }
+          const sent = await notifyVisitor('cust-' + c.id, { title: s.title || 'Магазин', body: bulk.text.slice(0, 300), url: '/' });
+          if (!sent) throw new Error('нет подписки на push');
           await prisma.bulkRecipient.update({ where: { id: rec.id }, data: { status: 'sent', sentAt: new Date() } });
           await prisma.bulkMessage.update({ where: { id: bulkId }, data: { sent: { increment: 1 } } });
           failedRow = 0;
@@ -237,16 +220,15 @@ async function processBulk(bulkId) {
 }
 
 r.post('/bulk', requireAdmin, ah(async (req, res) => {
-  const channel = String(req.body.channel);
+  const channel = 'push';
   const text = str(req.body.text);
-  if (!['sms', 'push'].includes(channel)) throw new HttpError(400, 'Канал: sms или push');
   if (!text || text.length < 2) throw new HttpError(400, 'Введите текст сообщения');
   if (text.length > 500) throw new HttpError(400, 'Слишком длинный текст (до 500 символов)');
   const filter = req.body.filter && typeof req.body.filter === 'object' ? req.body.filter : {};
   const where = await buildWhere(filter);
   // только с согласием на рекламу
   where.marketingConsentAt = { not: null };
-  where[channel === 'sms' ? 'marketingSms' : 'marketingPush'] = true;
+  where.marketingPush = true;
   const customers = await prisma.customer.findMany({ where, select: { id: true }, take: 501 });
   if (!customers.length) throw new HttpError(400, 'Нет получателей с согласием на рассылку по этому фильтру');
   if (customers.length > 500) throw new HttpError(400, 'Больше 500 получателей — сузьте фильтр');

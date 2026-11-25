@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Mail, Megaphone, Rss, Save, ExternalLink, Search as SearchIcon, BarChart3, Share2, Send, History, CheckCircle2, XCircle, AlertTriangle, CreditCard, MessageSquare, Truck, Store, ShieldCheck, FileText, Bell, MessagesSquare, Plus, Trash2, RotateCcw, ChevronDown } from 'lucide-react';
+import { Mail, Megaphone, Rss, Save, ExternalLink, Search as SearchIcon, BarChart3, Share2, Send, History, CheckCircle2, XCircle, AlertTriangle, CreditCard, Truck, Store, ShieldCheck, FileText, Bell, MessagesSquare, Plus, Trash2, RotateCcw, ChevronDown } from 'lucide-react';
 import PushToggle from '../components/PushToggle';
 import { api } from '../api';
 import { Button, Field, PasswordInput, PageHeader, RefSelect, Spinner, useToast } from '../ui';
@@ -26,19 +26,12 @@ export default function ShopSettings() {
   const [methods, setMethods] = useState([]);
   const [doc, setDoc] = useState('privacy');
   const [savingSection, setSavingSection] = useState('');
-  const [smsStatus, setSmsStatus] = useState(null);
   const [smtpBusy, setSmtpBusy] = useState(false);
-  const [smsBusy, setSmsBusy] = useState(false);
   const toast = useToast();
   useEffect(() => {
     api('/orders/settings').then(setS).catch((e) => toast(e.message, 'error'));
     api('/orders/settings/templates').then((t) => { setTpl(t); setMethods(t.methods); }).catch(() => {});
   }, [toast]);
-  const loadSmsStatus = async () => {
-    setSmsBusy(true);
-    try { setSmsStatus(await api('/orders/settings/sms-status')); } catch (e) { setSmsStatus({ error: e.message }); } finally { setSmsBusy(false); }
-  };
-  useEffect(() => { if (s && s.smsMode === 'smsru' && s.smsruApiId) loadSmsStatus(); }, [s && s.smsMode, s && s.smsruApiId]);
   if (!s || !tpl) return <Spinner />;
   const setM = (i, patch) => setMethods(methods.map((m, j) => (i === j ? { ...m, ...patch } : m)));
   const addMethod = (carrier) => setMethods([...methods, { id: carrier + '_' + Date.now().toString(36), carrier, name: tpl.carriers[carrier].name, enabled: true, price: 0, markupFixed: 0, markupPercent: 0, freeFrom: 0, days: '', description: '' }]);
@@ -79,17 +72,10 @@ export default function ShopSettings() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <PageHeader title="Интернет-магазин" subtitle="Витрина на главной странице сайта, вход покупателей по SMS, оплата">
+      <PageHeader title="Интернет-магазин" subtitle="Витрина на главной странице сайта, вход покупателей по email, оплата">
         <a href="/" target="_blank" rel="noreferrer"><Button variant="secondary" icon={ExternalLink}>Открыть магазин</Button></a>
         <Button icon={Save} loading={saving} onClick={save}>Сохранить</Button>
       </PageHeader>
-
-      {s.smsMode === 'test' && (
-        <div className="flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <AlertTriangle className="shrink-0" />
-          <div><b>Магазин в тестовом режиме.</b> Код из SMS показывается прямо на экране, а онлайн-оплата без ключей Т-Банка проходит «понарошку». Войти может кто угодно под любым номером. Перед запуском подключите SMS.ru и Т-Банк ниже.</div>
-        </div>
-      )}
 
       <Section icon={Store} title="Витрина" onSave={() => saveKeys(['enabled','title','tagline','phone','email','address','workHours','siteUrl','warehouseId','showOutOfStock','allowBackorder'], 'Витрина')} saving={savingSection === 'Витрина'}>
         <Check v={s.enabled} set={f('enabled')} label="Магазин открыт (если выключить — на сайте будет страница «Скоро открытие»)" />
@@ -214,7 +200,7 @@ export default function ShopSettings() {
       </Section>
 
 
-      <Section icon={Mail} title="Почта и рассылки" onSave={() => saveKeys(['smtpHost','smtpPort','smtpSecure','smtpUser','smtpPass','smtpFrom','smtpFromName','smsPrice','visitRetentionDays','trackVisits'], 'Почта и рассылки')} saving={savingSection === 'Почта и рассылки'} hint="Почта нужна для входа покупателей по коду на email и уведомлений. Для Beget: smtp.beget.com, порт 465, SSL включён, логин — полный адрес почты.">
+      <Section icon={Mail} title="Почта и рассылки" onSave={() => saveKeys(['smtpHost','smtpPort','smtpSecure','smtpUser','smtpPass','smtpFrom','smtpFromName','visitRetentionDays','trackVisits'], 'Почта и рассылки')} saving={savingSection === 'Почта и рассылки'} hint="Почта нужна для входа покупателей по коду на email и уведомлений. Для Beget: smtp.beget.com, порт 465, SSL включён, логин — полный адрес почты.">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="SMTP-сервер">{inp('smtpHost', { placeholder: 'smtp.beget.com' })}</Field>
           <Field label="Порт">{inp('smtpPort', { placeholder: '465', inputMode: 'numeric' })}</Field>
@@ -229,16 +215,14 @@ export default function ShopSettings() {
           <span className="text-xs text-slate-500">Письмо придёт на адрес продавца из раздела «Продавец и документы»</span>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Field label="Цена одного SMS, ₽">{inp('smsPrice', { placeholder: '0', inputMode: 'numeric' })}</Field>
           <Field label="Хранить посещения, дней">{inp('visitRetentionDays', { placeholder: '90', inputMode: 'numeric' })}</Field>
           <div className="self-end"><Check v={s.trackVisits} set={f('trackVisits')} label="Собирать статистику посещений" /></div>
         </div>
       </Section>
 
-      <Section icon={Megaphone} title="Покупатели: напоминания и отзывы" onSave={() => saveKeys(['cartReminders','remindSms','reviewsEnabled'], 'Покупатели')} saving={savingSection === 'Покупатели'}>
+      <Section icon={Megaphone} title="Покупатели: напоминания и отзывы" onSave={() => saveKeys(['cartReminders','reviewsEnabled'], 'Покупатели')} saving={savingSection === 'Покупатели'}>
         <Check v={s.cartReminders} set={f('cartReminders')} label="Напоминать о брошенной корзине (пуш через 2 часа и через сутки)" />
-        <Check v={s.remindSms} set={f('remindSms')} label="Дублировать по SMS: «снова в наличии» и напоминание через сутки (только с SMS.ru, платно)" />
-        <p className="text-xs text-slate-500">«Сообщить о поступлении»: покупатель подписывается на нужный размер, которого нет. Когда товар придёт (приход, корректировка остатков) — получит пуш-уведомление{s.remindSms === '1' ? ' и SMS' : ''}.</p>
+        <p className="text-xs text-slate-500">«Сообщить о поступлении»: покупатель подписывается на нужный размер, которого нет. Когда товар придёт (приход, корректировка остатков) — получит пуш-уведомление.</p>
         <Check v={s.reviewsEnabled} set={f('reviewsEnabled')} label="Отзывы покупателей с фото и оценкой посадки (публикуются после проверки в разделе «Отзывы»)" />
       </Section>
 
@@ -289,35 +273,6 @@ export default function ShopSettings() {
         <Check v={s.metrikaWebvisor} set={f('metrikaWebvisor')} label="Вебвизор (запись действий посетителей) и карта кликов" />
         <Check v={s.metrikaEcommerce} set={f('metrikaEcommerce')} label="Электронная коммерция (просмотры товаров, корзина, покупки)" />
         <p className="text-xs text-slate-500">Создайте счётчик на <a className="text-indigo-600 underline" href="https://metrika.yandex.ru" target="_blank" rel="noreferrer">metrika.yandex.ru</a> с адресом {location.host} и скопируйте его номер. О метрике автоматически сообщается в уведомлении о cookie и в политике конфиденциальности.</p>
-      </Section>
-
-      <Section icon={MessageSquare} title="SMS для входа покупателей" onSave={() => saveKeys(['smsMode','smsruApiId','smsSender'], 'SMS')} saving={savingSection === 'SMS'} hint="Покупатель вводит номер телефона и получает код по SMS.">
-        <div className="inline-flex rounded-lg border border-slate-200 p-0.5 text-sm">
-          {[['test', 'Тестовый режим'], ['smsru', 'SMS.ru']].map(([v, l]) => <button key={v} onClick={() => f('smsMode')(v)} className={`rounded-md px-3 py-1.5 ${s.smsMode === v ? 'bg-indigo-600 text-white' : 'text-slate-600'}`}>{l}</button>)}
-        </div>
-        {s.smsMode === 'smsru' && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="API-ключ SMS.ru (api_id)">{inp('smsruApiId', { type: 'password', autoComplete: 'new-password' })}</Field>
-            <Field label="Имя отправителя (если согласовано)">{inp('smsSender', { placeholder: 'необязательно' })}</Field>
-            <p className="text-xs text-slate-500 sm:col-span-2">Ключ — в кабинете sms.ru → «Программистам». Пополните баланс; одно SMS стоит несколько рублей.</p>
-          </div>
-        )}
-        <div className="rounded-xl bg-slate-50 p-4">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">Баланс и лимит SMS.ru</span>
-            <Button size="sm" variant="secondary" loading={smsBusy} onClick={loadSmsStatus}>Проверить</Button>
-            {s.smsMode !== 'smsru' && <Button size="sm" variant="secondary" onClick={() => { f('smsMode')('smsru'); toast('Нажмите «Сохранить» в разделе, чтобы включить вход по SMS'); }}>Включить вход по SMS</Button>}
-          </div>
-          {!s.smsruApiId && <p className="text-xs text-amber-700">API-ключ не задан — вставьте api_id из кабинета sms.ru и сохраните раздел.</p>}
-          {smsStatus && !smsStatus.error && (
-            <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-              <span>Баланс: <b>{Number(smsStatus.balance).toFixed(2)} ₽</b></span>
-              {smsStatus.totalLimit !== null && <span>Дневной лимит: <b>{smsStatus.usedToday} из {smsStatus.totalLimit}</b> номеров</span>}
-            </div>
-          )}
-          {smsStatus && smsStatus.error && <p className="text-xs text-rose-600">{smsStatus.error}</p>}
-          {s.smsMode === 'test' && <p className="mt-2 text-xs text-amber-700">Сейчас тестовый режим: код показывается на экране, SMS не отправляются и деньги не расходуются. «Включить вход по SMS» + «Сохранить» — реальная отправка (платно).</p>}
-        </div>
       </Section>
 
       <div className="flex justify-end"><Button icon={Save} loading={saving} onClick={save}>Сохранить</Button></div>

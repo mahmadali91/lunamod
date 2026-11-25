@@ -1,10 +1,9 @@
 // Фоновые задачи магазина (раз в 5 минут, пока сервер работает, и после прихода товара):
-//  - «Сообщить о поступлении»: товар снова в наличии → пуш (и SMS, если включено) подписавшимся;
-//  - брошенная корзина: через 2 часа — пуш, через сутки — пуш или SMS.
+//  - «Сообщить о поступлении»: товар снова в наличии → пуш подписавшимся;
+//  - брошенная корзина: через 2 часа и через сутки — пуш.
 const prisma = require('./db');
 const { getShopSettings } = require('./shop/settings');
 const { notifyVisitor } = require('./notify');
-const { sendSms } = require('./shop/sms');
 
 let running = false, lastRun = 0;
 
@@ -20,7 +19,6 @@ async function waitlist(s) {
     const card = x.product.parent || x.product;
     const url = `/product/${card.id}`;
     await notifyVisitor('cust-' + x.customerId, { title: 'Снова в наличии!', body: x.product.name, url });
-    if (s.remindSms === '1' && s.smsMode === 'smsru' && x.customer.phone) await sendSms(s, x.customer.phone, `Снова в наличии: ${x.product.name.slice(0, 60)}. ${base}${url}`).catch(() => {});
     await prisma.stockSubscription.update({ where: { id: x.id }, data: { notifiedAt: new Date() } });
     sent++;
   }
@@ -41,7 +39,6 @@ async function carts(s) {
     const n = JSON.parse(c.cart || '[]').reduce((a, i) => a + i.quantity, 0);
     if (!n) continue;
     await notifyVisitor('cust-' + c.id, { title: 'Товары ждут вас в корзине', body: `В корзине ${n} шт. — оформите заказ, пока они в наличии`, url: '/cart' });
-    if (stage === 2 && s.remindSms === '1' && s.smsMode === 'smsru' && c.phone) await sendSms(s, c.phone, `${s.title || 'Магазин'}: товары ждут вас в корзине. ${base}/cart`).catch(() => {});
     await prisma.customer.update({ where: { id: c.id }, data: { cartReminded: stage } });
     sent++;
   }

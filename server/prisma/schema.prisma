@@ -294,9 +294,7 @@ model Customer {
   avatar           String? // /uploads/avatars/...
   birthDate        DateTime? @db.Date
   gender           String? // male | female | null
-  authMethod       String    @default("phone") // phone | email
   marketingConsentAt DateTime? // согласие на рекламные сообщения
-  marketingSms     Boolean   @default(true)
   marketingPush    Boolean   @default(true)
   cart          String?   @db.Text // корзина (для напоминания о брошенной корзине)
   cartUpdatedAt DateTime?
@@ -365,10 +363,10 @@ model VisitEvent {
   @@index([sessionId])
 }
 
-// Массовая рассылка клиентам (SMS или push)
+// Массовая рассылка клиентам (push)
 model BulkMessage {
   id          Int      @id @default(autoincrement())
-  channel     String // sms | push
+  channel     String // push
   text        String   @db.Text
   filter      String?  @db.Text // JSON фильтра, по которому выбраны получатели
   total       Int      @default(0)
@@ -412,18 +410,6 @@ model CustomerPhoneChange {
   @@index([customerId, createdAt])
 }
 
-model SmsCode {
-  id        Int      @id @default(autoincrement())
-  phone     String
-  codeHash  String
-  ip        String?
-  attempts  Int      @default(0)
-  used      Boolean  @default(false)
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  @@index([phone, createdAt])
-}
 
 // status: new | confirmed | ready | completed | cancelled
 // paymentStatus: unpaid | pending | paid | failed | refunded

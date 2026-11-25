@@ -51,10 +51,10 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Интернет-магазин: публичное API (свой вход покупателей по SMS)
+// Интернет-магазин: публичное API (вход покупателей по email)
 app.use('/api/shop', require('./routes/shop').router);
 
-// задача для капчи (вход в программу, SMS-код в магазине)
+// задача для капчи (вход в программу, код на email в магазине)
 app.get('/api/captcha', (req, res) => { res.set('Cache-Control', 'no-store'); res.json(require('./captcha').createChallenge()); });
 app.use('/api/auth', auth);
 // скачивание резервной копии по одноразовой ссылке из «Настроек» (браузер качает файл сам, без заголовка входа)

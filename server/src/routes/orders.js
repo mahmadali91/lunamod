@@ -5,7 +5,6 @@ const { ah, HttpError, changeStock, nextNumber, str, fillImages, articleOf } = r
 const { requireAdmin } = require('../auth');
 const { getShopSettings, saveShopSettings, masked, tbankReady } = require('../shop/settings');
 const tbank = require('../shop/tbank');
-const sms = require('../shop/sms');
 
 const r = express.Router();
 const include = { customer: true, items: { include: { product: { select: { id: true, sku: true, name: true, size: true, sizeRu: true, color: true, parentId: true, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, stocks: { include: { warehouse: { select: { id: true, name: true } } } },
@@ -122,12 +121,6 @@ r.post('/settings/test-tbank', requireAdmin, ah(async (req, res) => {
 }));
 
 // Проверка каналов уведомлений: отправляет тест и возвращает точную причину ошибки
-// Баланс и дневной лимит SMS.ru для раздела «SMS для входа покупателей»
-r.get('/settings/sms-status', requireAdmin, ah(async (req, res) => {
-  const s = await getShopSettings();
-  res.json(await sms.status(s.smsruApiId));
-}));
-
 // Проверка настроек почты (SMTP): отправляет тестовое письмо
 r.post('/settings/smtp-test', requireAdmin, ah(async (req, res) => {
   const s = await getShopSettings();

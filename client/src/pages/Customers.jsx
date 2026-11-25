@@ -115,7 +115,6 @@ export default function Customers() {
                   <td className="p-3 text-slate-600">{c.lastChatAt ? fmtDate(c.lastChatAt) : '—'}</td>
                   <td className="p-3 text-xs">
                     {c.marketingConsentAt ? <Badge color="green">реклама</Badge> : <span className="text-slate-400">нет</span>}
-                    {c.marketingSms ? <span className="ml-1 text-slate-500">SMS</span> : null}
                     {c.marketingPush ? <span className="ml-1 text-slate-500">push</span> : null}
                   </td>
                 </tr>
@@ -145,7 +144,7 @@ function CustomerCard({ id, onClose, onChanged }) {
   const [d, setD] = useState(null);
   const [tab, setTab] = useState('profile');
   const [phoneOpen, setPhoneOpen] = useState(false);
-  const [msg, setMsg] = useState({ channel: 'sms', text: '' });
+  const [msg, setMsg] = useState({ channel: 'push', text: '' });
   const load = useCallback(() => api('/customers/' + id).then(setD).catch((e) => toast(e.message, 'error')), [id, toast]);
   useEffect(() => { load(); }, [load]);
   if (!d) return <Modal open onClose={onClose} title="Клиент"><div className="p-6 text-center"><Spinner /></div></Modal>;
@@ -154,7 +153,7 @@ function CustomerCard({ id, onClose, onChanged }) {
   const days = Math.round((d.stats.time30dSec || 0) / 60);
   const sendOne = async () => {
     if (!msg.text.trim()) return;
-    try { const r = await api(`/customers/${id}/message`, { method: 'POST', body: msg }); toast(r.test ? 'Тестовый режим: SMS не отправлено' : 'Отправлено'); setMsg({ ...msg, text: '' }); }
+    try { await api(`/customers/${id}/message`, { method: 'POST', body: msg }); toast('Отправлено'); setMsg({ ...msg, text: '' }); }
     catch (e) { toast(e.message, 'error'); }
   };
   const canDelete = (d.stats.ordersCount || 0) === 0 && (d.chats?.length || 0) === 0;
@@ -189,9 +188,7 @@ function CustomerCard({ id, onClose, onChanged }) {
           <div className="rounded-xl bg-slate-50 p-3">
             <div className="font-medium">Отправка сообщения</div>
             <div className="mt-2 flex flex-wrap gap-2">
-              <select className="input w-auto" value={msg.channel} onChange={(e) => setMsg({ ...msg, channel: e.target.value })}>
-                <option value="sms">SMS</option><option value="push">Push</option>
-              </select>
+              <span className="rounded-full bg-indigo-600 px-4 py-1.5 text-white">Push</span>
               <input className="input min-w-[240px] flex-1" value={msg.text} onChange={(e) => setMsg({ ...msg, text: e.target.value })} placeholder="Текст сообщения (можно приветствие)" />
               <Button onClick={sendOne}>Отправить</Button>
             </div>
@@ -199,7 +196,7 @@ function CustomerCard({ id, onClose, onChanged }) {
           <div className="grid gap-2 sm:grid-cols-2">
             <div><span className="text-slate-500">Внутренний ID:</span> <b>#{c.id}</b></div>
             <div><span className="text-slate-500">Согласие (ПДн):</span> {c.consentAt ? fmtDate(c.consentAt) : '—'}</div>
-            <div><span className="text-slate-500">Реклама:</span> {c.marketingConsentAt ? fmtDate(c.marketingConsentAt) : 'нет'}{c.marketingSms ? ' · SMS' : ''}{c.marketingPush ? ' · push' : ''}</div>
+            <div><span className="text-slate-500">Реклама:</span> {c.marketingConsentAt ? fmtDate(c.marketingConsentAt) : 'нет'}{c.marketingPush ? 'push' : '—'}</div>
             <div><span className="text-slate-500">Избранное:</span> {d.stats.favorites} · <span className="text-slate-500">ждут поступления:</span> {d.stats.waitlist}</div>
             <div><span className="text-slate-500">Последний вход:</span> {c.lastLogin ? fmtDate(c.lastLogin) : '—'}</div>
             <div><span className="text-slate-500">Адрес:</span> {c.address || '—'}</div>
@@ -298,7 +295,7 @@ function PhoneChange({ customer, onClose, onDone }) {
         <p className="text-slate-600">Текущий номер: <b>{fmtPhone(customer.phone)}</b>. Клиент потерял доступ и просит перенести аккаунт на новый номер.</p>
         <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Новый номер: +7 900 000-00-00" inputMode="tel" />
         <textarea className="input" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Причина / из обращения клиента (необязательно)" />
-        <p className="text-xs text-slate-500">После смены клиент входит по SMS на новый номер. На новый номер и на подтверждённый email уйдёт уведомление. Историю заказов не меняем.</p>
+        <p className="text-xs text-slate-500">На подтверждённый email клиента уйдёт уведомление о смене номера. Историю заказов не меняем.</p>
       </div>
     </Modal>
   );
@@ -306,7 +303,7 @@ function PhoneChange({ customer, onClose, onDone }) {
 
 function BulkModal({ filter, shown, onClose }) {
   const toast = useToast();
-  const [channel, setChannel] = useState('sms');
+  const [channel, setChannel] = useState('push');
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [prog, setProg] = useState(null);
@@ -314,7 +311,7 @@ function BulkModal({ filter, shown, onClose }) {
   useEffect(() => () => clearInterval(poll.current), []);
   const start = async () => {
     if (!text.trim()) return toast('Введите текст', 'error');
-    if (!confirm(`Разослать по фильтру? Получателей с согласием — не больше 500. SMS платные.`)) return;
+    if (!confirm('Разослать push по фильтру? Получателей с согласием — не больше 500.')) return;
     setBusy(true);
     try {
       const r = await api('/customers/bulk', { method: 'POST', body: { filter, channel, text } });
@@ -342,10 +339,10 @@ function BulkModal({ filter, shown, onClose }) {
           <>
             <p className="text-slate-600">Получатели — клиенты из текущего фильтра, у которых есть <b>согласие на рекламу</b> и включён канал. Максимум 500.</p>
             <div className="flex gap-2">
-              {['sms', 'push'].map((c) => <button key={c} onClick={() => setChannel(c)} className={`rounded-full px-4 py-1.5 ${channel === c ? 'bg-indigo-600 text-white' : 'border border-slate-300'}`}>{c === 'sms' ? 'SMS' : 'Push'}</button>)}
+              <span className="rounded-full bg-indigo-600 px-4 py-1.5 text-white">Push</span>
             </div>
-            <textarea className="input" rows={4} maxLength={500} value={text} onChange={(e) => setText(e.target.value)} placeholder={channel === 'sms' ? 'Текст SMS (до 500 символов, отписка добавляется автоматически)' : 'Текст пуш-уведомления'} />
-            <p className="text-xs text-slate-500">{channel === 'sms' ? 'В тестовом режиме магазина SMS не отправляются — увидите «пропущено».' : 'Push получат только те, кто подписался в браузере.'}</p>
+            <textarea className="input" rows={4} maxLength={500} value={text} onChange={(e) => setText(e.target.value)} placeholder="Текст пуш-уведомления" />
+            <p className="text-xs text-slate-500">Push получат только те, кто подписался в браузере.</p>
           </>
         ) : (
           <>
