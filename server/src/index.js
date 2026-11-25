@@ -121,4 +121,8 @@ require('./jobs').start();
 require('./upgrade').runUpgrades();
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Сервер запущен: http://localhost:${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Сервер запущен: http://localhost:${PORT}`);
+  // недосланные рассылки (сервер перезапускался) — продолжаем
+  setTimeout(() => require('./routes/customers').resumeBulks().catch((e) => console.error('рассылки:', e.message)), 5000).unref();
+});

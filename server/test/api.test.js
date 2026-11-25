@@ -38,7 +38,7 @@ before(async () => {
   require('fs').mkdirSync(dist + '/admin');
   require('fs').writeFileSync(dist + '/shop.html', '<!doctype html><html><head><title>x</title><meta name="description" content="x" /></head><body><div id="root"></div></body></html>');
   require('fs').writeFileSync(dist + '/admin/index.html', '<!doctype html><html><head><title>admin</title></head><body><div id="root"></div></body></html>');
-  server = spawn('node', ['src/index.js'], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), CLIENT_DIST: dist }, stdio: ['ignore', 'pipe', 'inherit'] });
+  server = spawn('node', ['src/index.js'], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), CLIENT_DIST: dist, SHOP_TEST_EMAIL_CODE: '1' }, stdio: ['ignore', 'pipe', 'inherit'] });
   for (let i = 0; i < 50; i++) {
     try { if ((await fetch(BASE + '/api/health')).ok) break; } catch { /* ещё стартует */ }
     await new Promise((r) => setTimeout(r, 200));
@@ -838,4 +838,44 @@ test('страница /catalog отдаётся со статусом 200 (не
   const r = await fetch(BASE + '/catalog');
   assert.equal(r.status, 200);
   assert.match(await r.text(), /<link rel="canonical" href="[^"]*\/"/);
+});
+
+test('вход по email: чужой неподтверждённый адрес в профиле не даёт доступа, код из профиля не подходит для входа', async () => {
+  // отдельный IP, чтобы не тратить общий лимит кодов на 127.0.0.1
+  const sh = async (p, { method = 'GET', body, token: t } = {}) => {
+    const headers = { 'Content-Type': 'application/json', 'X-Forwarded-For': '198.51.100.23' };
+    if (t) headers.Authorization = 'Bearer ' + t;
+    const res = await fetch(BASE + '/api/shop' + p, { method, headers, body: body && JSON.stringify(body) });
+    return { status: res.status, data: await res.json().catch(() => ({})) };
+  };
+  const login = async (em) => {
+    const rc = await sh('/auth/email/request-code', { method: 'POST', body: { captcha: await cap(), email: em } });
+    assert.equal(rc.status, 200, JSON.stringify(rc.data));
+    return sh('/auth/email/verify', { method: 'POST', body: { email: em, code: rc.data.testCode, consent: true } });
+  };
+  const S = Date.now();
+  const attacker = await login(`att${S}@example.ru`);
+  const tA = attacker.data.token; const idA = attacker.data.customer.id;
+  const victimEmail = `vic${S}@example.ru`;
+  // злоумышленник вписывает чужой адрес без подтверждения
+  const put = await sh('/me', { method: 'PUT', token: tA, body: { email: victimEmail } });
+  assert.equal(put.status, 200); assert.equal(put.data.emailVerifiedAt, null);
+  // владелец адреса входит — получает СВОЙ новый аккаунт, а не аккаунт злоумышленника
+  const victim = await login(victimEmail);
+  assert.equal(victim.status, 200);
+  assert.notEqual(victim.data.customer.id, idA, 'владелец почты не попадает в чужой аккаунт');
+  assert.equal((await sh('/me', { token: tA })).data.email, null, 'неподтверждённый адрес снят с чужого аккаунта');
+  // код подтверждения из профиля не подходит для входа
+  const other = `own${S}@example.ru`;
+  const pc = await sh('/me/email/request-code', { method: 'POST', token: tA, body: { email: other } });
+  assert.equal(pc.status, 200);
+  assert.equal((await sh('/auth/email/verify', { method: 'POST', body: { email: other, code: pc.data.testCode, consent: true } })).status, 400, 'код профиля не открывает вход');
+  const pv = await sh('/me/email/verify', { method: 'POST', token: tA, body: { email: other, code: pc.data.testCode } });
+  assert.equal(pv.status, 200); assert.ok(pv.data.emailVerifiedAt, 'адрес подтверждён в профиле');
+  // подтверждённый чужой адрес нельзя забрать себе
+  assert.equal((await sh('/me/email/request-code', { method: 'POST', token: tA, body: { email: victimEmail } })).status, 400);
+  // рассылка: клиенты без push-подписки в получатели не попадают
+  await sh('/me', { method: 'PUT', token: tA, body: { marketingPush: true } });
+  const bulk = await api('/customers/bulk', { method: 'POST', body: { text: 'Акция', filter: { q: other } } });
+  assert.equal(bulk.status, 400); assert.match(bulk.data.error, /push/);
 });

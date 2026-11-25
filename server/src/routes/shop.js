@@ -632,15 +632,22 @@ async function emailCodeLimits(email, ip) {
   if (ip && await prisma.emailCode.count({ where: { ip, createdAt: { gte: hourAgo } } }) >= 20) throw new HttpError(429, 'Слишком много запросов. Попробуйте позже.');
 }
 
+/** Неверные коды по адресу за сутки (по всем кодам) — нельзя перебирать, запрашивая новые коды */
+async function emailFailsLimit(email) {
+  const day = await prisma.emailCode.aggregate({ _sum: { attempts: true }, where: { email, createdAt: { gte: new Date(Date.now() - 864e5) } } });
+  if ((day._sum.attempts || 0) >= 15) throw new HttpError(429, 'Слишком много неверных кодов. Вход для этого адреса заблокирован на сутки — напишите нам.');
+}
+
 /** Отправить письмо с кодом и сохранить его хэш */
-async function sendEmailCode(s, customer, email) {
+/** customer = null — код для входа; customer = { id } — код подтверждения email в профиле этого клиента */
+async function sendEmailCode(s, customer, email, ip = null) {
   if (!emailReady(s)) throw new HttpError(503, 'Почта на сайте ещё не настроена — напишите нам');
   const code = code6();
   // тестовый стенд: письма не отправляем, код отдаём в ответе (только при SHOP_TEST_EMAIL_CODE=1)
   if (process.env.SHOP_TEST_EMAIL_CODE !== '1') {
     await mail.sendMail(s, { to: email, subject: 'Код для входа', text: `Ваш код для входа на сайт ${s.title || ''}: ${code}\n\nКод действует 5 минут. Если вы не запрашивали код — просто проигнорируйте письмо.` });
   }
-  await prisma.emailCode.create({ data: { email, codeHash: hashEmail(email, code), expiresAt: new Date(Date.now() + 5 * 60e3), customerId: customer?.id || null } });
+  await prisma.emailCode.create({ data: { email, codeHash: hashEmail(email, code), expiresAt: new Date(Date.now() + 5 * 60e3), customerId: customer?.id || null, ip } });
   return code;
 }
 
@@ -652,9 +659,8 @@ r.post('/auth/email/request-code', ah(async (req, res) => {
   const email = normEmail(req.body.email);
   const ip = ipOf(req);
   await emailCodeLimits(email, ip);
-  const customer = await prisma.customer.findFirst({ where: { email } });
   let sentCode = '';
-  try { sentCode = await sendEmailCode(s, customer, email); }
+  try { sentCode = await sendEmailCode(s, null, email, ip); }
   catch (e) { throw new HttpError(503, 'Не удалось отправить письмо. Проверьте настройки почты в разделе «Почта и рассылки».'); }
   // тестовый стенд может получить код ответом (только при SHOP_TEST_EMAIL_CODE=1)
   res.json({ ok: true, email, ...(process.env.SHOP_TEST_EMAIL_CODE === '1' ? { testCode: sentCode } : {}) });
@@ -663,21 +669,26 @@ r.post('/auth/email/request-code', ah(async (req, res) => {
 r.post('/auth/email/verify', ah(async (req, res) => {
   const email = normEmail(req.body.email);
   const code = String(req.body.code || '').replace(/\D/g, '');
-  const rec = await prisma.emailCode.findFirst({ where: { email, used: false }, orderBy: { id: 'desc' } });
+  // только коды для входа (коды подтверждения email из профиля сюда не подходят)
+  const rec = await prisma.emailCode.findFirst({ where: { email, used: false, customerId: null }, orderBy: { id: 'desc' } });
   if (!rec || rec.expiresAt < new Date()) throw new HttpError(400, 'Код устарел. Запросите новый.');
   if (rec.attempts >= 5) throw new HttpError(429, 'Слишком много неверных попыток. Запросите новый код.');
+  await emailFailsLimit(email);
   if (rec.codeHash !== hashEmail(email, code)) {
     await prisma.emailCode.update({ where: { id: rec.id }, data: { attempts: { increment: 1 } } });
     throw new HttpError(400, 'Неверный код');
   }
-  let customer = await prisma.customer.findFirst({ where: { email } });
+  // входим ТОЛЬКО в аккаунт, где этот email подтверждён. Неподтверждённый адрес мог вписать в профиль кто угодно:
+  // если пускать в такой аккаунт, владелец почты попадёт в чужой аккаунт, а его заказы увидит тот, кто адрес вписал.
+  let customer = await prisma.customer.findFirst({ where: { email, emailVerifiedAt: { not: null } }, orderBy: { id: 'asc' } });
   // согласие проверяем ДО «сжигания» кода, иначе он сгорит и человек не сможет повторить
   if (!customer && !req.body.consent) throw new HttpError(400, 'Подтвердите согласие на обработку персональных данных');
   await prisma.emailCode.update({ where: { id: rec.id }, data: { used: true } });
   if (customer) {
-    // вход существующего аккаунта (email подтверждаем, если ещё не был подтверждён)
-    customer = await prisma.customer.update({ where: { id: customer.id }, data: { emailVerifiedAt: customer.emailVerifiedAt || new Date(), lastLogin: new Date() } });
+    customer = await prisma.customer.update({ where: { id: customer.id }, data: { lastLogin: new Date() } });
   } else {
+    // адрес подтвердил его владелец — снимаем его с аккаунтов, где он был вписан без подтверждения
+    await prisma.customer.updateMany({ where: { email, emailVerifiedAt: null }, data: { email: null } });
     // регистрация по email: телефон не нужен до оформления заказа
     customer = await prisma.customer.create({ data: { email, emailVerifiedAt: new Date(), name: str(req.body.name), consentAt: new Date(), lastLogin: new Date() } });
   }
@@ -747,9 +758,10 @@ r.post('/me/email/request-code', customerAuth(), ah(async (req, res) => {
   const busy = await prisma.customer.findFirst({ where: { email, id: { not: req.customer.cid }, emailVerifiedAt: { not: null } } });
   if (busy) throw new HttpError(400, 'Этот email уже привязан к другому аккаунту');
   await prisma.customer.update({ where: { id: req.customer.cid }, data: { email } });
-  await emailCodeLimits(email, ipOf(req));
+  const ip = ipOf(req);
+  await emailCodeLimits(email, ip);
   let testCode = '';
-  try { testCode = await sendEmailCode(s, { id: req.customer.cid }, email); }
+  try { testCode = await sendEmailCode(s, { id: req.customer.cid }, email, ip); }
   catch (e) { throw new HttpError(503, 'Не удалось отправить письмо. Проверьте настройки почты в разделе «Почта и рассылки».'); }
   res.json({ ok: true, email, channel: 'email', ...(process.env.SHOP_TEST_EMAIL_CODE === '1' ? { testCode } : {}) });
 }));
@@ -758,14 +770,20 @@ r.post('/me/email/verify', customerAuth(), ah(async (req, res) => {
   if (!emailReady(s)) throw new HttpError(503, 'Почта не настроена — напишите нам');
   const email = normEmail(req.body.email);
   const code = String(req.body.code || '').replace(/\D/g, '');
-  const rec = await prisma.emailCode.findFirst({ where: { email, used: false }, orderBy: { id: 'desc' } });
+  // только код, выписанный этому клиенту в профиле (не код для входа и не чужой)
+  const rec = await prisma.emailCode.findFirst({ where: { email, used: false, customerId: req.customer.cid }, orderBy: { id: 'desc' } });
   if (!rec || rec.expiresAt < new Date()) throw new HttpError(400, 'Код устарел. Запросите новый.');
   if (rec.attempts >= 5) throw new HttpError(429, 'Слишком много неверных попыток');
+  await emailFailsLimit(email);
   if (rec.codeHash !== hashEmail(email, code)) {
     await prisma.emailCode.update({ where: { id: rec.id }, data: { attempts: { increment: 1 } } });
     throw new HttpError(400, 'Неверный код');
   }
+  // пока шёл код, адрес мог подтвердить другой аккаунт
+  const busy = await prisma.customer.findFirst({ where: { email, id: { not: req.customer.cid }, emailVerifiedAt: { not: null } } });
+  if (busy) throw new HttpError(400, 'Этот email уже привязан к другому аккаунту');
   await prisma.emailCode.update({ where: { id: rec.id }, data: { used: true } });
+  await prisma.customer.updateMany({ where: { email, id: { not: req.customer.cid }, emailVerifiedAt: null }, data: { email: null } });
   res.json(await prisma.customer.update({ where: { id: req.customer.cid }, data: { email, emailVerifiedAt: new Date() } }));
 }));
 

@@ -82,18 +82,23 @@ r.post('/:id(\\d+)/status', ah(async (req, res) => {
 }));
 
 // Возврат денег покупателю (отдельное действие, как «Вернуть» в Т-Бизнесе). Заказ при этом не отменяется.
+const refunding = new Set(); // защита от двойного нажатия «Вернуть»: второй запрос в банк не уходит
 r.post('/:id(\\d+)/refund', ah(async (req, res) => {
   const id = Number(req.params.id);
-  const s = await getShopSettings();
-  const o = await prisma.order.findUnique({ where: { id } });
-  if (!o) throw new HttpError(404, 'Заказ не найден');
-  if (!['tbank', 'sbp'].includes(o.paymentMethod)) throw new HttpError(400, 'Заказ оплачен не онлайн — верните деньги вручную');
-  if (o.paymentStatus === 'refunded') throw new HttpError(400, 'Деньги уже возвращены');
-  if (o.paymentStatus !== 'paid' || !o.paymentId) throw new HttpError(400, 'Платёж не найден или ещё не оплачен');
-  if (!tbankReady(s)) throw new HttpError(400, 'Онлайн-оплата не настроена — возврат через Т-Банк недоступен');
-  await tbank.cancelPayment(s, o.paymentId);
-  await prisma.order.update({ where: { id }, data: { paymentStatus: 'refunded' } });
-  res.json(await loadOrder(id));
+  if (refunding.has(id)) throw new HttpError(409, 'Возврат по этому заказу уже выполняется');
+  refunding.add(id);
+  try {
+    const s = await getShopSettings();
+    const o = await prisma.order.findUnique({ where: { id } });
+    if (!o) throw new HttpError(404, 'Заказ не найден');
+    if (!['tbank', 'sbp'].includes(o.paymentMethod)) throw new HttpError(400, 'Заказ оплачен не онлайн — верните деньги вручную');
+    if (o.paymentStatus === 'refunded') throw new HttpError(400, 'Деньги уже возвращены');
+    if (o.paymentStatus !== 'paid' || !o.paymentId) throw new HttpError(400, 'Платёж не найден или ещё не оплачен');
+    if (!tbankReady(s)) throw new HttpError(400, 'Онлайн-оплата не настроена — возврат через Т-Банк недоступен');
+    await tbank.cancelPayment(s, o.paymentId);
+    await prisma.order.update({ where: { id }, data: { paymentStatus: 'refunded' } });
+    res.json(await loadOrder(id));
+  } finally { refunding.delete(id); }
 }));
 
 r.put('/:id(\\d+)/note', ah(async (req, res) => {  res.json(await prisma.order.update({ where: { id: Number(req.params.id) }, data: { adminNote: str(req.body.adminNote) } }));

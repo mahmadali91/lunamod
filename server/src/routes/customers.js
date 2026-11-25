@@ -186,6 +186,12 @@ async function processBulk(bulkId) {
       for (const rec of batch) {
         const c = await prisma.customer.findUnique({ where: { id: rec.customerId } });
         if (!c) { await prisma.bulkRecipient.update({ where: { id: rec.id }, data: { status: 'skipped', error: 'клиент удалён' } }); await prisma.bulkMessage.update({ where: { id: bulkId }, data: { skipped: { increment: 1 } } }); continue; }
+        // нет ни одного устройства с push — это не ошибка рассылки, просто пропускаем клиента
+        if (!(await prisma.pushSubscription.count({ where: { visitorKey: 'cust-' + c.id } }))) {
+          await prisma.bulkRecipient.update({ where: { id: rec.id }, data: { status: 'skipped', error: 'нет подписки на push' } });
+          await prisma.bulkMessage.update({ where: { id: bulkId }, data: { skipped: { increment: 1 } } });
+          continue;
+        }
         try {
           const sent = await notifyVisitor('cust-' + c.id, { title: s.title || 'Магазин', body: bulk.text.slice(0, 300), url: '/' });
           if (!sent) throw new Error('нет подписки на push');
@@ -222,8 +228,12 @@ r.post('/bulk', requireAdmin, ah(async (req, res) => {
   // только с согласием на рекламу
   where.marketingConsentAt = { not: null };
   where.marketingPush = true;
+  // и только те, у кого включены push хотя бы на одном устройстве
+  const withPush = await prisma.pushSubscription.findMany({ where: { visitorKey: { startsWith: 'cust-' } }, select: { visitorKey: true }, distinct: ['visitorKey'] });
+  const pushIds = withPush.map((x) => Number(x.visitorKey.slice(5))).filter(Number.isInteger);
+  where.AND = [...(where.AND || []), { id: { in: pushIds.length ? pushIds : [0] } }];
   const customers = await prisma.customer.findMany({ where, select: { id: true }, take: 501 });
-  if (!customers.length) throw new HttpError(400, 'Нет получателей с согласием на рассылку по этому фильтру');
+  if (!customers.length) throw new HttpError(400, 'Нет получателей с согласием на рассылку и включёнными push-уведомлениями по этому фильтру');
   if (customers.length > 500) throw new HttpError(400, 'Больше 500 получателей — сузьте фильтр');
   const bulk = await prisma.bulkMessage.create({ data: { channel, text, filter: JSON.stringify(filter), total: customers.length, byUserId: req.user?.id || null } });
   await prisma.bulkRecipient.createMany({ data: customers.map((c) => ({ bulkId: bulk.id, customerId: c.id })) });
@@ -262,4 +272,12 @@ r.delete('/:id(\\d+)', requireAdmin, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Рассылки, прерванные перезапуском сервера (Passenger сам гасит простаивающее приложение), — продолжить
+async function resumeBulks() {
+  const rows = await prisma.bulkMessage.findMany({ where: { status: 'running' }, select: { id: true } });
+  for (const b of rows) processBulk(b.id);
+  return rows.length;
+}
+
 module.exports = r;
+module.exports.resumeBulks = resumeBulks;
