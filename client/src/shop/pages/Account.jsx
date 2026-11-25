@@ -295,9 +295,11 @@ export default function Account() {
                 <div className="mt-2 space-y-1">
                   <button type="button" onClick={async () => {
                     setPushState('checking');
-                    const ok = await subscribePush(config?.vapidKey).catch(() => false);
+                    let ok = false, err = '';
+                    try { ok = await subscribePush(config?.vapidKey); }
+                    catch (e) { err = e.message || ''; }
                     if (ok) { setPushState('on'); notify('Уведомления включены'); if (!f.marketingPush) toggleMarketing('marketingPush', true); }
-                    else setPushState(Notification?.permission === 'denied' ? 'denied' : 'off');
+                    else { setPushState(typeof Notification !== 'undefined' && Notification.permission === 'denied' ? 'denied' : 'off'); if (err) notify(err, 'error'); }
                   }} className="rounded-full bg-slate-900 px-4 py-1.5 text-sm text-white">Включить уведомления в этом браузере</button>
                   {isIosSafari() && <p className="text-xs text-amber-700">На iPhone: «Поделиться» → «На экран Домой», откройте сайт из иконки и включите уведомления там.</p>}
                 </div>

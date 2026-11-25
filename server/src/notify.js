@@ -134,7 +134,8 @@ async function notifyVisitor(visitorKey, { title, body, url, tag = 'chat' }) {
 }
 
 // пуш-подписки принимаются только от сервисов браузеров (иначе сервер можно заставить слать запросы куда угодно)
-const PUSH_HOSTS = /(^|\.)(fcm\.googleapis\.com|android\.googleapis\.com|push\.services\.mozilla\.com|notify\.windows\.com|push\.apple\.com|push\.yandex\.ru|yandex\.net)$/i;
+// Chrome отдаёт endpoint и на fcm.googleapis.com, и на jmt*.google.com — оба разрешены
+const PUSH_HOSTS = /^(fcm\.googleapis\.com|android\.googleapis\.com|jmt\d*\.google\.com|push\.services\.mozilla\.com|notify\.windows\.com|push\.apple\.com|push\.yandex\.ru|[a-z0-9-]+\.yandex\.net)$/i;
 function pushEndpointOk(u) { try { const x = new URL(u); return x.protocol === 'https:' && PUSH_HOSTS.test(x.hostname); } catch { return false; } }
 
 module.exports = { pushEndpointOk, getVapid, sendPush, notifyAdmins, notifyVisitor, telegram, telegramUpdates, maxSend, maxUpdates, channelSettings };
