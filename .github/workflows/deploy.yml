@@ -82,6 +82,7 @@ jobs:
     needs: test
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     env:
       HAS_KEY: ${{ secrets.BEGET_SSH_KEY != '' }}
     steps:
@@ -116,7 +117,13 @@ jobs:
             echo "::group::Деплой $site"
             # Сайт передаём всегда: без имени на хостинге деплоится сайт по умолчанию (botmi.ru)
             arg="$GITHUB_SHA $site"
-            ssh -i ~/.ssh/beget -o BatchMode=yes -o ServerAliveInterval=30 "$BEGET_USER@$BEGET_HOST" "$arg" < "$RUNNER_TEMP/app.tar.gz" 2>&1 | tee "deploy-$site.log"
+            # SSH может не закрыться сам (процесс сайта держит поток), поэтому ограничиваем время:
+            # успех определяем по строке «Готово» в журнале деплоя, а не по коду выхода ssh.
+            set +e
+            timeout 900 ssh -i ~/.ssh/beget -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=30 "$BEGET_USER@$BEGET_HOST" "$arg" < "$RUNNER_TEMP/app.tar.gz" 2>&1 | tee "deploy-$site.log"
+            ssh_rc=${PIPESTATUS[0]}
+            set -e
+            echo "ssh exit: $ssh_rc"
             echo "::endgroup::"
             grep -q "Готово" "deploy-$site.log" || { echo "::error::Деплой $site завершился с ошибкой"; exit 1; }
             # сайт проверяем сразу, до следующего
