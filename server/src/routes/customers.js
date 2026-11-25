@@ -271,4 +271,18 @@ r.post('/bulk/:id(\\d+)/cancel', requireAdmin, ah(async (req, res) => {
   res.json(await prisma.bulkMessage.update({ where: { id }, data: { status: 'cancelled', finishedAt: new Date() } }));
 }));
 
+
+// Удаление клиента: только если у него нет заказов и переписки (чистка тестовых аккаунтов)
+r.delete('/:id(\\d+)', requireAdmin, ah(async (req, res) => {
+  const id = Number(req.params.id);
+  const c = await prisma.customer.findUnique({ where: { id } });
+  if (!c) throw new HttpError(404, 'Клиент не найден');
+  const orders = await prisma.order.count({ where: { customerId: id } });
+  if (orders > 0) throw new HttpError(400, 'У клиента есть заказы — удалить нельзя (сохраните историю)');
+  const chats = await prisma.chatMessage.count({ where: { conversation: { customerId: id } } });
+  if (chats > 0) throw new HttpError(400, 'У клиента есть переписка — удалить нельзя');
+  await prisma.customer.delete({ where: { id } });
+  res.json({ ok: true });
+}));
+
 module.exports = r;

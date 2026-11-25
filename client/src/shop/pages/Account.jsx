@@ -110,7 +110,7 @@ export default function Account() {
     } catch { setChats({ messages: [], hasMore: false }); }
   };
   const emailVerified = Boolean(auth.me.emailVerifiedAt);
-  const emailDraft = emailStep?.email !== undefined ? emailStep.email : f.email;
+  const emailDraft = emailStep?.email ?? (f?.email || '');
 
   return (
     <div className="mx-auto max-w-5xl px-4 pt-8 pb-16">

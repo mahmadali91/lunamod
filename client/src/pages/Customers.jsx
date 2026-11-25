@@ -95,13 +95,14 @@ export default function Customers() {
             <thead className="bg-slate-50 text-left text-xs text-slate-500">
               <tr>
                 <th className="w-10 p-3"><input type="checkbox" checked={allShown.length > 0 && selected.size === allShown.length} onChange={toggleAll} /></th>
-                <th className="p-3">Клиент</th><th className="p-3">Возраст / пол</th><th className="p-3">Заказы</th><th className="p-3">Посещение</th><th className="p-3">Чат</th><th className="p-3">Согласия</th>
+                <th className="p-3 w-16">ID</th><th className="p-3">Клиент</th><th className="p-3">Возраст / пол</th><th className="p-3">Заказы</th><th className="p-3">Посещение</th><th className="p-3">Чат</th><th className="p-3">Согласия</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {allShown.map((c) => (
                 <tr key={c.id} className="hover:bg-slate-50/60">
                   <td className="p-3"><input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} /></td>
+                  <td className="p-3 text-slate-400">#{c.id}</td>
                   <td className="p-3">
                     <button onClick={() => setCardId(c.id)} className="text-left">
                       <div className="font-medium">{c.name || 'Без имени'}</div>
@@ -119,7 +120,7 @@ export default function Customers() {
                   </td>
                 </tr>
               ))}
-              {allShown.length === 0 && <tr><td colSpan={7} className="p-10 text-center text-slate-400">Клиентов не найдено</td></tr>}
+              {allShown.length === 0 && <tr><td colSpan={8} className="p-10 text-center text-slate-400">Клиентов не найдено</td></tr>}
             </tbody>
           </table>
         )}
@@ -156,11 +157,18 @@ function CustomerCard({ id, onClose, onChanged }) {
     try { const r = await api(`/customers/${id}/message`, { method: 'POST', body: msg }); toast(r.test ? 'Тестовый режим: SMS не отправлено' : 'Отправлено'); setMsg({ ...msg, text: '' }); }
     catch (e) { toast(e.message, 'error'); }
   };
+  const canDelete = (d.stats.ordersCount || 0) === 0 && (d.chats?.length || 0) === 0;
+  const removeCustomer = async () => {
+    if (!confirm('Удалить клиента без заказов и переписки? Действие необратимо.')) return;
+    try { await api('/customers/' + id, { method: 'DELETE' }); toast('Клиент удалён'); onChanged?.(); onClose(); }
+    catch (e) { toast(e.message, 'error'); }
+  };
   const TABS = [['profile', 'Профиль'], ['orders', 'Заказы'], ['chats', 'Чаты'], ['visits', 'Посещения'], ['interests', 'Интересы']];
   return (
     <Modal open onClose={onClose} wide title={<span className="flex items-center gap-2">Клиент #{c.id} {c.name ? <span className="font-normal text-slate-500">· {c.name}</span> : null}</span>}
       footer={<>
         <Button variant="secondary" icon={Phone} onClick={() => setPhoneOpen(true)}>Сменить номер</Button>
+        {canDelete && <Button variant="secondary" className="text-rose-600" onClick={removeCustomer}>Удалить клиента</Button>}
         <Button className="ml-auto" onClick={onClose}>Закрыть</Button>
       </>}>
       <div className="mb-4 flex flex-wrap gap-2 text-xs text-slate-600">
@@ -189,6 +197,7 @@ function CustomerCard({ id, onClose, onChanged }) {
             </div>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
+            <div><span className="text-slate-500">Внутренний ID:</span> <b>#{c.id}</b></div>
             <div><span className="text-slate-500">Согласие (ПДн):</span> {c.consentAt ? fmtDate(c.consentAt) : '—'}</div>
             <div><span className="text-slate-500">Реклама:</span> {c.marketingConsentAt ? fmtDate(c.marketingConsentAt) : 'нет'}{c.marketingSms ? ' · SMS' : ''}{c.marketingPush ? ' · push' : ''}</div>
             <div><span className="text-slate-500">Избранное:</span> {d.stats.favorites} · <span className="text-slate-500">ждут поступления:</span> {d.stats.waitlist}</div>
