@@ -126,12 +126,15 @@ async function notifyAdmins({ title, body, url, tag }) {
 }
 
 /** Уведомить покупателя (ответ в чате) */
-async function notifyVisitor(visitorKey, { title, body, url }) {
-  try { await sendPush({ visitorKey }, { title, body, url, tag: 'chat' }); } catch (e) { console.error('notify visitor:', e.message); }
+async function notifyVisitor(visitorKey, { title, body, url, tag = 'chat' }) {
+  try {
+    const r = await sendPush({ visitorKey }, { title, body, url, tag });
+    return r.sent > 0; // админка по этому ответу отличает «доставлено» от «нет подписки»
+  } catch (e) { console.error('notify visitor:', e.message); return false; }
 }
 
 // пуш-подписки принимаются только от сервисов браузеров (иначе сервер можно заставить слать запросы куда угодно)
 const PUSH_HOSTS = /(^|\.)(fcm\.googleapis\.com|android\.googleapis\.com|push\.services\.mozilla\.com|notify\.windows\.com|push\.apple\.com|push\.yandex\.ru|yandex\.net)$/i;
 function pushEndpointOk(u) { try { const x = new URL(u); return x.protocol === 'https:' && PUSH_HOSTS.test(x.hostname); } catch { return false; } }
 
-module.exports = { pushEndpointOk, getVapid, notifyAdmins, notifyVisitor, telegram, telegramUpdates, maxSend, maxUpdates, channelSettings };
+module.exports = { pushEndpointOk, getVapid, sendPush, notifyAdmins, notifyVisitor, telegram, telegramUpdates, maxSend, maxUpdates, channelSettings };

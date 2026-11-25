@@ -5,6 +5,7 @@ import { shopApi, shopToken, fmtPhone } from '../api';
 import { useShop } from '../store';
 import { STATUS, PAY } from './Order';
 import Img from '../Img';
+import { pushSupported, isIosSafari, currentSubscription, subscribePush, unsubscribePush } from '../push';
 
 
 // Телефон: в состоянии храним только цифры, показываем маской.
@@ -53,6 +54,12 @@ export default function Account() {
   const [emailEdit, setEmailEdit] = useState(false);
   const fileRef = useRef(null);
   const phoneRef = useRef(null);
+  const [pushState, setPushState] = useState('checking'); // checking | on | off | denied | unsupported
+
+  useEffect(() => {
+    if (!pushSupported()) { setPushState('unsupported'); return; }
+    currentSubscription().then((sub) => setPushState(sub ? 'on' : 'off')).catch(() => setPushState('off'));
+  }, []);
 
   useEffect(() => {
     if (!auth.me) return;
@@ -276,7 +283,27 @@ export default function Account() {
 
             <div className="rounded-3xl bg-slate-50 p-5">
               <h3 className="mb-2 font-semibold">Уведомления и реклама</h3>
-              <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5" checked={f.marketingPush} onChange={(e) => toggleMarketing('marketingPush', e.target.checked)} /> <span>Push-уведомления о скидках и новинках</span></label>
+              <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5" checked={f.marketingPush} onChange={(e) => toggleMarketing('marketingPush', e.target.checked)} /> <span>Получать новости о скидках и новинках</span></label>
+              {pushState === 'unsupported' && <p className="mt-2 text-xs text-slate-500">Этот браузер не поддерживает пуш-уведомления.</p>}
+              {pushState === 'on' && (
+                <div className="mt-2 space-y-1">
+                  <p className="flex items-center gap-1.5 text-sm text-emerald-700"><BadgeCheck size={16} /> Уведомления включены в этом браузере</p>
+                  <button type="button" onClick={async () => { setPushState('checking'); await unsubscribePush(); setPushState('off'); notify('Уведомления отключены в этом браузере'); }} className="text-xs text-slate-500 underline">Отключить в этом браузере</button>
+                </div>
+              )}
+              {pushState === 'off' && (
+                <div className="mt-2 space-y-1">
+                  <button type="button" onClick={async () => {
+                    setPushState('checking');
+                    const ok = await subscribePush(config?.vapidKey).catch(() => false);
+                    if (ok) { setPushState('on'); notify('Уведомления включены'); if (!f.marketingPush) toggleMarketing('marketingPush', true); }
+                    else setPushState(Notification?.permission === 'denied' ? 'denied' : 'off');
+                  }} className="rounded-full bg-slate-900 px-4 py-1.5 text-sm text-white">Включить уведомления в этом браузере</button>
+                  {isIosSafari() && <p className="text-xs text-amber-700">На iPhone: «Поделиться» → «На экран Домой», откройте сайт из иконки и включите уведомления там.</p>}
+                </div>
+              )}
+              {pushState === 'denied' && <p className="mt-2 text-xs text-amber-700">Браузер запретил уведомления. Разрешите их в настройках сайта (значок замка в адресной строке) и обновите страницу.</p>}
+              {pushState === 'checking' && <p className="mt-2 text-xs text-slate-400">Проверяем подписку…</p>}
               <p className="mt-2 text-xs text-slate-500">Отказаться можно в любой момент. Заказы и коды входа приходят независимо от этих настроек.</p>
             </div>
 

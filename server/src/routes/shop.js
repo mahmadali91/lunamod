@@ -585,6 +585,17 @@ r.post('/push/subscribe', customerAuth(), ah(async (req, res) => {
   if (!sub?.endpoint || !sub?.keys?.p256dh || !pushEndpointOk(sub.endpoint)) throw new HttpError(400, 'Неверная подписка');
   await prisma.pushSubscription.deleteMany({ where: { endpoint: sub.endpoint } });
   await prisma.pushSubscription.create({ data: { endpoint: sub.endpoint, keys: JSON.stringify(sub.keys), visitorKey: 'cust-' + req.customer.cid } });
+  // явная подписка в браузере = согласие на пуш-уведомления
+  const me = await prisma.customer.findUnique({ where: { id: req.customer.cid } });
+  await prisma.customer.update({ where: { id: req.customer.cid }, data: { marketingPush: true, marketingConsentAt: me.marketingConsentAt || new Date() } }).catch(() => {});
+  res.json({ ok: true });
+}));
+
+// Отписка браузера от пуш-уведомлений
+r.delete('/push/subscribe', customerAuth(), ah(async (req, res) => {
+  const endpoint = String(req.body?.endpoint || '').trim();
+  if (endpoint) await prisma.pushSubscription.deleteMany({ where: { endpoint, visitorKey: 'cust-' + req.customer.cid } });
+  else await prisma.pushSubscription.deleteMany({ where: { visitorKey: 'cust-' + req.customer.cid } });
   res.json({ ok: true });
 }));
 
