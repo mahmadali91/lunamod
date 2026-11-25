@@ -72,8 +72,8 @@ export default function Account() {
   const requestEmail = async () => {
     try {
       const r = await shopApi('/me/email/request-code', { method: 'POST', body: { email: (emailStep?.email || f.email || '').trim().toLowerCase() } });
-      setEmailStep({ email: r.email, sent: true, code: '' });
-      notify('Код отправлен на email');
+      setEmailStep({ email: r.email, sent: true, code: '', via: r.channel, test: r.testCode || null });
+      notify(r.channel === 'sms' ? 'Почта не настроена — код придёт SMS на ваш номер' : 'Код отправлен на email');
     } catch (err) { notify(err.message, 'error'); }
   };
   const verifyEmail = async () => {
@@ -222,7 +222,9 @@ export default function Account() {
               ) : emailStep.sent ? (
                 <div className="mt-2 space-y-2">
                   <p className="text-xs text-slate-500">Код отправлен на {emailStep.email}</p>
-                  <input value={emailStep.code} onChange={(e) => setEmailStep({ ...emailStep, code: e.target.value.replace(/\D/g, '').slice(0, 6) })} inputMode="numeric" placeholder="Код из письма" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm tracking-widest outline-none focus:border-slate-900" />
+                  {emailStep.via === 'sms' && <p className="text-xs text-amber-700">Почта на сайте ещё не настроена, поэтому подтверждаем кодом из SMS на номер {fmtPhone(auth.me.phone)}</p>}
+                  {emailStep.test && <p className="text-xs text-amber-700">Тестовый режим, код: <b>{emailStep.test}</b></p>}
+                  <input value={emailStep.code} onChange={(e) => setEmailStep({ ...emailStep, code: e.target.value.replace(/\D/g, '').slice(0, 6) })} inputMode="numeric" placeholder={emailStep.via === 'sms' ? 'Код из SMS' : 'Код из письма'} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm tracking-widest outline-none focus:border-slate-900" />
                   <div className="flex gap-2">
                     <button type="button" onClick={verifyEmail} className="rounded-full bg-slate-900 px-4 py-1.5 text-sm text-white">Подтвердить</button>
                     <button type="button" onClick={() => setEmailStep(null)} className="text-sm text-slate-500 underline">Отмена</button>

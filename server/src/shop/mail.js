@@ -37,7 +37,6 @@ function command(socket, line, timeout = 15000) {
       const last = lines[lines.length - 1] || '';
       if (!/^\d{3} /.test(last)) return;
       cleanup();
-      if (line !== null) socket.write(line + '\r\n');
       resolve({ code: Number(last.slice(0, 3)), text: buf });
     };
     const onErr = (e) => { cleanup(); reject(e); };
