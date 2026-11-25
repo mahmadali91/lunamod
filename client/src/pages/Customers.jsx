@@ -3,19 +3,9 @@ import { Users, Search, MessageSquare, Send, Phone, CalendarDays, ShoppingBag, C
 import { api, qs } from '../api';
 import { Badge, Button, Field, Modal, PageHeader, Spinner, useToast, fmtDate, fmtNum } from '../ui';
 
-const GENDER = { male: 'Мужской', female: 'Женский' };
-const ageOf = (birthDate) => {
-  if (!birthDate) return null;
-  const d = new Date(birthDate);
-  if (Number.isNaN(d.getTime())) return null;
-  const now = new Date();
-  let a = now.getFullYear() - d.getFullYear();
-  if (now < new Date(now.getFullYear(), d.getMonth(), d.getDate())) a--;
-  return a >= 0 && a < 120 ? a : null;
-};
 const fmtPhone = (p) => (p ? `+${p[0]} ${p.slice(1, 4)} ${p.slice(4, 7)}-${p.slice(7, 9)}-${p.slice(9)}` : '—');
 const money = (v) => Number(v || 0).toLocaleString('ru-RU') + ' ₽';
-const emptyFilters = { q: '', gender: '', ageFrom: '', ageTo: '', hasOrders: '', marketing: '', lastSeenDays: '', minTotal: '' };
+const emptyFilters = { q: '', hasOrders: '', marketing: '', lastSeenDays: '', minTotal: '' };
 
 export default function Customers() {
   const toast = useToast();
@@ -29,9 +19,6 @@ export default function Customers() {
   const query = useMemo(() => {
     const f = { ...filters };
     if (!f.q) delete f.q;
-    if (!f.gender) delete f.gender;
-    if (!f.ageFrom) delete f.ageFrom;
-    if (!f.ageTo) delete f.ageTo;
     if (!f.hasOrders) delete f.hasOrders;
     if (!f.marketing) delete f.marketing;
     if (!f.lastSeenDays) delete f.lastSeenDays;
@@ -65,13 +52,6 @@ export default function Customers() {
           <Field label="Поиск (телефон, имя, email)" className="min-w-[220px] flex-1">
             <input className="input" value={filters.q} onChange={set('q')} placeholder="+7 900… / Иван / mail@…" />
           </Field>
-          <Field label="Пол">
-            <select className="input w-[150px]" value={filters.gender} onChange={set('gender')}>
-              <option value="">Любой</option><option value="female">Женский</option><option value="male">Мужской</option><option value="none">Не указан</option>
-            </select>
-          </Field>
-          <Field label="Возраст от"><input className="input w-[100px]" inputMode="numeric" value={filters.ageFrom} onChange={set('ageFrom')} placeholder="18" /></Field>
-          <Field label="до"><input className="input w-[100px]" inputMode="numeric" value={filters.ageTo} onChange={set('ageTo')} placeholder="60" /></Field>
           <Field label="Заказы">
             <select className="input w-[150px]" value={filters.hasOrders} onChange={set('hasOrders')}>
               <option value="">Все</option><option value="1">Есть заказы</option><option value="0">Без заказов</option>
@@ -95,7 +75,7 @@ export default function Customers() {
             <thead className="bg-slate-50 text-left text-xs text-slate-500">
               <tr>
                 <th className="w-10 p-3"><input type="checkbox" checked={allShown.length > 0 && selected.size === allShown.length} onChange={toggleAll} /></th>
-                <th className="p-3 w-16">ID</th><th className="p-3">Клиент</th><th className="p-3">Возраст / пол</th><th className="p-3">Заказы</th><th className="p-3">Посещение</th><th className="p-3">Чат</th><th className="p-3">Согласия</th>
+                <th className="p-3 w-16">ID</th><th className="p-3">Клиент</th><th className="p-3">Заказы</th><th className="p-3">Посещение</th><th className="p-3">Чат</th><th className="p-3">Согласия</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -109,7 +89,6 @@ export default function Customers() {
                       <div className="text-xs text-slate-500">{fmtPhone(c.phone)}{c.email ? ' · ' + c.email : ''}</div>
                     </button>
                   </td>
-                  <td className="p-3 text-slate-600">{ageOf(c.birthDate) ?? '—'}{c.gender ? ' · ' + GENDER[c.gender] : ''}</td>
                   <td className="p-3">{c.ordersCount ? <span>{c.ordersCount} · <b>{money(c.ordersSum)}</b></span> : <span className="text-slate-400">нет</span>}</td>
                   <td className="p-3 text-slate-600">{c.lastVisitAt ? fmtDate(c.lastVisitAt) : '—'}</td>
                   <td className="p-3 text-slate-600">{c.lastChatAt ? fmtDate(c.lastChatAt) : '—'}</td>
@@ -149,7 +128,6 @@ function CustomerCard({ id, onClose, onChanged }) {
   useEffect(() => { load(); }, [load]);
   if (!d) return <Modal open onClose={onClose} title="Клиент"><div className="p-6 text-center"><Spinner /></div></Modal>;
   const c = d.customer;
-  const age = ageOf(c.birthDate);
   const days = Math.round((d.stats.time30dSec || 0) / 60);
   const sendOne = async () => {
     if (!msg.text.trim()) return;
@@ -173,8 +151,6 @@ function CustomerCard({ id, onClose, onChanged }) {
       <div className="mb-4 flex flex-wrap gap-2 text-xs text-slate-600">
         <Badge color="slate">{fmtPhone(c.phone)}</Badge>
         {c.email && <Badge color={c.emailVerifiedAt ? 'green' : 'amber'}>{c.email}{c.emailVerifiedAt ? ' ✓' : ' (не подтверждён)'}</Badge>}
-        <Badge color="slate">пол: {c.gender ? GENDER[c.gender] : '—'}</Badge>
-        <Badge color="slate">возраст: {age ?? '—'}</Badge>
         <Badge color="slate">регистрация: {fmtDate(c.createdAt, false)}</Badge>
         <Badge color="slate">заказов: {d.stats.ordersCount} на {money(d.stats.ordersSum)}</Badge>
         <Badge color="slate">посещений 30 дн: {d.stats.visits30d} · {days} мин</Badge>

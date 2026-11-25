@@ -6,7 +6,6 @@ import { useShop } from '../store';
 import { STATUS, PAY } from './Order';
 import Img from '../Img';
 
-const GENDERS = [['', 'Не указан'], ['female', 'Женский'], ['male', 'Мужской']];
 
 // Телефон: в состоянии храним только цифры, показываем маской.
 // Так курсор не «залипает» на дефисах и удаление работает в любом месте.
@@ -62,8 +61,6 @@ export default function Account() {
     setF({
       name: auth.me.name || '', email: auth.me.email || '', address: auth.me.address || '',
       phone: digitsPhone(auth.me.phone || ''),
-      birthDate: auth.me.birthDate ? String(auth.me.birthDate).slice(0, 10) : '',
-      gender: auth.me.gender || '',
       marketingPush: auth.me.marketingPush !== false,
     });
   }, [auth.me]);
@@ -235,18 +232,6 @@ export default function Account() {
               </div>
               <span className="mt-1 block text-xs text-slate-400">Нужен для доставки и связи по заказу. Вход на сайт — по email.</span>
             </label>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-sm">
-                <span className="mb-1 flex items-center justify-between text-slate-500">Дата рождения{f.birthDate ? <button type="button" onClick={() => setF({ ...f, birthDate: '' })} className="text-xs text-slate-400 underline hover:text-slate-900">очистить</button> : null}</span>
-                <input type="date" value={f.birthDate} onChange={(e) => setF({ ...f, birthDate: e.target.value })} className={inputCls} />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-slate-500">Пол</span>
-                <select value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })} className={inputCls}>
-                  {GENDERS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-              </label>
-            </div>
             <textarea rows={2} value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} placeholder="Адрес доставки" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-slate-900" />
             <button disabled={busy} className="h-11 w-full rounded-full bg-slate-900 text-sm font-semibold text-white disabled:opacity-50">{busy ? 'Сохраняем…' : 'Сохранить'}</button>
           </form>

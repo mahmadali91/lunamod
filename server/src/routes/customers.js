@@ -17,7 +17,6 @@ const normPhone = (p) => {
   if (!/^7\d{10}$/.test(d)) throw new HttpError(400, 'Введите номер в формате +7 900 000-00-00');
   return d;
 };
-const yearsAgo = (n) => new Date(Date.now() - n * 365.25 * 864e5);
 const unsubToken = (cid, ch) => jwt.sign({ cid, purpose: 'unsub', ch }, CUSTOMER_SECRET, { expiresIn: '365d' });
 
 /** Фильтр клиентов → prisma.where (используется и для списка, и для рассылки) */
@@ -33,12 +32,6 @@ async function buildWhere(f = {}) {
     ];
     if (where.OR.length === 0) where.OR = [{ name: { contains: q } }];
   }
-  if (f.gender === 'male' || f.gender === 'female') where.gender = f.gender;
-  if (f.gender === 'none') where.gender = null;
-  const ageFrom = Number(f.ageFrom);
-  const ageTo = Number(f.ageTo);
-  if (ageFrom > 0 && ageFrom < 120) where.birthDate = { ...(where.birthDate || {}), lte: yearsAgo(ageFrom) };
-  if (ageTo > 0 && ageTo < 120) where.birthDate = { ...(where.birthDate || {}), gte: yearsAgo(ageTo + 1) };
   if (f.hasEmail === '1') where.email = { not: null };
   if (f.verifiedEmail === '1') where.emailVerifiedAt = { not: null };
   if (f.marketing === '1') where.marketingConsentAt = { not: null };
@@ -82,7 +75,7 @@ r.get('/', ah(async (req, res) => {
   const st = await statsFor(rows.map((c) => c.id));
   const items = rows.map((c) => ({
     id: c.id, phone: c.phone, name: c.name, email: c.email, emailVerifiedAt: c.emailVerifiedAt, avatar: c.avatar,
-    birthDate: c.birthDate, gender: c.gender, createdAt: c.createdAt, lastLogin: c.lastLogin,
+    createdAt: c.createdAt, lastLogin: c.lastLogin,
     marketingConsentAt: c.marketingConsentAt, marketingPush: c.marketingPush,
     ordersCount: st.orders.get(c.id)?.count || 0, ordersSum: st.orders.get(c.id)?.sum || 0,
     lastVisitAt: st.visits.get(c.id) || null, lastChatAt: st.chats.get(c.id) || null,

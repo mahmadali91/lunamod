@@ -597,14 +597,6 @@ const normEmail = (v) => {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(e) || e.length > 200) throw new HttpError(400, 'Введите корректный email');
   return e;
 };
-const GENDERS = ['male', 'female'];
-const parseBirth = (v) => {
-  if (v === null || v === undefined || v === '') return null;
-  const d = new Date(String(v).slice(0, 10) + 'T00:00:00Z');
-  if (Number.isNaN(d.getTime())) throw new HttpError(400, 'Неверная дата рождения');
-  if (d.getUTCFullYear() < 1900 || d > new Date()) throw new HttpError(400, 'Неверная дата рождения');
-  return d;
-};
 const emailReady = (s) => process.env.SHOP_TEST_EMAIL_CODE === '1' || Boolean(String(s.smtpHost || '').trim() && String(s.smtpFrom || s.smtpUser || '').trim());
 const code6 = () => String(crypto.randomInt(100000, 1000000));
 
@@ -675,12 +667,6 @@ r.put('/me', customerAuth(), ah(async (req, res) => {
   const cur = await prisma.customer.findUnique({ where: { id } });
   if (!cur) throw new HttpError(401, 'Войдите заново');
   const data = { name: str(req.body.name), address: str(req.body.address) };
-  if (req.body.birthDate !== undefined) data.birthDate = parseBirth(req.body.birthDate);
-  if (req.body.gender !== undefined) {
-    const g = req.body.gender === '' || req.body.gender === null ? null : String(req.body.gender);
-    if (g !== null && !GENDERS.includes(g)) throw new HttpError(400, 'Неверный пол');
-    data.gender = g;
-  }
   if (req.body.marketingPush !== undefined) {
     data.marketingPush = Boolean(req.body.marketingPush);
     if (!cur.marketingConsentAt) data.marketingConsentAt = new Date();

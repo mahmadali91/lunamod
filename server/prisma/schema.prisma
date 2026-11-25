@@ -292,8 +292,6 @@ model Customer {
   consentAt DateTime? // согласие на обработку персональных данных
   emailVerifiedAt  DateTime? // email подтверждён кодом
   avatar           String? // /uploads/avatars/...
-  birthDate        DateTime? @db.Date
-  gender           String? // male | female | null
   marketingConsentAt DateTime? // согласие на рекламные сообщения
   marketingPush    Boolean   @default(true)
   cart          String?   @db.Text // корзина (для напоминания о брошенной корзине)
@@ -309,7 +307,6 @@ model Customer {
   emailCodes    EmailCode[]
 
   @@index([email])
-  @@index([birthDate])
 }
 
 // ---------- Клиенты: подтверждение email, посещения, рассылки ----------
