@@ -8,13 +8,18 @@ import Img from '../Img';
 
 const GENDERS = [['', 'Не указан'], ['female', 'Женский'], ['male', 'Мужской']];
 
-// Маска +7 (900) 000-00-00
-function maskPhone(v) {
+// Телефон: в состоянии храним только цифры, показываем маской.
+// Так курсор не «залипает» на дефисах и удаление работает в любом месте.
+function digitsPhone(v) {
   let d = String(v || '').replace(/\D/g, '');
   if (!d) return '';
   if (d[0] === '8') d = '7' + d.slice(1);
   if (d[0] !== '7') d = '7' + d;
-  d = d.slice(0, 11);
+  return d.slice(0, 11);
+}
+function formatPhone(digits) {
+  const d = digitsPhone(digits);
+  if (!d) return '';
   const p = d.slice(1);
   let out = '+7';
   if (p.length) out += ' (' + p.slice(0, 3);
@@ -22,6 +27,15 @@ function maskPhone(v) {
   if (p.length >= 6) out += '-' + p.slice(6, 8);
   if (p.length >= 8) out += '-' + p.slice(8, 10);
   return out;
+}
+// позиция курсора после n-й цифры в отформатированной строке
+function caretAfterDigits(formatted, n) {
+  let seen = 0;
+  for (let i = 0; i < formatted.length; i++) {
+    if (seen >= n) return i;
+    if (/\d/.test(formatted[i])) seen++;
+  }
+  return formatted.length;
 }
 
 const inputCls = 'h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-slate-900';
@@ -39,6 +53,7 @@ export default function Account() {
   const [uploading, setUploading] = useState(false);
   const [emailEdit, setEmailEdit] = useState(false);
   const fileRef = useRef(null);
+  const phoneRef = useRef(null);
 
   useEffect(() => {
     if (!auth.me) return;
@@ -46,7 +61,7 @@ export default function Account() {
     shopApi('/me/visits').then(setVisits).catch(() => {});
     setF({
       name: auth.me.name || '', email: auth.me.email || '', address: auth.me.address || '',
-      phone: auth.me.phone ? maskPhone(auth.me.phone) : '',
+      phone: digitsPhone(auth.me.phone || ''),
       birthDate: auth.me.birthDate ? String(auth.me.birthDate).slice(0, 10) : '',
       gender: auth.me.gender || '',
       marketingPush: auth.me.marketingPush !== false,
@@ -201,12 +216,28 @@ export default function Account() {
             <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Имя" className={inputCls} />
             <label className="block text-sm">
               <span className="mb-1 block text-slate-500">Телефон</span>
-              <input inputMode="tel" autoComplete="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: maskPhone(e.target.value) })} placeholder="+7 (900) 000-00-00" className={inputCls} />
+              <div className="relative">
+                <input ref={phoneRef} inputMode="tel" autoComplete="tel" value={formatPhone(f.phone)}
+                  onChange={(e) => {
+                    const el = e.target;
+                    const raw = el.value;
+                    const caret = el.selectionStart ?? raw.length;
+                    const digitsBefore = raw.slice(0, caret).replace(/\D/g, '').length;
+                    const digits = digitsPhone(raw);
+                    setF({ ...f, phone: digits });
+                    requestAnimationFrame(() => {
+                      const pos = caretAfterDigits(formatPhone(digits), Math.min(digitsBefore, digits.length));
+                      el.setSelectionRange(pos, pos);
+                    });
+                  }}
+                  placeholder="+7 (900) 000-00-00" className={inputCls} />
+                {f.phone && <button type="button" onClick={() => { setF({ ...f, phone: '' }); phoneRef.current?.focus(); }} className="absolute top-1/2 right-3 -translate-y-1/2 rounded-full px-1 text-slate-400 hover:text-slate-900" aria-label="Очистить телефон">×</button>}
+              </div>
               <span className="mt-1 block text-xs text-slate-400">Нужен для доставки и связи по заказу. Вход на сайт — по email.</span>
             </label>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-sm">
-                <span className="mb-1 block text-slate-500">Дата рождения</span>
+                <span className="mb-1 flex items-center justify-between text-slate-500">Дата рождения{f.birthDate ? <button type="button" onClick={() => setF({ ...f, birthDate: '' })} className="text-xs text-slate-400 underline hover:text-slate-900">очистить</button> : null}</span>
                 <input type="date" value={f.birthDate} onChange={(e) => setF({ ...f, birthDate: e.target.value })} className={inputCls} />
               </label>
               <label className="block text-sm">
