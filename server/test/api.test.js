@@ -269,15 +269,15 @@ const shop = async (p, { method = 'GET', body, token: t } = {}) => {
   return { status: res.status, data: await res.json().catch(() => ({})) };
 };
 
-test('интернет-магазин: каталог, вход по SMS, заказ, выдача, оплата', async () => {
-  // настройки: тестовый режим SMS, онлайн-оплата включена (без ключей → тестовая оплата)
+test('интернет-магазин: каталог, вход по email, заказ, выдача, оплата', async () => {
+  // настройки: онлайн-оплата включена (без ключей → тестовая оплата)
   const methods = [
     { id: 'pickup', carrier: 'pickup', name: 'Самовывоз', enabled: true, price: 0, description: 'ул. Тестовая, 1' },
     { id: 'courier', carrier: 'courier', name: 'Курьер', enabled: true, price: 300, freeFrom: 5000 },
     { id: 'ozon', carrier: 'ozon', name: 'Ozon', enabled: true, price: 200, markupPercent: 10, markupFixed: 15 },
     { id: 'pek', carrier: 'pek', name: 'ПЭК', enabled: false, price: 600 },
   ];
-  const st = await ok('/orders/settings', { method: 'PUT', body: { smsMode: 'test', tbankEnabled: '1', tbankPassword: 'secret-pass', deliveryMethods: JSON.stringify(methods), warehouseId: String(w1.id), sellerName: 'ИП Тестов Т.Т.', sellerInn: '123456789012' } });
+  const st = await ok('/orders/settings', { method: 'PUT', body: { tbankEnabled: '1', tbankPassword: 'secret-pass', deliveryMethods: JSON.stringify(methods), warehouseId: String(w1.id), sellerName: 'ИП Тестов Т.Т.', sellerInn: '123456789012' } });
   assert.equal(st.tbankPassword, '••••••', 'секреты маскируются');
   assert.equal((await ok('/orders/settings', { method: 'PUT', body: { tbankPassword: '••••••' } })).tbankPassword, '••••••', 'маска не затирает пароль');
   await ok('/orders/settings', { method: 'PUT', body: { tbankPassword: '' } });
@@ -291,22 +291,24 @@ test('интернет-магазин: каталог, вход по SMS, зак
   assert.equal((await shop('/products/' + hidden.id)).status, 404);
   assert.equal((await shop('/products/' + p.id)).data.costPrice, undefined, 'закупочная цена не раскрывается');
 
-  // вход по SMS
+  // вход/регистрация по email (в тестах SHOP_TEST_EMAIL_CODE=1 — код возвращается ответом)
   const phone = '79' + D.slice(-9);
-  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { captcha: await cap(), phone: '123' } })).status, 400);
-  const rc = await shop('/auth/request-code', { method: 'POST', body: { captcha: await cap(), phone: '8' + phone.slice(1) } });
+  const email = `shop${U}@example.ru`;
+  assert.equal((await shop('/auth/email/request-code', { method: 'POST', body: { captcha: await cap(), email: 'не почта' } })).status, 400);
+  const rc = await shop('/auth/email/request-code', { method: 'POST', body: { captcha: await cap(), email } });
   assert.equal(rc.status, 200); assert.match(rc.data.testCode, /^\d{6}$/);
-  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { captcha: await cap(), phone } })).status, 429, 'повтор не раньше 60 с');
-  assert.equal((await shop('/auth/verify', { method: 'POST', body: { phone, code: rc.data.testCode === '000000' ? '111111' : '000000' } })).status, 400);
-  const noConsent = await shop('/auth/verify', { method: 'POST', body: { phone, code: rc.data.testCode } });
-  assert.equal(noConsent.status, 400, 'без согласия на обработку ПД вход невозможен');
+  assert.equal((await shop('/auth/email/request-code', { method: 'POST', body: { captcha: await cap(), email } })).status, 429, 'повтор не раньше 60 с');
+  assert.equal((await shop('/auth/email/verify', { method: 'POST', body: { email, code: rc.data.testCode === '000000' ? '111111' : '000000' } })).status, 400);
+  const noConsent = await shop('/auth/email/verify', { method: 'POST', body: { email, code: rc.data.testCode } });
+  assert.equal(noConsent.status, 400, 'без согласия на обработку ПД регистрация невозможна');
   assert.match(noConsent.data.error, /согласие/);
-  const v = await shop('/auth/verify', { method: 'POST', body: { phone, code: rc.data.testCode, name: 'Ольга', consent: true } });
+  const v = await shop('/auth/email/verify', { method: 'POST', body: { email, code: rc.data.testCode, name: 'Ольга', consent: true } });
   const ct = v.data.token; assert.ok(ct);
-  assert.equal((await shop('/auth/verify', { method: 'POST', body: { phone, code: rc.data.testCode, consent: true } })).status, 400, 'код одноразовый');
+  assert.equal((await shop('/auth/email/verify', { method: 'POST', body: { email, code: rc.data.testCode, consent: true } })).status, 400, 'код одноразовый');
   assert.equal((await fetch(BASE + '/api/products', { headers: { Authorization: 'Bearer ' + ct } })).status, 401, 'токен покупателя не пускает в админку');
   assert.equal((await shop('/me', { token })).status, 401, 'админский токен не подходит магазину');
-  assert.equal((await shop('/me', { token: ct })).data.phone, phone);
+  assert.equal((await shop('/me', { token: ct })).data.phone, null, 'телефон не нужен при регистрации');
+  assert.equal((await shop('/me', { token: ct })).data.emailVerifiedAt !== null, true, 'email подтверждён');
 
   // способы доставки и расчёт с наценкой
   const cfg = (await shop('/config')).data;
@@ -318,7 +320,8 @@ test('интернет-магазин: каталог, вход по SMS, зак
   assert.equal((await shop('/delivery/quote', { method: 'POST', body: { methodId: 'pek', items: [{ productId: p.id, quantity: 1 }], to: { address: 'x' } } })).status, 400, 'выключенный способ');
 
   // заказ: цена из базы, доставка, остатки, согласие с офертой
-  const base = { delivery: 'courier', deliveryTo: { address: 'ул. Тестовая, 1' }, agree: true };
+  const base = { phone, delivery: 'courier', deliveryTo: { address: 'ул. Тестовая, 1' }, agree: true };
+  assert.equal((await shop('/orders', { method: 'POST', token: ct, body: { ...base, phone: '', items: [{ productId: p.id, quantity: 1 }] } })).status, 400, 'без телефона заказ не оформить');
   assert.equal((await shop('/orders', { method: 'POST', token: ct, body: { ...base, items: [{ productId: p.id, quantity: 6 }] } })).status, 400, 'больше остатка нельзя');
   assert.equal((await shop('/orders', { method: 'POST', token: ct, body: { ...base, items: [{ productId: p.id, quantity: 1 }], deliveryTo: {} } })).status, 400, 'курьер без адреса');
   assert.equal((await shop('/orders', { method: 'POST', token: ct, body: { ...base, agree: false, items: [{ productId: p.id, quantity: 1 }] } })).status, 400, 'без согласия с офертой');
@@ -342,14 +345,17 @@ test('интернет-магазин: каталог, вход по SMS, зак
   // покупатель отменяет новый заказ
   assert.equal((await shop(`/orders/${o2.id}/cancel`, { method: 'POST', token: ct })).data.status, 'cancelled');
 
+  assert.equal((await shop('/me', { token: ct })).data.phone, phone, 'телефон из заказа сохранился в аккаунт');
+
   // онлайн-оплата в тестовом режиме
-  const o3 = await shop('/orders', { method: 'POST', token: ct, body: { items: [{ productId: p.id, quantity: 1 }], paymentMethod: 'tbank', delivery: 'pickup', agree: true } });
+  const o3 = await shop('/orders', { method: 'POST', token: ct, body: { phone, items: [{ productId: p.id, quantity: 1 }], paymentMethod: 'tbank', delivery: 'pickup', agree: true } });
   assert.equal(o3.data.paymentUrl, `/order/${o3.data.order.id}?testpay=1`);
   const paid = (await shop(`/orders/${o3.data.order.id}/test-pay`, { method: 'POST', token: ct })).data;
   assert.equal(paid.paymentStatus, 'paid'); assert.equal(paid.status, 'confirmed');
   // чужой заказ недоступен
-  const rc2 = await shop('/auth/request-code', { method: 'POST', body: { captcha: await cap(), phone: '79' + String(Number(D.slice(-9)) + 1).padStart(9, '0').slice(-9) } });
-  const other = (await shop('/auth/verify', { method: 'POST', body: { phone: rc2.data.phone, code: rc2.data.testCode, consent: true } })).data.token;
+  const otherEmail = `shop2${U}@example.ru`;
+  const rc2 = await shop('/auth/email/request-code', { method: 'POST', body: { captcha: await cap(), email: otherEmail } });
+  const other = (await shop('/auth/email/verify', { method: 'POST', body: { email: otherEmail, code: rc2.data.testCode, consent: true } })).data.token;
   assert.equal((await shop(`/orders/${o3.data.order.id}`, { token: other })).status, 404);
   // уведомление банка с неверной подписью отклоняется
   const bad = await fetch(BASE + '/api/shop/tbank/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TerminalKey: 'x', OrderId: o3.data.order.number, Status: 'CONFIRMED', Token: 'bad' }) });
@@ -374,9 +380,9 @@ test('юридические документы магазина', async () => {
 
 test('чат: только для вошедших, фото, голосовые, антиспам, ответ из админки', async () => {
   const login = async (n, name) => {
-    const ph = '79' + String(Number(D.slice(-9)) + n).padStart(9, '0').slice(-9);
-    const rc = await shop('/auth/request-code', { method: 'POST', body: { captcha: await cap(), phone: ph } });
-    return (await shop('/auth/verify', { method: 'POST', body: { phone: rc.data.phone, code: rc.data.testCode, name, consent: true } })).data.token;
+    const em = `chat${n}${U}@example.ru`;
+    const rc = await shop('/auth/email/request-code', { method: 'POST', body: { captcha: await cap(), email: em } });
+    return (await shop('/auth/email/verify', { method: 'POST', body: { email: em, code: rc.data.testCode, name, consent: true } })).data.token;
   };
   const send = (tk, body, form) => fetch(BASE + '/api/shop/chat', { method: 'POST', headers: { Authorization: 'Bearer ' + tk, ...(form ? {} : { 'Content-Type': 'application/json' }) }, body: form || JSON.stringify(body) });
   const read = (tk, q = '') => fetch(BASE + '/api/shop/chat' + q, { headers: { Authorization: 'Bearer ' + tk } }).then((x) => x.json());
@@ -405,7 +411,7 @@ test('чат: только для вошедших, фото, голосовые
   // админка видит чаты и непрочитанные
   const list = await ok('/chats');
   const conv = list.find((x) => x.name === 'Чат А ' + U);
-  assert.ok(conv); assert.equal(conv.unreadAdmin, 1); assert.ok(conv.phone);
+  assert.ok(conv); assert.equal(conv.unreadAdmin, 1); assert.equal(conv.phone, null, 'клиент без телефона — номер пустой');
   assert.match(list.find((x) => x.name === 'Чат В ' + U).lastText, /Голосовое/);
   assert.ok((await ok('/chats/unread')).unread >= 3);
   // ответ с фото из админки
@@ -633,7 +639,7 @@ test('SEO: страницы магазина, robots.txt, sitemap.xml, Метр�
 });
 
 test('витрина: варианты, фильтры, избранное, ожидание поступления, отзывы, СБП, корзина, фид', async () => {
-  await ok('/orders/settings', { method: 'PUT', body: { sbpEnabled: '1', tbankEnabled: '1', smsMode: 'test', showOutOfStock: '0', warehouseId: '', reviewsEnabled: '1' } });
+  await ok('/orders/settings', { method: 'PUT', body: { sbpEnabled: '1', tbankEnabled: '1', showOutOfStock: '0', warehouseId: '', reviewsEnabled: '1' } });
   const card = await ok('/products', { method: 'POST', body: { name: 'Футболка Витрина ' + U, sku: 'SHOPV-' + D, color: 'Белый', price: 1500, costPrice: 500, brand: 'Бренд' + U, variantWarehouseId: w1.id,
     variants: [{ size: 'S', quantity: 2 }, { size: 'M' }, { size: 'L', price: 1700, quantity: 1 }] } });
   const vS = card.variants.find((v) => v.size === 'S'), vM = card.variants.find((v) => v.size === 'M');
@@ -656,10 +662,11 @@ test('витрина: варианты, фильтры, избранное, ож
   assert.equal(pd.variants.find((v) => v.id === vM.id).inStock, false);
   assert.deepEqual((await shop('/products/' + vS.id)).data, { redirect: `/product/${card.id}` }, 'ссылка на вариант ведёт на карточку');
 
+  const phone = '79' + String(Number(D.slice(-9)) + 11).padStart(9, '0').slice(-9);
   const login = async (n) => {
-    const ph = '79' + String(Number(D.slice(-9)) + n).padStart(9, '0').slice(-9);
-    const rc = await shop('/auth/request-code', { method: 'POST', body: { captcha: await cap(), phone: ph } });
-    return (await shop('/auth/verify', { method: 'POST', body: { phone: rc.data.phone, code: rc.data.testCode, name: 'Ирина Петрова', consent: true } })).data.token;
+    const em = `wish${n}${U}@example.ru`;
+    const rc = await shop('/auth/email/request-code', { method: 'POST', body: { captcha: await cap(), email: em } });
+    return (await shop('/auth/email/verify', { method: 'POST', body: { email: em, code: rc.data.testCode, name: 'Ирина Петрова', consent: true } })).data.token;
   };
   const t = await login(11);
   // избранное: объединение браузерного списка с аккаунтом
@@ -667,7 +674,7 @@ test('витрина: варианты, фильтры, избранное, ож
   await shop('/favorites/' + card.id, { method: 'DELETE', token: t });
   assert.deepEqual((await shop('/favorites', { token: t })).data.ids, []);
   // карточку целиком в заказ положить нельзя — только вариант
-  assert.equal((await shop('/orders', { method: 'POST', token: t, body: { items: [{ productId: card.id, quantity: 1 }], delivery: 'pickup', agree: true } })).status, 400);
+  assert.equal((await shop('/orders', { method: 'POST', token: t, body: { phone, items: [{ productId: card.id, quantity: 1 }], delivery: 'pickup', agree: true } })).status, 400);
   // сообщить о поступлении: размер M закончился → подписка → приход → уведомление отправлено
   await shop('/waitlist/' + vM.id, { method: 'POST', token: t });
   assert.deepEqual((await shop('/waitlist', { token: t })).data, [vM.id]);
@@ -678,7 +685,7 @@ test('витрина: варианты, фильтры, избранное, ож
   // корзина сохраняется для напоминания; заказ её очищает
   assert.equal((await shop('/cart', { method: 'POST', token: t, body: { items: [{ productId: vS.id, quantity: 1 }] } })).status, 200);
   // заказ с оплатой через СБП (тестовый режим без ключей банка → тестовый QR)
-  const o = await shop('/orders', { method: 'POST', token: t, body: { items: [{ productId: vS.id, quantity: 1 }], paymentMethod: 'sbp', delivery: 'pickup', agree: true } });
+  const o = await shop('/orders', { method: 'POST', token: t, body: { phone, items: [{ productId: vS.id, quantity: 1 }], paymentMethod: 'sbp', delivery: 'pickup', agree: true } });
   assert.equal(o.status, 201, JSON.stringify(o.data));
   assert.equal(o.data.paymentUrl, `/order/${o.data.order.id}?sbp=1`);
   const od = (await shop('/orders/' + o.data.order.id, { token: t })).data;
@@ -771,13 +778,13 @@ test('резервная копия: база (SQL) и файлы (tar) по о�
   assert.equal(tar.subarray(257, 262).toString(), 'ustar');
 });
 
-test('капча и защита от подбора: SMS только с капчей, решение одноразовое, вход админа после 3 ошибок — с капчей', async () => {
-  const ph = '79' + String(Date.now()).slice(-9);
-  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { phone: ph } })).status, 428, 'без капчи код не отправляется');
-  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { phone: ph, captcha: 'bad' } })).status, 428);
+test('капча и защита от подбора: код на email только с капчей, решение одноразовое, вход админа после 3 ошибок — с капчей', async () => {
+  const em = `cap${Date.now()}@example.ru`;
+  assert.equal((await shop('/auth/email/request-code', { method: 'POST', body: { email: em } })).status, 428, 'без капчи код не отправляется');
+  assert.equal((await shop('/auth/email/request-code', { method: 'POST', body: { email: em, captcha: 'bad' } })).status, 428);
   const c = await cap();
-  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { phone: ph, captcha: c } })).status, 200);
-  assert.equal((await shop('/auth/request-code', { method: 'POST', body: { phone: '79' + String(Date.now() + 7).slice(-9), captcha: c } })).status, 428, 'повтор решения не принимается');
+  assert.equal((await shop('/auth/email/request-code', { method: 'POST', body: { email: em, captcha: c } })).status, 200);
+  assert.equal((await shop('/auth/email/request-code', { method: 'POST', body: { email: `cap2${Date.now()}@example.ru`, captcha: c } })).status, 428, 'повтор решения не принимается');
   // подбор пароля: отдельный логин, чтобы не мешать остальным тестам
   const login = 'brute' + Date.now();
   // после 3 ошибок (по логину или с этого адреса — считаются и ошибки из других тестов) нужна капча
@@ -810,9 +817,9 @@ test('безопасность: подделка уведомления Т-Ба�
 
 test('избранное: товар, снятый с сайта, пропадает из избранного', async () => {
   const p = await ok('/products', { method: 'POST', body: { name: 'Избранное ' + U, price: 100, showInShop: true } });
-  const ph = '79' + String(Date.now() + 3).slice(-9);
-  const rc = await shop('/auth/request-code', { method: 'POST', body: { captcha: await cap(), phone: ph } });
-  const t = (await shop('/auth/verify', { method: 'POST', body: { phone: ph, code: rc.data.testCode, consent: true } })).data.token;
+  const em = `fav${Date.now()}@example.ru`;
+  const rc = await shop('/auth/email/request-code', { method: 'POST', body: { captcha: await cap(), email: em } });
+  const t = (await shop('/auth/email/verify', { method: 'POST', body: { email: em, code: rc.data.testCode, consent: true } })).data.token;
   const sh = (path, opt = {}) => fetch(BASE + '/api/shop' + path, { ...opt, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t } }).then((r) => r.json());
   await sh('/favorites/' + p.id, { method: 'POST' });
   assert.deepEqual((await sh('/favorites')).ids, [p.id]);

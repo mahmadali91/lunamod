@@ -28,7 +28,7 @@ export default function Backup() {
         <Button variant="secondary" icon={Database} loading={busy === 'db'} onClick={() => get('db')}>База данных{info ? ` · ~${size(info.dbSize)}` : ''}</Button>
         <Button variant="secondary" icon={Images} loading={busy === 'uploads'} onClick={() => get('uploads')}>Фото и файлы{info ? ` · ${info.files} шт, ${size(info.filesSize)}` : ''}</Button>
       </div>
-      <p className="mt-3 text-xs text-slate-400">В копии базы есть пароли и ключи (Т-Банк, SMS, боты) — храните файл в надёжном месте и никому не пересылайте.</p>
+      <p className="mt-3 text-xs text-slate-400">В копии базы есть пароли и ключи (Т-Банк, почта, боты) — храните файл в надёжном месте и никому не пересылайте.</p>
     </div>
   );
 }

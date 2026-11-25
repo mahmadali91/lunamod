@@ -3,6 +3,7 @@ import { MessageCircle, X, Send, ImagePlus, Loader2, BellRing, LogIn, Timer } fr
 import { shopToken } from './api';
 import { useShop } from './store';
 import { VoicePlayer, VoiceRecorder } from '../components/Voice';
+import { subscribePush } from './push';
 
 // Чат доступен только вошедшим покупателям: переписка хранится в аккаунте и видна на любом устройстве
 async function chatApi(path, { method = 'GET', body, form } = {}) {
@@ -13,19 +14,6 @@ async function chatApi(path, { method = 'GET', body, form } = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data.error || 'Ошибка'), { status: res.status, retryAfter: data.retryAfter });
   return data;
-}
-
-const urlB64 = (b) => { const p = '='.repeat((4 - (b.length % 4)) % 4); const s = atob((b + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from([...s].map((c) => c.charCodeAt(0))); };
-
-async function subscribePush(vapidKey) {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !vapidKey) return false;
-  const perm = await Notification.requestPermission();
-  if (perm !== 'granted') return false;
-  const reg = await navigator.serviceWorker.register('/sw.js');
-  await navigator.serviceWorker.ready;
-  const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(vapidKey) }));
-  await chatApi('/push/subscribe', { method: 'POST', body: sub.toJSON() });
-  return true;
 }
 
 const timeOf = (d) => new Date(d).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });

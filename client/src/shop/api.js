@@ -9,8 +9,9 @@ export async function shopApi(path, { method = 'GET', body } = {}) {
   const headers = {};
   const t = shopToken.get();
   if (t) headers.Authorization = 'Bearer ' + t;
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
-  const res = await fetch('/api/shop' + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  const isForm = body instanceof FormData;
+  if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json';
+  const res = await fetch('/api/shop' + path, { method, headers, body: body === undefined ? undefined : (isForm ? body : JSON.stringify(body)) });
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && t) shopToken.set(null);
   if (!res.ok) throw Object.assign(new Error(data.error || 'Ошибка ' + res.status), { status: res.status });

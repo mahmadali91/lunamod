@@ -22,6 +22,7 @@ const nav = [
   ] },
   { group: 'Интернет-магазин', items: [
     { to: '/orders', icon: ShoppingBag, label: 'Заказы', badge: 'orders' },
+    { to: '/customers', icon: Users, label: 'Клиенты' },
     { to: '/chats', icon: MessageCircle, label: 'Чаты', badge: 'chats' },
     { to: '/reviews', icon: Star, label: 'Отзывы', badge: 'reviews' },
     { to: '/shop-settings', icon: Globe, label: 'Настройки магазина' },

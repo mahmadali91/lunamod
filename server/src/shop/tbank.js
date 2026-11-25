@@ -32,6 +32,16 @@ function call(method, body) {
 
 const kop = (v) => Math.round(v * 100);
 
+// Т-Банк в Receipt.Taxation принимает только: osn, usn_income, usn_income_outcome, envd, esn, patent.
+// Отдельных кодов АУСН в API нет: по разъяснениям ФНС для АУСН в чеке указывается УСН
+// с тем же объектом («УСН доходы» / «УСН доходы − расходы»), поэтому маппим.
+const TAXATION = {
+  ausn_income: 'usn_income',
+  ausn_income_outcome: 'usn_income_outcome',
+};
+const taxationForReceipt = (value) => TAXATION[value] || value;
+
+
 /** Создание платежа. Возвращает { PaymentId, PaymentURL } */
 async function initPayment(s, order, attempt = 0) {
   const base = s.siteUrl.replace(/\/$/, '');
@@ -48,7 +58,7 @@ async function initPayment(s, order, attempt = 0) {
   if (s.tbankReceipt === '1') {
     const items = order.items.map((i) => ({ Name: i.name.slice(0, 128), Price: kop(i.price), Quantity: i.quantity, Amount: kop(i.price * i.quantity), Tax: s.tbankTax, PaymentMethod: 'full_prepayment', PaymentObject: 'commodity' }));
     if (order.deliveryPrice > 0) items.push({ Name: 'Доставка', Price: kop(order.deliveryPrice), Quantity: 1, Amount: kop(order.deliveryPrice), Tax: s.tbankTax, PaymentMethod: 'full_prepayment', PaymentObject: 'service' });
-    body.Receipt = { Phone: '+' + order.phone, Taxation: s.tbankTaxation, Items: items };
+    body.Receipt = { Phone: '+' + order.phone, Taxation: taxationForReceipt(s.tbankTaxation), Items: items };
   }
   body.Token = token(body, s.tbankPassword);
   const r = await call('Init', body);

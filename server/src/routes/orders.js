@@ -70,21 +70,33 @@ r.post('/:id(\\d+)/status', ah(async (req, res) => {
       await tx.order.update({ where: { id }, data: { status: 'completed', saleId: sale.id, paymentStatus: o.paymentMethod === 'cash' ? 'paid' : o.paymentStatus, paidAt: o.paidAt || new Date() } });
     });
   } else if (status === 'cancelled') {
-    let refund = null;
-    if (['tbank', 'sbp'].includes(o.paymentMethod) && o.paymentStatus === 'paid' && o.paymentId && tbankReady(s)) {
-      if (!req.body.refund) throw new HttpError(400, 'Заказ оплачен онлайн. Подтвердите возврат денег покупателю.');
-      await tbank.cancelPayment(s, o.paymentId);
-      refund = 'refunded';
+    // Отмена и возврат денег — разные действия (как в Т-Бизнесе): сначала «Вернуть», потом отмена
+    if (['tbank', 'sbp'].includes(o.paymentMethod) && o.paymentStatus === 'paid' && tbankReady(s)) {
+      throw new HttpError(400, 'Заказ оплачен онлайн. Сначала верните деньги кнопкой «Вернуть», затем отменяйте заказ.');
     }
-    await prisma.order.update({ where: { id }, data: { status: 'cancelled', ...(refund ? { paymentStatus: refund } : {}) } });
+    await prisma.order.update({ where: { id }, data: { status: 'cancelled' } });
   } else {
     await prisma.order.update({ where: { id }, data: { status } });
   }
   res.json(await loadOrder(id));
 }));
 
-r.put('/:id(\\d+)/note', ah(async (req, res) => {
-  res.json(await prisma.order.update({ where: { id: Number(req.params.id) }, data: { adminNote: str(req.body.adminNote) } }));
+// Возврат денег покупателю (отдельное действие, как «Вернуть» в Т-Бизнесе). Заказ при этом не отменяется.
+r.post('/:id(\\d+)/refund', ah(async (req, res) => {
+  const id = Number(req.params.id);
+  const s = await getShopSettings();
+  const o = await prisma.order.findUnique({ where: { id } });
+  if (!o) throw new HttpError(404, 'Заказ не найден');
+  if (!['tbank', 'sbp'].includes(o.paymentMethod)) throw new HttpError(400, 'Заказ оплачен не онлайн — верните деньги вручную');
+  if (o.paymentStatus === 'refunded') throw new HttpError(400, 'Деньги уже возвращены');
+  if (o.paymentStatus !== 'paid' || !o.paymentId) throw new HttpError(400, 'Платёж не найден или ещё не оплачен');
+  if (!tbankReady(s)) throw new HttpError(400, 'Онлайн-оплата не настроена — возврат через Т-Банк недоступен');
+  await tbank.cancelPayment(s, o.paymentId);
+  await prisma.order.update({ where: { id }, data: { paymentStatus: 'refunded' } });
+  res.json(await loadOrder(id));
+}));
+
+r.put('/:id(\\d+)/note', ah(async (req, res) => {  res.json(await prisma.order.update({ where: { id: Number(req.params.id) }, data: { adminNote: str(req.body.adminNote) } }));
 }));
 
 // Отметить оплату наличными / вручную
@@ -109,6 +121,15 @@ r.post('/settings/test-tbank', requireAdmin, ah(async (req, res) => {
 }));
 
 // Проверка каналов уведомлений: отправляет тест и возвращает точную причину ошибки
+// Проверка настроек почты (SMTP): отправляет тестовое письмо
+r.post('/settings/smtp-test', requireAdmin, ah(async (req, res) => {
+  const s = await getShopSettings();
+  const to = str(req.body.to) || s.sellerEmail || s.email;
+  if (!to) throw new HttpError(400, 'Укажите адрес для проверки');
+  await require('../shop/mail').sendMail(s, { to, subject: 'Проверка почты сайта', text: 'Почта настроена: ' + new Date().toLocaleString('ru-RU') + '. Это тестовое письмо.' });
+  res.json({ ok: true, message: 'Письмо отправлено на ' + to });
+}));
+
 r.post('/settings/test-notify', requireAdmin, ah(async (req, res) => {
   const n = require('../notify');
   const s = await n.channelSettings();

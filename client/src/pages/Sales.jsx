@@ -1,15 +1,23 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Receipt } from 'lucide-react';
+import { Plus, Receipt, FileText } from 'lucide-react';
 import { api, qs } from '../api';
 import SaleDetails, { SaleStatus, payNames } from '../components/SaleDetails';
 import { Button, Empty, PageHeader, RefSelect, Spinner, fmtDate, useLoad, useMoney } from '../ui';
+import { receiptPdf } from '../pdf';
+import { useEffect } from 'react';
 
 export default function Sales() {
   const [f, setF] = useState({ from: '', to: '', channelId: null, warehouseId: null, q: '' });
   const { data, reload, loading } = useLoad('/sales' + qs(f));
   const [view, setView] = useState(null);
+  const [shop, setShop] = useState(null);
+  useEffect(() => { api('/orders/settings').then(setShop).catch(() => {}); }, []);
   const navigate = useNavigate();
+  const receipt = (s) => receiptPdf(s, {
+    seller: { name: shop?.sellerName, inn: shop?.sellerInn, ogrn: shop?.sellerOgrn, address: shop?.sellerAddress, phone: shop?.sellerPhone || shop?.phone, email: shop?.sellerEmail || shop?.email },
+    storeName: shop?.title || 'ЛУНАРА', money, fmtDate: (d) => new Date(d).toLocaleString('ru-RU'), paymentLabel: payNames[s.paymentMethod] || '—',
+  }).catch((e) => alert('Не удалось сформировать PDF: ' + e.message));
   const money = useMoney();
 
   const list = data || [];
@@ -35,7 +43,8 @@ export default function Sales() {
               <tbody className="divide-y divide-slate-100">
                 {list.map((s) => (
                   <tr key={s.id} onClick={async () => setView(await api('/sales/' + s.id))} className="cursor-pointer hover:bg-slate-50/70">
-                    <td className="td font-medium"><span className="mr-2">{s.number}</span><SaleStatus s={s} /></td>
+                    <td className="td font-medium"><span className="mr-2">{s.number}</span><SaleStatus s={s} />
+                      <button onClick={(e) => { e.stopPropagation(); receipt(s); }} title="Скачать чек PDF" className="ml-2 inline-flex align-middle text-slate-400 hover:text-indigo-600"><FileText size={15} /></button></td>
                     <td className="td text-slate-500">{fmtDate(s.date)}</td>
                     <td className="td">{s.channel ? <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: s.channel.color }} />{s.channel.name}</span> : '—'}</td>
                     <td className="td">{s.counterparty?.name || <span className="text-slate-400">Розница</span>}</td>
