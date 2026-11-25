@@ -4,7 +4,14 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Ручной запуск — обновление рабочего сайта по команде владельца:
+  # Actions → «Проверка и деплой» → Run workflow → sites
   workflow_dispatch:
+    inputs:
+      sites:
+        description: 'Сайты через пробел: lunaramod.ru или botmi.ru lunaramod.ru'
+        required: true
+        default: 'lunaramod.ru'
 
 # Деплои идут строго по очереди
 concurrency:
@@ -12,7 +19,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SITES: botmi.ru lunaramod.ru   # первый — тестовый (обновляется первым)
+  # push в main обновляет ТОЛЬКО тестовый сайт;
+  # рабочий lunaramod.ru — ручным запуском workflow (по команде владельца).
+  SITES: ${{ github.event_name == 'workflow_dispatch' && inputs.sites || 'botmi.ru' }}
   BEGET_HOST: zip4.beget.com
   BEGET_USER: mahmadgv
 
@@ -88,12 +97,18 @@ jobs:
         if: env.HAS_KEY == 'true'
         run: git archive --format=tar.gz -o "$RUNNER_TEMP/app.tar.gz" "$GITHUB_SHA" && ls -lh "$RUNNER_TEMP/app.tar.gz"
 
-      # Сначала тестовый botmi.ru: если он не поднялся — рабочий lunaramod.ru не трогаем
+      # Список сайтов: push — только botmi.ru; ручной запуск — выбранные сайты
       - name: Обновление сайтов на хостинге
         if: env.HAS_KEY == 'true'
         env:
           KEY: ${{ secrets.BEGET_SSH_KEY }}
         run: |
+          for site in $SITES; do
+            case "$site" in
+              botmi.ru|lunaramod.ru) ;;
+              *) echo "::error::Неизвестный сайт: $site (допустимы botmi.ru и lunaramod.ru)"; exit 1 ;;
+            esac
+          done
           install -m 700 -d ~/.ssh
           printf '%s\n' "$KEY" > ~/.ssh/beget && chmod 600 ~/.ssh/beget
           ssh-keyscan -H "$BEGET_HOST" >> ~/.ssh/known_hosts 2>/dev/null

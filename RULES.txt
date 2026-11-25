@@ -6,7 +6,10 @@
 ======================================================================
 - Программа учёта склада и продаж + интернет-магазин одежды (магазин «ЛУНАРА»).
 - https://lunaramod.ru — витрина магазина, https://lunaramod.ru/admin — программа учёта (рабочий сайт).
-- Два сайта на одном Beget, каждая правка выкладывается на ОБА (по желанию владельца):
+- Два сайта на одном Beget. Правки идут через репозиторий:
+  · push в main → автоматически обновляется ТОЛЬКО тестовый botmi.ru;
+  · рабочий сайт обновляется вручную, по команде владельца: Actions → «Проверка и деплой» →
+    Run workflow → sites=lunaramod.ru (или «botmi.ru lunaramod.ru», если нужно оба).
   · https://lunaramod.ru — РАБОЧИЙ магазин (база mahmadgv_luna, папка ~/lunara, ярлык ~/lunaramod.ru → lunara). Второй домен
     lunaramoda.ru привязан к той же папке и переадресуется на lunaramod.ru (CANONICAL_HOST в sklad.env).
   · https://botmi.ru — ТЕСТОВЫЙ сайт (своя база), закрыт от поисковиков настройкой «Тестовый сайт».
@@ -48,7 +51,8 @@
 9) Дождаться проверок GitHub:
    gh api repos/mahmadali91/sklad/commits/$SHA/check-runs --jq '[.check_runs[]|.status+":"+(.conclusion//"")]|join(",")'
    (GraphQL из сессии недоступен — только REST: gh api …; gh run view/list работают)
-10) Проверить оба сайта: curl -s https://lunaramod.ru/api/health и https://botmi.ru/api/health → "app":"<версия>","version":"<SHA>","db":"ok".
+10) Проверить сайт после push: curl -s https://botmi.ru/api/health → "app":"<версия>","version":"<SHA>","db":"ok".
+    Рабочий lunaramod.ru проверять только после того, как владелец попросил его обновить (ручной запуск workflow).
 11) Коротко отчитаться владельцу.
 
 ======================================================================
@@ -75,14 +79,19 @@
 ======================================================================
 5. ДЕПЛОЙ (Beget)
 ======================================================================
-- .github/workflows/deploy.yml: тесты (MySQL 8 в CI!) → сборка → проверка dist → деплой на SITES по очереди
-  (botmi.ru первым; если он упал — lunaramod.ru не обновляется) → проверка /api/health каждого.
+- .github/workflows/deploy.yml: тесты (MySQL 8 в CI!) → сборка → проверка dist → деплой на SITES.
+  При push в main SITES = только botmi.ru. Ручной запуск (workflow_dispatch, input sites) обновляет
+  выбранные сайты, по умолчанию lunaramod.ru; если в списке оба — botmi.ru идёт первым.
+  После каждого сайта проверяется /api/health. Неизвестные имена сайтов отклоняются до деплоя.
 - Репозиторий закрытый, поэтому: Actions делает git archive и передаёт его по SSH
   (ssh … "$GITHUB_SHA" < app.tar.gz). Ключ BEGET_SSH_KEY ограничен: на сервере запускается только
   ~/.sklad-deploy.sh (создаётся deploy/setup-autodeploy.sh), он кладёт архив и запускает deploy/beget.sh с ARCHIVE=.
   В журнале Actions должно быть «Автодеплой версии … (архив …)» и «Готово».
 - deploy/beget.sh (для каждого сайта ~/<домен>): Node в .node, код в app, фото в uploads, настройки в sklad.env
   (SITE_URL и CANONICAL_HOST там же). Адрес сайта в коде НЕ зашивать.
+- Базы данных: тест — mahmadgv_sklad (~/botmi.ru/sklad.env), рабочий — mahmadgv_luna (~/lunara/sklad.env).
+  Прямой доступ к обеим: ssh sklad + mysql на сервере. Пароль в DATABASE_URL закодирован (%XX) — раскодировать
+  перед подключением (urllib.parse.unquote), передавать через MYSQL_PWD, а не в командной строке.
 - Статику (в т. ч. /admin/ index.html и /uploads) на Beget отдаёт nginx напрямую — заголовки Express до неё НЕ доходят.
   Защита админки от фреймов — скриптом в client/admin/index.html. .htaccess с новыми директивами не трогать
   (ошибка = 500 на весь сайт).
