@@ -844,9 +844,12 @@ r.post('/track/beat', customerAuth(false), ah(async (req, res) => {
   const sid = Number(req.body.sessionId) || 0;
   const secs = Math.max(0, Math.min(60, Number(req.body.seconds) || 0));
   if (!sid) return res.json({ ok: true });
+  trackLimit(ipOf(req));
   const sess = await prisma.visitSession.findUnique({ where: { id: sid } });
-  if (!sess) return res.json({ ok: true });
-  await prisma.visitSession.update({ where: { id: sid }, data: { durationSec: sess.durationSec + secs, lastSeenAt: new Date() } });
+  // время засчитываем только своей сессии (ключ браузера) и не больше, чем прошло с прошлого сигнала
+  if (!sess || sess.visitorKey !== visitKey(req.body.visitorKey)) return res.json({ ok: true });
+  const elapsed = Math.ceil((Date.now() - sess.lastSeenAt.getTime()) / 1000) + 5;
+  await prisma.visitSession.update({ where: { id: sid }, data: { durationSec: sess.durationSec + Math.min(secs, elapsed), lastSeenAt: new Date() } });
   res.json({ ok: true });
 }));
 

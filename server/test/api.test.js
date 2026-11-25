@@ -908,3 +908,30 @@ test('права продавца: без раздела «Клиенты» и �
   assert.equal(off.marketingConsentAt, null, 'снятие галочки — отзыв согласия');
   assert.equal(off.marketingPush, false);
 });
+
+test('CORS: чужой сайт не получает разрешения, свой — получает', async () => {
+  const evil = await fetch(BASE + '/api/shop/config', { headers: { Origin: 'https://evil.example' } });
+  assert.equal(evil.headers.get('access-control-allow-origin'), null, 'чужому сайту — нет');
+  const own = await fetch(BASE + '/api/shop/config', { headers: { Origin: BASE } });
+  assert.equal(own.headers.get('access-control-allow-origin'), BASE, 'свой адрес — да');
+});
+
+test('время на сайте: чужую сессию не накрутить', async () => {
+  const IPH = { 'Content-Type': 'application/json', 'X-Forwarded-For': '198.51.100.26' };
+  const em = `beat${Date.now()}@example.ru`;
+  const rc = await fetch(BASE + '/api/shop/auth/email/request-code', { method: 'POST', headers: IPH, body: JSON.stringify({ captcha: await cap(), email: em }) }).then((r) => r.json());
+  const ct = (await fetch(BASE + '/api/shop/auth/email/verify', { method: 'POST', headers: IPH, body: JSON.stringify({ email: em, code: rc.testCode, consent: true }) }).then((r) => r.json())).token;
+  const H = { ...IPH, Authorization: 'Bearer ' + ct };
+  const post = (p, b) => fetch(BASE + '/api/shop' + p, { method: 'POST', headers: H, body: JSON.stringify(b) }).then((r) => r.json());
+  const key = 'k' + Date.now().toString(36) + 'abcdef';
+  const t = await post('/track', { visitorKey: key, events: [{ type: 'page', path: '/' }] });
+  if (t.off) return; // учёт посещений выключен в настройках
+  assert.ok(t.sessionId);
+  await post('/track/beat', { visitorKey: 'chuzhoi-klyuch-123', sessionId: t.sessionId, seconds: 60 });
+  await post('/track/beat', { sessionId: t.sessionId, seconds: 60 });
+  const visits = () => fetch(BASE + '/api/shop/me/visits', { headers: H }).then((r) => r.json());
+  assert.equal((await visits()).totalSec, 0, 'без своего ключа время не засчитывается');
+  await post('/track/beat', { visitorKey: key, sessionId: t.sessionId, seconds: 60 });
+  const sec = (await visits()).totalSec;
+  assert.ok(sec > 0 && sec <= 10, `своё время засчитано, но не больше прошедшего (${sec})`);
+});

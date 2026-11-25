@@ -43,7 +43,7 @@ export default function ProductCard({ p }) {
       </button>
       {/* кнопка всегда внизу карточки — на одном уровне во всём ряду */}
       <button onClick={buy} disabled={!p.inStock && !p.hasVariants}
-        className="relative mt-2.5 flex w-full items-center justify-center gap-2 rounded-full border border-slate-900 bg-slate-900 py-2.5 text-sm font-semibold text-white transition hover:bg-white hover:text-slate-900 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400">
+        className="relative mt-2.5 flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-slate-900 bg-slate-900 px-2 py-2.5 text-[13px] font-semibold sm:gap-2 sm:text-sm text-white transition hover:bg-white hover:text-slate-900 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400">
         <ShoppingBag size={16} /> {p.inStock ? (inCart ? 'Ещё' : 'В корзину') : p.hasVariants ? 'Выбрать размер' : 'Нет в наличии'}
         {inCart > 0 && <span className="absolute -top-2 -right-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-400 px-1 text-xs font-bold text-slate-900">{inCart}</span>}
       </button>

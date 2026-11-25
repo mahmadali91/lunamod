@@ -168,7 +168,7 @@ export default function Catalog() {
           <h1 className="truncate text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1>
           {data && <span className="shrink-0 text-sm whitespace-nowrap text-slate-500">{data.total} {plural(data.total, 'товар', 'товара', 'товаров')}</span>}
         </div>
-        <select value={sort} onChange={(e) => set('sort', e.target.value)} aria-label="Сортировка" className="max-w-[45%] shrink-0 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm outline-none lg:order-last lg:max-w-none sm:px-3.5 sm:py-2">
+        <select value={sort} onChange={(e) => set('sort', e.target.value)} aria-label="Сортировка" className="max-w-[45%] shrink-0 rounded-full border border-slate-300 bg-white px-2.5 py-1.5 text-[13px] outline-none sm:text-sm lg:order-last lg:max-w-none sm:px-3.5 sm:py-2">
           {SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
         <div className="-mx-4 flex w-[calc(100%+2rem)] min-w-0 items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] lg:mx-0 lg:w-auto lg:flex-1 lg:flex-wrap lg:overflow-visible lg:px-0 lg:pb-0">
