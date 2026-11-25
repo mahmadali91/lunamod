@@ -21,6 +21,7 @@ export default function Account() {
   const [emailStep, setEmailStep] = useState(null); // { email, sent, code }
   const [phoneStep, setPhoneStep] = useState(null); // { phone, sent, code }
   const [uploading, setUploading] = useState(false);
+  const [emailEdit, setEmailEdit] = useState(false);
   const fileRef = useRef(null);
 
   useEffect(() => {
@@ -80,6 +81,7 @@ export default function Account() {
     try {
       await shopApi('/me/email/verify', { method: 'POST', body: { email: emailStep.email, code: emailStep.code } });
       setEmailStep(null);
+      setEmailEdit(false);
       await auth.refresh();
       notify('Email подтверждён');
     } catch (err) { notify(err.message, 'error'); }
@@ -215,10 +217,17 @@ export default function Account() {
               <h3 className="mb-2 flex items-center gap-2 font-semibold"><Mail size={16} /> Email</h3>
               {emailVerified && !emailStep && <p className="flex items-center gap-1.5 text-sm text-emerald-700"><BadgeCheck size={16} /> {auth.me.email} подтверждён</p>}
               {!emailStep ? (
+                emailVerified && !emailEdit ? (
+                  <button type="button" onClick={() => setEmailEdit(true)} className="mt-2 rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm">Изменить email</button>
+                ) : (
                 <div className="mt-2 space-y-2">
                   <input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} type="email" placeholder="you@example.ru" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900" />
-                  <button type="button" onClick={() => { setEmailStep({ email: f.email, sent: false, code: '' }); }} disabled={!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email)} className="rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm disabled:opacity-40">Подтвердить email</button>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => { setEmailStep({ email: f.email, sent: false, code: '' }); }} disabled={!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email)} className="rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm disabled:opacity-40">Подтвердить email</button>
+                    {emailVerified && <button type="button" onClick={() => { setEmailEdit(false); setF({ ...f, email: auth.me.email || '' }); }} className="text-sm text-slate-500 underline">Отмена</button>}
+                  </div>
                 </div>
+                )
               ) : emailStep.sent ? (
                 <div className="mt-2 space-y-2">
                   <p className="text-xs text-slate-500">Код отправлен на {emailStep.email}</p>
