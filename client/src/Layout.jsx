@@ -22,7 +22,7 @@ const nav = [
   ] },
   { group: 'Интернет-магазин', items: [
     { to: '/orders', icon: ShoppingBag, label: 'Заказы', badge: 'orders' },
-    { to: '/customers', icon: Users, label: 'Клиенты' },
+    { to: '/customers', icon: Users, label: 'Клиенты', admin: true },
     { to: '/chats', icon: MessageCircle, label: 'Чаты', badge: 'chats' },
     { to: '/reviews', icon: Star, label: 'Отзывы', badge: 'reviews' },
     { to: '/shop-settings', icon: Globe, label: 'Настройки магазина' },
@@ -124,7 +124,7 @@ export default function Layout() {
                   {!active && <ChevronDown size={14} className={`ml-auto transition ${open ? '' : '-rotate-90'}`} />}
                 </button>
               )}
-              {open && g.items.map((n) => (
+              {open && g.items.filter((n) => !n.admin || user.role === 'admin').map((n) => (
                 <NavLink key={n.to} to={n.to} end={n.end} onClick={() => setMobile(false)}
                   className={({ isActive }) => `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${isActive ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}>
                   <n.icon size={18} /> {n.label}

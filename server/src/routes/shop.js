@@ -585,9 +585,7 @@ r.post('/push/subscribe', customerAuth(), ah(async (req, res) => {
   if (!sub?.endpoint || !sub?.keys?.p256dh || !pushEndpointOk(sub.endpoint)) throw new HttpError(400, 'Неверная подписка');
   await prisma.pushSubscription.deleteMany({ where: { endpoint: sub.endpoint } });
   await prisma.pushSubscription.create({ data: { endpoint: sub.endpoint, keys: JSON.stringify(sub.keys), visitorKey: 'cust-' + req.customer.cid, userAgent: String(req.headers['user-agent'] || '').slice(0, 300) } });
-  // явная подписка в браузере = согласие на пуш-уведомления
-  const me = await prisma.customer.findUnique({ where: { id: req.customer.cid } });
-  await prisma.customer.update({ where: { id: req.customer.cid }, data: { marketingPush: true, marketingConsentAt: me.marketingConsentAt || new Date() } }).catch(() => {});
+  // подписка на push — для заказов и чата; согласием на рекламу она НЕ считается (38-ФЗ: нужно отдельное согласие — галочка в профиле)
   res.json({ ok: true });
 }));
 
@@ -702,8 +700,9 @@ r.put('/me', customerAuth(), ah(async (req, res) => {
   if (!cur) throw new HttpError(401, 'Войдите заново');
   const data = { name: str(req.body.name), address: str(req.body.address) };
   if (req.body.marketingPush !== undefined) {
+    // галочка «Согласен получать рекламу»: включение = согласие (с датой), выключение = отзыв согласия
     data.marketingPush = Boolean(req.body.marketingPush);
-    if (!cur.marketingConsentAt) data.marketingConsentAt = new Date();
+    data.marketingConsentAt = data.marketingPush ? (cur.marketingConsentAt || new Date()) : null;
   }
   // телефон — контакт для доставки; вход по нему больше не идёт
   if (req.body.phone !== undefined) {
@@ -867,7 +866,7 @@ r.get('/unsubscribe', ah(async (req, res) => {
   try { p = jwt.verify(String(req.query.token || ''), SECRET); } catch { p = null; }
   if (!p || p.purpose !== 'unsub') return res.status(400).send('Ссылка устарела — отключите рассылку в личном кабинете.');
   if (p.ch !== 'push') return res.status(400).send('Эта ссылка больше не действует.');
-  await prisma.customer.update({ where: { id: p.cid }, data: { marketingPush: false } }).catch(() => {});
+  await prisma.customer.update({ where: { id: p.cid }, data: { marketingPush: false, marketingConsentAt: null } }).catch(() => {});
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send('<!doctype html><meta charset="utf-8"><title>Отписка</title><body style="font-family:system-ui;padding:40px;text-align:center"><h2>Вы отписались от рассылки</h2><p>Больше не будем присылать рекламные сообщения. Вернуть можно в личном кабинете.</p><a href="/account">В личный кабинет</a></body>');
 }));
