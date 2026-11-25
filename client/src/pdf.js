@@ -207,3 +207,82 @@ export async function pickListPdf(order, rows, { money, storeName, fmtDate }) {
   for (let i = 1; i <= pages; i++) { doc.setPage(i); doc.setFontSize(7.5); doc.setTextColor(140); doc.text(`Заказ ${order.number} · стр. ${i} из ${pages}`, W - M, 297 - 6, { align: 'right' }); }
   save(doc, `лист-подбора-${order.number}.pdf`);
 }
+
+/**
+ * Товарный чек продажи (A4) со скачиванием PDF: реквизиты продавца, товары, скидка, итог, способ оплаты.
+ * sale: продажа из админки (number, date, items, total, discount, paymentMethod)
+ */
+export async function receiptPdf(sale, { seller = {}, storeName = '', money, fmtDate, paymentLabel = '' }) {
+  const doc = await newDoc({ unit: 'mm', format: 'a4', compress: true });
+  const W = 210, M = 15, CW = W - M * 2;
+  let y = M;
+
+  doc.setFont('DejaVu', 'bold'); doc.setFontSize(16);
+  doc.text(storeName || 'Магазин', M, y + 5);
+  y += 9;
+  doc.setFont('DejaVu', 'normal'); doc.setFontSize(8.5); doc.setTextColor(90);
+  const req = [
+    seller.name,
+    [seller.inn && `ИНН ${seller.inn}`, seller.ogrn && `ОГРН ${seller.ogrn}`].filter(Boolean).join(' · '),
+    seller.address,
+    [seller.phone && `тел. ${seller.phone}`, seller.email].filter(Boolean).join(' · '),
+  ].filter(Boolean);
+  for (const line of req) { y += lines(doc, line, M, y, CW, { size: 8.5, max: 2 }) + 0.6; }
+  doc.setTextColor(0);
+
+  y += 4;
+  doc.setFont('DejaVu', 'bold'); doc.setFontSize(13);
+  doc.text(`ТОВАРНЫЙ ЧЕК № ${sale.number}`, M, y + 4);
+  doc.setFont('DejaVu', 'normal'); doc.setFontSize(9); doc.text(`от ${fmtDate ? fmtDate(sale.date) : new Date(sale.date).toLocaleString('ru-RU')}`, W - M, y + 4, { align: 'right' });
+  y += 9;
+
+  // шапка таблицы
+  const cols = [['Наименование', 0], ['Кол-во', 96], ['Цена', 121], ['Сумма', 154]];
+  const head = () => {
+    doc.setFillColor(240, 242, 248); doc.rect(M, y, CW, 7, 'F');
+    doc.setFont('DejaVu', 'bold'); doc.setFontSize(8.5);
+    doc.text('Наименование', M + 2, y + 4.8);
+    doc.text('Кол-во', M + 96, y + 4.8, { align: 'center' });
+    doc.text('Цена', M + 121, y + 4.8, { align: 'right' });
+    doc.text('Сумма', M + 154, y + 4.8, { align: 'right' });
+    y += 7;
+  };
+  head();
+
+  const items = sale.items || [];
+  doc.setFont('DejaVu', 'normal'); doc.setFontSize(8.5);
+  for (const it of items) {
+    const nm = it.name || it.product?.name || ('Товар #' + it.productId);
+    const nameH = lines(doc, nm, M + 2, y + 1, 88, { size: 8.5, max: 3 });
+    const rh = Math.max(6.5, nameH + 3);
+    if (y + rh > 297 - M - 30) { doc.addPage(); y = M; head(); }
+    doc.setFont('DejaVu', 'normal'); doc.setFontSize(8.5);
+    doc.text(String(it.quantity), M + 96, y + 4.5, { align: 'center' });
+    doc.text(money ? money(it.price) : String(it.price), M + 121, y + 4.5, { align: 'right' });
+    doc.text(money ? money(it.price * it.quantity) : String(it.price * it.quantity), M + 154, y + 4.5, { align: 'right' });
+    doc.setDrawColor(235); doc.line(M, y + rh, M + CW, y + rh);
+    y += rh;
+  }
+
+  y += 4;
+  doc.setFont('DejaVu', 'normal'); doc.setFontSize(9.5);
+  const right = (label, value, bold = false) => {
+    doc.setFont('DejaVu', bold ? 'bold' : 'normal');
+    doc.text(label, M + 121, y, { align: 'right' });
+    doc.text(value, M + 154, y, { align: 'right' });
+    y += 6;
+  };
+  if (Number(sale.discount) > 0) right('Скидка', '−' + (money ? money(sale.discount) : String(sale.discount)));
+  doc.setFontSize(11);
+  right('ИТОГО', money ? money(sale.total) : String(sale.total), true);
+  y += 2;
+  doc.setFontSize(9.5); doc.setFont('DejaVu', 'normal');
+  doc.text(`Способ оплаты: ${paymentLabel || sale.paymentMethod || '—'}`, M, y + 2);
+
+  y += 12;
+  doc.setFontSize(8); doc.setTextColor(110);
+  doc.text('Документ сформирован автоматически в программе учёта. Не является фискальным чеком: фискальный чек формирует банк при оплате.', M, y, { maxWidth: CW });
+  doc.setTextColor(0);
+
+  save(doc, `Чек-${sale.number}.pdf`);
+}

@@ -217,7 +217,8 @@ model Sale {
   warehouseId    Int
   discount       Float         @default(0)
   total          Float         @default(0)
-  paymentMethod  String        @default("cash") // cash | card | transfer | consignment
+  paymentMethod  String        @default("cash") // cash | card | transfer | sbp_qr | consignment
+  sbpPaymentId   String? // платеж Т-Банка для оплаты по QR-коду СБП
   consignment    Boolean       @default(false) // под реализацию (в долг)
   paidAmount     Float         @default(0) // оплачено по реализации
   dueDate        DateTime? // срок оплаты

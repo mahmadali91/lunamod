@@ -1,12 +1,21 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Minus, Plus, Trash2, ShoppingCart, CheckCircle2, Banknote, CreditCard, Landmark, HandCoins } from 'lucide-react';
+import { Minus, Plus, Trash2, ShoppingCart, CheckCircle2, Banknote, CreditCard, Landmark, HandCoins, QrCode, Download } from 'lucide-react';
+import qrcode from 'qrcode-generator';
+import { receiptPdf } from '../pdf';
 import { api } from '../api';
 import ProductPicker from '../components/ProductPicker';
 import { Button, Field, Modal, RefSelect, Thumb, fmtNum, useMoney, useToast } from '../ui';
 
 const LS = 'pos_defaults';
-const payments = [['cash', 'Наличные', Banknote], ['card', 'Карта', CreditCard], ['transfer', 'Перевод', Landmark]];
+
+// QR-код из платёжной ссылки (Т-Банк/СБП) без внешних сервисов
+function QrImage({ url }) {
+  const html = (() => { const q = qrcode(0, 'M'); q.addData(url || ''); q.make(); return q.createSvgTag({ cellSize: 5, margin: 2, scalable: true }); })();
+  return <div className="mx-auto mt-2 w-64 rounded-2xl bg-white p-2 [&_svg]:h-auto [&_svg]:w-full" aria-label="QR-код для оплаты" dangerouslySetInnerHTML={{ __html: html }} />;
+}
+const payments = [['sbp_qr', 'QR СБП', QrCode], ['cash', 'Наличные', Banknote], ['card', 'Карта', CreditCard], ['transfer', 'Перевод', Landmark]];
+const payLabel = { sbp_qr: 'QR-код СБП (Т-Банк)', cash: 'Наличные', card: 'Карта', transfer: 'Перевод', consignment: 'Реализация' };
 
 export default function Pos() {
   const saved = JSON.parse(localStorage.getItem(LS) || '{}');
@@ -23,10 +32,20 @@ export default function Pos() {
   const [prepaid, setPrepaid] = useState('');
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(null);
+  const [sbp, setSbp] = useState(null); // { sale, paymentUrl }
+  const [shop, setShop] = useState(null);
   const money = useMoney();
   const toast = useToast();
 
   useEffect(() => { localStorage.setItem(LS, JSON.stringify({ warehouseId, channelId })); }, [warehouseId, channelId]);
+  useEffect(() => { api('/orders/settings').then(setShop).catch(() => {}); }, []);
+
+  const downloadReceipt = async (sale) => {
+    await receiptPdf(sale, {
+      seller: { name: shop?.sellerName, inn: shop?.sellerInn, ogrn: shop?.sellerOgrn, address: shop?.sellerAddress, phone: shop?.sellerPhone || shop?.phone, email: shop?.sellerEmail || shop?.email },
+      storeName: shop?.title || 'ЛУНАРА', money, fmtDate: (d) => new Date(d).toLocaleString('ru-RU'), paymentLabel: payLabel[sale.paymentMethod] || '—',
+    });
+  };
 
   const stockOf = (p) => (warehouseId ? p.stocks?.find((s) => s.warehouseId === warehouseId)?.quantity ?? 0 : p.totalStock);
   const add = (p) => setCart((c) => {
@@ -44,7 +63,15 @@ export default function Pos() {
     setSaving(true);
     try {
       const s = await api('/sales', { method: 'POST', body: { warehouseId, channelId, counterpartyId, paymentMethod, discount: disc, note, items: cart, consignment, dueDate: consignment ? dueDate : null, prepaid: consignment ? prepaid : 0 } });
-      setDone(s);
+      if (paymentMethod === 'sbp_qr' && !consignment) {
+        try {
+          const q = await api(`/sales/${s.id}/sbp-qr`, { method: 'POST' });
+          setSbp({ sale: s, paymentUrl: q.paymentUrl });
+        } catch (e) {
+          toast('Продажа проведена, но QR не создан: ' + e.message, 'error');
+          setDone(s);
+        }
+      } else setDone(s);
       setCart([]); setDiscount(''); setNote(''); setCounterpartyId(null); setDueDate(''); setPrepaid('');
     } catch (e) { toast(e.message, 'error'); }
     finally { setSaving(false); }
@@ -122,7 +149,25 @@ export default function Pos() {
         </div>
       </div>
 
-      <Modal open={!!done} onClose={() => setDone(null)} title="Продажа проведена" footer={<Button onClick={() => setDone(null)} autoFocus>Новая продажа</Button>}>
+      <Modal open={!!sbp} onClose={() => setSbp(null)} title="Оплата по QR-коду СБП"
+        footer={<>
+          <Button variant="secondary" icon={Download} onClick={() => downloadReceipt(sbp.sale)}>Скачать чек PDF</Button>
+          <Button className="ml-auto" onClick={() => { setDone(sbp.sale); setSbp(null); }} autoFocus>Оплата получена</Button>
+        </>}>
+        {sbp && (
+          <div className="flex flex-col items-center py-2 text-center">
+            <div className="mb-1 flex items-center gap-2 text-lg font-bold"><QrCode size={22} /> {money(sbp.sale.total)}</div>
+            <div className="mb-3 text-sm text-slate-500">Попросите покупателя отсканировать QR-код в приложении банка</div>
+            <QrImage url={sbp.paymentUrl} />
+            <p className="mt-3 max-w-sm text-xs text-slate-500">Счёт выставлен через Т-Банк. После оплаты банк пришлёт фискальный чек, а ниже можно скачать товарный чек PDF для покупателя.</p>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!done} onClose={() => setDone(null)} title="Продажа проведена" footer={<>
+        {done && <Button variant="secondary" icon={Download} onClick={() => downloadReceipt(done)}>Скачать чек PDF</Button>}
+        <Button className="ml-auto" onClick={() => setDone(null)} autoFocus>Новая продажа</Button>
+      </>}>
         {done && (
           <div className="flex flex-col items-center py-4 text-center">
             <div className="mb-3 rounded-full bg-emerald-50 p-4 text-emerald-600"><CheckCircle2 size={40} /></div>
