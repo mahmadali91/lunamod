@@ -1,0 +1,142 @@
+name: Проверка и деплой
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Ручной запуск — обновление рабочего сайта по команде владельца:
+  # Actions → «Проверка и деплой» → Run workflow → sites
+  workflow_dispatch:
+    inputs:
+      sites:
+        description: 'Сайты через пробел: lunaramod.ru или botmi.ru lunaramod.ru'
+        required: true
+        default: 'lunaramod.ru'
+
+# Деплои идут строго по очереди
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # push в main обновляет ТОЛЬКО тестовый сайт;
+  # рабочий lunaramod.ru — ручным запуском workflow (по команде владельца).
+  SITES: ${{ github.event_name == 'workflow_dispatch' && inputs.sites || 'botmi.ru' }}
+  BEGET_HOST: zip4.beget.com
+  BEGET_USER: mahmadgv
+
+jobs:
+  test:
+    name: Тесты и сборка
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: sklad_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    env:
+      DATABASE_URL: mysql://root:root@127.0.0.1:3306/sklad_test
+      ADMIN_PASSWORD: ci-test-password
+      JWT_SECRET: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
+
+      - name: Зависимости сервера
+        working-directory: server
+        run: npm ci
+
+      - name: Миграции базы данных
+        working-directory: server
+        run: npx prisma migrate deploy
+
+      - name: Автотесты API
+        working-directory: server
+        run: npm test
+
+      - name: Сборка фронтенда
+        working-directory: client
+        run: npm ci && npm run build
+
+      - name: Собранный фронтенд в репозитории актуален
+        run: |
+          if [ -n "$(git status --porcelain client/dist)" ]; then
+            git status --short client/dist
+            echo "::error::Папка client/dist устарела: выполните 'npm --prefix client run build' и закоммитьте результат."
+            exit 1
+          fi
+
+  deploy:
+    name: Деплой на Beget
+    needs: test
+    # В lunamod выкладка ТОЛЬКО вручную (Actions → Run workflow): push в main сайт не обновляет.
+    # ВНИМАНИЕ: пока в репозитории нет кода рабочей версии 2.15.1 с сервера — не запускать для lunaramod.ru!
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      HAS_KEY: ${{ secrets.BEGET_SSH_KEY != '' }}
+    steps:
+      - name: Ключ не настроен — деплой пропущен
+        if: env.HAS_KEY != 'true'
+        run: echo "::warning::Секрет BEGET_SSH_KEY не задан. Запустите deploy/setup-autodeploy.sh на хостинге (см. README)."
+
+      - uses: actions/checkout@v4
+        if: env.HAS_KEY == 'true'
+
+      # код уходит на сервер архивом прямо в SSH-соединении — хостингу не нужен доступ к GitHub (репозиторий может быть закрытым)
+      - name: Архив с кодом
+        if: env.HAS_KEY == 'true'
+        run: git archive --format=tar.gz -o "$RUNNER_TEMP/app.tar.gz" "$GITHUB_SHA" && ls -lh "$RUNNER_TEMP/app.tar.gz"
+
+      # Список сайтов: push — только botmi.ru; ручной запуск — выбранные сайты
+      - name: Обновление сайтов на хостинге
+        if: env.HAS_KEY == 'true'
+        env:
+          KEY: ${{ secrets.BEGET_SSH_KEY }}
+        run: |
+          for site in $SITES; do
+            case "$site" in
+              botmi.ru|lunaramod.ru) ;;
+              *) echo "::error::Неизвестный сайт: $site (допустимы botmi.ru и lunaramod.ru)"; exit 1 ;;
+            esac
+          done
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/beget && chmod 600 ~/.ssh/beget
+          ssh-keyscan -H "$BEGET_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          for site in $SITES; do
+            echo "::group::Деплой $site"
+            # Сайт передаём всегда: без имени на хостинге деплоится сайт по умолчанию (botmi.ru)
+            arg="$GITHUB_SHA $site"
+            # SSH может не закрыться сам (процесс сайта держит поток), поэтому ограничиваем время:
+            # успех определяем по строке «Готово» в журнале деплоя, а не по коду выхода ssh.
+            set +e
+            timeout 900 ssh -i ~/.ssh/beget -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=30 "$BEGET_USER@$BEGET_HOST" "$arg" < "$RUNNER_TEMP/app.tar.gz" 2>&1 | tee "deploy-$site.log"
+            ssh_rc=${PIPESTATUS[0]}
+            set -e
+            echo "ssh exit: $ssh_rc"
+            echo "::endgroup::"
+            grep -q "Готово" "deploy-$site.log" || { echo "::error::Деплой $site завершился с ошибкой"; exit 1; }
+            # сайт проверяем сразу, до следующего
+            ok=""
+            for i in $(seq 1 24); do
+              H=$(curl -fsS -b beget=begetok "https://$site/api/health" || true)
+              if echo "$H" | grep -q "\"version\":\"$GITHUB_SHA\"" && echo "$H" | grep -q '"db":"ok"'; then ok=1; break; fi
+              sleep 5
+            done
+            [ -n "$ok" ] || { echo "::error::$site не ответил новой версией за 2 минуты: $H"; exit 1; }
+            curl -fsS -b beget=begetok "https://$site/" | grep -q "<title>" || { echo "::error::$site: главная страница не отдаётся"; exit 1; }
+            curl -fsS -b beget=begetok -o /dev/null "https://$site/about" && curl -fsS -b beget=begetok "https://$site/sitemap.xml" | grep -q "<urlset" || { echo "::error::$site: страницы не открываются"; exit 1; }
+            echo "$site работает, версия $GITHUB_SHA"
+          done

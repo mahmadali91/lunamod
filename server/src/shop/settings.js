@@ -1,0 +1,63 @@
+// Настройки интернет-магазина (хранятся в таблице Setting с префиксом shop_)
+const prisma = require('../db');
+
+const DEFAULTS = {
+  enabled: '1',               // магазин открыт на главной странице
+  title: '',                  // название на витрине (пусто — берётся название из основных настроек)
+  tagline: 'Одежда и аксессуары с доставкой',
+  phone: '', email: '', address: '', workHours: '',
+  siteUrl: process.env.SITE_URL || '', // адрес сайта; по умолчанию — из настроек сервера (beget.sh пишет SITE_URL=https://домен)
+  // доставка
+  pickupEnabled: '1', pickupAddress: '',
+  courierEnabled: '1', courierPrice: '300', courierFreeFrom: '5000',
+  // оплата
+  cashEnabled: '1',
+  tbankEnabled: '0', tbankTerminalKey: '', tbankPassword: '', tbankReceipt: '0', tbankTaxation: 'usn_income', tbankTax: 'none',
+  // SMS
+  smsMode: 'test',            // test — код показывается на экране (только до запуска!), smsru — отправка через SMS.ru
+  smsruApiId: '', smsSender: '',
+  // каталог и заказы
+  warehouseId: '',            // склад, по которому показываем наличие и списываем заказы (пусто = все склады / основной)
+  showOutOfStock: '0',        // показывать товары, которых нет в наличии
+  allowBackorder: '0',        // разрешить заказывать больше остатка
+  // доставка (список способов — JSON, см. shop/delivery.js)
+  deliveryMethods: '', defaultWeight: '500',
+  pochtaFromIndex: '', pochtaObject: '4030',
+  cdekTest: '1', cdekClientId: '', cdekClientSecret: '', cdekFromCityCode: '', cdekFromCity: '',
+  // продавец и документы
+  sellerName: '', sellerInn: '', sellerOgrn: '', sellerAddress: '', sellerEmail: '', sellerPhone: '', returnAddress: '', legalDate: '',
+  legal_privacy: '', legal_consent: '', legal_offer: '', legal_returns: '', legal_terms: '',
+  // чат и уведомления
+  chatEnabled: '1', chatGreeting: 'Здравствуйте! Напишите нам — ответим в течение рабочего дня.',
+  tgBotToken: '', tgChatId: '', tgApiBase: '', maxBotToken: '', maxChatId: '',
+  // соцсети, SEO, аналитика
+  socialTelegram: '', socialVk: '', socialMax: '', socialInstagram: '', socialWhatsapp: '',
+  seoDescription: '', yandexVerification: '', googleVerification: '',
+  noindex: '0',               // 1 — тестовый сайт: закрыт от поисковиков (robots.txt и meta robots)
+  metrikaId: '', metrikaWebvisor: '1', metrikaEcommerce: '1',
+  // СБП (через эквайринг Т-Банка), напоминания покупателям, отзывы
+  sbpEnabled: '0', cartReminders: '1', remindSms: '0', reviewsEnabled: '1',
+};
+const SECRET = ['tbankPassword', 'smsruApiId', 'cdekClientSecret', 'tgBotToken', 'maxBotToken'];
+
+async function getShopSettings() {
+  const rows = await prisma.setting.findMany({ where: { key: { startsWith: 'shop_' } } });
+  const s = { ...DEFAULTS };
+  rows.forEach((r) => { const k = r.key.slice(5); if (k in DEFAULTS) s[k] = r.value; });
+  return s;
+}
+
+async function saveShopSettings(body) {
+  for (const k of Object.keys(DEFAULTS)) {
+    if (body[k] === undefined) continue;
+    if (SECRET.includes(k) && (body[k] === '••••••' || body[k] === null)) continue; // секрет не меняли
+    const value = String(body[k]).trim();
+    await prisma.setting.upsert({ where: { key: 'shop_' + k }, update: { value }, create: { key: 'shop_' + k, value } });
+  }
+}
+
+// Для админки: секреты маскируем
+const masked = (s) => Object.fromEntries(Object.entries(s).map(([k, v]) => [k, SECRET.includes(k) && v ? '••••••' : v]));
+const tbankReady = (s) => s.tbankEnabled === '1' && Boolean(s.tbankTerminalKey && s.tbankPassword);
+
+module.exports = { getShopSettings, saveShopSettings, masked, tbankReady, DEFAULTS };

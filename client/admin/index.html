@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <!-- программа учёта не открывается внутри чужого сайта (защита от кликджекинга; на хостинге страница отдаётся без заголовков сервера) -->
+    <style id="antiframe">html { display: none !important; }</style>
+    <script>if (self === top) { document.getElementById('antiframe').remove(); } else { top.location = self.location; }</script>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/admin/manifest.webmanifest" />
+    <meta name="theme-color" content="#4f46e5" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Учёт и продажи — управление</title>
+    <script>try{var t=localStorage.getItem('theme');if(t==='dark'||(!t||t==='system')&&matchMedia('(prefers-color-scheme: dark)').matches)document.documentElement.classList.add('dark')}catch(e){}</script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
