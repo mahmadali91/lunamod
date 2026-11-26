@@ -945,7 +945,7 @@ test('Яндекс Доставка: способы есть в справочн
   try {
     const cfg = await fetch(BASE + '/api/shop/config').then((r) => r.json());
     assert.ok(cfg.deliveryMethods.some((m) => m.id === 'yandex_door' && m.api), 'способ виден покупателю');
-    const anyP = (await fetch(BASE + '/api/shop/products?limit=1').then((r) => r.json())).items[0];
+    const anyP = (await fetch(BASE + '/api/shop/products?limit=60').then((r) => r.json())).items.find((p) => !p.hasVariants && p.inStock);
     assert.ok(anyP, 'в каталоге есть товар');
     const q = await fetch(BASE + '/api/shop/delivery/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ methodId: 'yandex_door', to: { address: 'Москва, Тверская 7' }, items: [{ productId: anyP.id, quantity: 1 }] }) });
     const body = await q.json();
