@@ -107,7 +107,7 @@ async function cdekCities(s, q) {
 }
 async function cdekPoints(s, cityCode) {
   const d = await cdekGet(s, `/v2/deliverypoints?city_code=${Number(cityCode)}&type=PVZ&is_handout=true`);
-  return (Array.isArray(d) ? d : []).slice(0, 300).map((p) => ({ code: p.code, name: p.name, address: p.location?.address, workTime: p.work_time, lat: p.location?.latitude, lon: p.location?.longitude }));
+  return (Array.isArray(d) ? d : []).slice(0, 5000).map((p) => ({ code: p.code, name: p.name, address: p.location?.address, workTime: p.work_time, lat: p.location?.latitude, lon: p.location?.longitude }));
 }
 async function cdekQuote(s, toCityCode, weight, door) {
   if (!toCityCode) throw fail('Выберите город');
