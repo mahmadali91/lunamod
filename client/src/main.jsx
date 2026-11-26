@@ -23,6 +23,7 @@ import ShopSettings from './pages/ShopSettings';
 import Chats from './pages/Chats';
 import Reviews from './pages/Reviews';
 import Wildberries from './pages/Wildberries';
+import VkCommunities from './pages/VkCommunities';
 import Prices from './pages/Prices';
 import Labels from './pages/Labels';
 import { Warehouses, Channels, Counterparties } from './pages/Refs';
@@ -71,6 +72,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="chats" element={<Chats />} />
             <Route path="reviews" element={<Reviews />} />
             <Route path="wildberries" element={<Wildberries />} />
+            <Route path="vk" element={<VkCommunities />} />
             <Route path="prices" element={<Prices />} />
             <Route path="shop-settings" element={<ShopSettings />} />
             <Route path="products/:id" element={<ProductForm />} />

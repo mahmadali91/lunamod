@@ -957,3 +957,39 @@ test('Яндекс Доставка: способы есть в справочн
     await ok('/orders/settings', { method: 'PUT', body: { deliveryMethods: before || '' } });
   }
 });
+
+test('ВК: разбор поста — название, цена, старая цена, размеры, цвета', () => {
+  const { parsePost } = require('../src/vkparse');
+  const a = parsePost('🔥Костюм женский двойка🔥\nТкань: двунитка\nРазмеры: 42-44, 46-48\nЦвета: черный, бежевый, мокко\nЦена: 1500₽\n#садовод');
+  assert.deepEqual([a.name, a.price, a.sizes, a.colors], ['Костюм женский двойка', 1500, ['42-44', '46-48'], ['Черный', 'Бежевый', 'Мокко']]);
+  const b = parsePost('ПАЛЬТО\nразмер: единый 42-50\nцена 4900р, было 6500р\nцвет: серый меланж / молочный');
+  assert.deepEqual([b.price, b.oldPrice, b.sizes, b.colors], [4900, 6500, ['42-50'], ['Серый меланж', 'Молочный']]);
+  const c = parsePost('Футболка oversize\nРазмеры S M L XL\nЦена 990');
+  assert.deepEqual([c.name, c.sizes], ['Футболка oversize', ['S', 'M', 'L', 'XL']]);
+  const d = parsePost('Свитер с горлом. Размеры с 44 по 52. Стоимость 1800 рублей. Расцветки: изумрудный, пудра');
+  assert.deepEqual([d.name, d.price, d.sizes, d.colors], ['Свитер с горлом', 1800, ['44', '46', '48', '50', '52'], ['Изумрудный', 'Пудра']]);
+  assert.equal(parsePost('Джинсы\nОпт 1200 / розница 1800 ₽').price, 1800, 'оптовая цена пропускается');
+  assert.ok(!parsePost('#садовод #костюм\nКостюм').description.includes('#'), 'хэштеги убраны из описания');
+});
+
+test('ВК: товар из поста — карточка на каждый цвет, размеры, «ещё цвета»; без ключа сообщество не подключить', async () => {
+  const vkPage = await ok('/vk');
+  assert.ok(Array.isArray(vkPage.groups) && vkPage.keys && vkPage.feedUrl.endsWith('/feed.yml'));
+  assert.equal((await api('/vk/groups', { method: 'POST', body: { link: 'https://vk.com/club1' } })).status, 400, 'без ключа нельзя');
+  assert.equal((await api('/vk/import', { method: 'POST', body: { groupId: 1, postId: 1, name: 'x', price: 0 } })).status, 400, 'без цены нельзя');
+  const r = await ok('/vk/import', { method: 'POST', body: { groupId: 1, postId: Date.now() % 1e6, name: 'Костюм ВК ' + U, price: 1500, oldPrice: 2000, sizes: ['42-44', '46-48'], colors: ['Черный', 'Бежевый'], photos: [], description: 'Из поста' } });
+  assert.equal(r.cards.length, 2, 'два цвета — две карточки');
+  const c1 = await ok('/products/' + r.cards[0]);
+  const c2 = await ok('/products/' + r.cards[1]);
+  assert.deepEqual([c1.color, c2.color], ['Черный', 'Бежевый']);
+  assert.ok(c1.groupId && c1.groupId === c2.groupId, 'цвета — одна модель');
+  assert.deepEqual(c1.variants.map((v) => v.size), ['42-44', '46-48']);
+  assert.equal(c1.price, 1500); assert.equal(c1.oldPrice, 2000);
+  const more = await ok('/vk/colors', { method: 'POST', body: { cardId: r.cards[0], colors: ['Мокко'] } });
+  assert.equal(more.cards.length, 1);
+  const c3 = await ok('/products/' + more.cards[0]);
+  assert.equal(c3.color, 'Мокко'); assert.equal(c3.groupId, c1.groupId);
+  assert.deepEqual(c3.variants.map((v) => v.size), ['42-44', '46-48'], 'размеры скопированы');
+  assert.ok(c3.variants.every((v) => v.barcodes?.length !== 0), 'у размеров есть штрихкоды');
+  assert.equal((await api('/vk/market/export', { method: 'POST', body: { groupId: 1, cardIds: [r.cards[0]] } })).status, 400, 'без ключа пользователя выгрузка не идёт');
+});
