@@ -3,16 +3,16 @@ import { Store, Truck, Package, MapPin, Search, Loader2 } from 'lucide-react';
 import { shopApi } from './api';
 import { useShop } from './store';
 
-const ICON = { pickup: Store, courier: Truck, custom: Truck, pek: Truck, cdek_door: Truck };
+const ICON = { pickup: Store, courier: Truck, custom: Truck, pek: Truck, cdek_door: Truck, yandex_door: Truck, yandex_express: Truck };
 const inputCls = 'w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900';
 
-function CitySearch({ value, onPick }) {
+function CitySearch({ value, onPick, source = 'cdek' }) {
   const [q, setQ] = useState(value?.name || '');
   const [list, setList] = useState([]);
   const [open, setOpen] = useState(false);
   useEffect(() => {
     if (q.trim().length < 2 || q === value?.name) { setList([]); return; }
-    const t = setTimeout(() => shopApi('/delivery/cdek/cities?q=' + encodeURIComponent(q)).then((r) => { setList(r); setOpen(true); }).catch(() => {}), 300);
+    const t = setTimeout(() => shopApi(`/delivery/${source}/cities?q=` + encodeURIComponent(q)).then((r) => { setList(r); setOpen(true); }).catch(() => {}), 300);
     return () => clearTimeout(t);
   }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
@@ -28,13 +28,13 @@ function CitySearch({ value, onPick }) {
   );
 }
 
-function CdekPoints({ city, value, onPick }) {
+function CdekPoints({ city, value, onPick, source = 'cdek' }) {
   const [points, setPoints] = useState(null);
   const [q, setQ] = useState('');
-  useEffect(() => { setPoints(null); if (city) shopApi('/delivery/cdek/points?cityCode=' + city.code).then(setPoints).catch(() => setPoints([])); }, [city]);
+  useEffect(() => { setPoints(null); if (city) shopApi(source === 'yandex' ? '/delivery/yandex/points?geoId=' + city.code : '/delivery/cdek/points?cityCode=' + city.code).then(setPoints).catch(() => setPoints([])); }, [city]);
   if (!city) return null;
   if (!points) return <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> Загружаем пункты выдачи…</div>;
-  if (!points.length) return <div className="text-sm text-rose-600">В этом городе нет пунктов выдачи СДЭК</div>;
+  if (!points.length) return <div className="text-sm text-rose-600">В этом городе нет пунктов выдачи {source === 'yandex' ? 'Яндекса' : 'СДЭК'}</div>;
   const list = points.filter((p) => !q || (p.address + p.name).toLowerCase().includes(q.toLowerCase()));
   return (
     <div className="rounded-2xl border border-slate-200">
@@ -42,7 +42,7 @@ function CdekPoints({ city, value, onPick }) {
       <div className="max-h-56 overflow-auto">
         {list.slice(0, 100).map((p) => (
           <button type="button" key={p.code} onClick={() => onPick(p)} className={`flex w-full gap-2 px-4 py-2.5 text-left text-sm ${value?.code === p.code ? 'bg-slate-900 text-white' : 'hover:bg-slate-50'}`}>
-            <MapPin size={16} className="mt-0.5 shrink-0" /><span><span className="font-medium">{p.address}</span>{p.workTime && <span className={`block text-xs ${value?.code === p.code ? 'text-slate-300' : 'text-slate-500'}`}>{p.workTime}</span>}</span>
+            <MapPin size={16} className="mt-0.5 shrink-0" /><span><span className="font-medium">{p.address}</span>{p.type && source === 'yandex' && <span className={`block text-xs ${value?.code === p.code ? 'text-slate-300' : 'text-slate-500'}`}>{p.type}{p.name ? ' · ' + p.name : ''}</span>}{p.workTime && <span className={`block text-xs ${value?.code === p.code ? 'text-slate-300' : 'text-slate-500'}`}>{p.workTime}</span>}</span>
           </button>
         ))}
       </div>
@@ -66,7 +66,7 @@ export default function DeliveryPicker({ items, subtotal, initialAddress, onChan
   const body = { ...to, ...(city ? { cityCode: city.code, city: city.name } : {}), ...(point ? { pointCode: point.code, pointAddress: point.address } : {}) };
   const complete = m && ({
     none: true, address: to.address?.trim(), cityAddress: to.address?.trim(), pointText: to.point?.trim(),
-    postcode: /^\d{6}$/.test(to.postcode || '') && to.address?.trim(), cdekPoint: city && point, cdekAddress: city && to.address?.trim(),
+    postcode: /^\d{6}$/.test(to.postcode || '') && to.address?.trim(), cdekPoint: city && point, cdekAddress: city && to.address?.trim(), yandexPoint: city && point,
   }[m.needs]);
 
   useEffect(() => {
@@ -88,7 +88,7 @@ export default function DeliveryPicker({ items, subtotal, initialAddress, onChan
           const Icon = ICON[x.carrier] || Package;
           const price = x.id === methodId && q.price !== undefined ? q.price : x.api ? null : fixedPrice(x);
           return (
-            <button type="button" key={x.id} onClick={() => { setMethodId(x.id); setPoint(null); }}
+            <button type="button" key={x.id} onClick={() => { if ((m?.needs === 'yandexPoint') !== (x.needs === 'yandexPoint')) setCity(null); setMethodId(x.id); setPoint(null); }}
               className={`flex items-start gap-3 rounded-2xl border-2 p-4 text-left transition ${x.id === methodId ? 'border-slate-900 bg-slate-50' : 'border-slate-200 hover:border-slate-300'}`}>
               <Icon className="mt-0.5 shrink-0" size={20} />
               <div className="min-w-0">
@@ -105,6 +105,8 @@ export default function DeliveryPicker({ items, subtotal, initialAddress, onChan
       {m?.description && m.needs !== 'none' && <p className="text-sm text-slate-500">{m.description}</p>}
       {(m?.needs === 'cdekPoint' || m?.needs === 'cdekAddress') && <CitySearch value={city} onPick={(c) => { setCity(c); setPoint(null); }} />}
       {m?.needs === 'cdekPoint' && <CdekPoints city={city} value={point} onPick={setPoint} />}
+      {m?.needs === 'yandexPoint' && <CitySearch key="ya" source="yandex" value={city} onPick={(c) => { setCity(c); setPoint(null); }} />}
+      {m?.needs === 'yandexPoint' && <CdekPoints source="yandex" city={city} value={point} onPick={setPoint} />}
       {m?.needs === 'postcode' && <input inputMode="numeric" maxLength={6} value={to.postcode || ''} onChange={(e) => setTo({ ...to, postcode: e.target.value.replace(/\D/g, '') })} placeholder="Почтовый индекс" className={inputCls} />}
       {['address', 'cityAddress', 'postcode', 'cdekAddress'].includes(m?.needs) && (
         <textarea rows={2} value={to.address || ''} onChange={(e) => setTo({ ...to, address: e.target.value })}

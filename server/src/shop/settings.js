@@ -26,7 +26,7 @@ const DEFAULTS = {
   pochtaFromIndex: '', pochtaObject: '4030',
   cdekTest: '1', cdekClientId: '', cdekClientSecret: '', cdekFromCityCode: '', cdekFromCity: '',
   // Яндекс Доставка: тестовая среда (публичный тестовый ключ) или боевой токен из кабинета; склад отправки (platform_station_id) и адрес забора для экспресса
-  yandexTest: '0', yandexToken: '', yandexStationId: '', yandexFromAddress: '', yandexFromPhone: '', yandexFromName: '',
+  yandexTest: '0', yandexToken: '', yandexStationId: '', yandexStationAddress: '', yandexFromAddress: '', yandexFromPhone: '', yandexFromName: '',
   // продавец и документы
   sellerName: '', sellerInn: '', sellerOgrn: '', sellerAddress: '', sellerEmail: '', sellerPhone: '', returnAddress: '', legalDate: '',
   legal_privacy: '', legal_consent: '', legal_offer: '', legal_returns: '', legal_terms: '',

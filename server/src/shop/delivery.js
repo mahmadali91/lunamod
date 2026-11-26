@@ -183,7 +183,7 @@ async function yandexPoints(s, geoId) {
   const list = (d.points || [])
     .filter((p) => (p.payment_methods || []).includes('already_paid') && !p.deactivation_date)
     .map((p) => ({ code: p.id, name: p.name || '', type: p.type === 'terminal' ? 'постамат' : p.is_post_office ? 'Почта России' : 'пункт выдачи',
-      address: p.address?.full_address || '', workTime: workTime(p.schedule), lat: p.position?.latitude, lon: p.position?.longitude }))
+      address: p.address?.full_address || '', workTime: workTime(p.schedule), lat: p.position?.latitude, lon: p.position?.longitude, dropoff: Boolean(p.available_for_dropoff) }))
     .sort((a, b) => a.address.localeCompare(b.address, 'ru'));
   pointsCache.set(key, { at: Date.now(), list });
   if (pointsCache.size > 200) pointsCache.delete(pointsCache.keys().next().value);

@@ -935,3 +935,25 @@ test('время на сайте: чужую сессию не накрутит�
   const sec = (await visits()).totalSec;
   assert.ok(sec > 0 && sec <= 10, `своё время засчитано, но не больше прошедшего (${sec})`);
 });
+
+test('Яндекс Доставка: способы есть в справочнике, без токена — понятная ошибка, не-яндексовый заказ не передаётся', async () => {
+  const t = await ok('/orders/settings/templates');
+  for (const c of ['yandex_pvz', 'yandex_door', 'yandex_express']) assert.ok(t.carriers[c], c);
+  const before = (await ok('/orders/settings')).deliveryMethods;
+  const methods = JSON.stringify([{ id: 'yandex_door', carrier: 'yandex_door', name: 'Яндекс курьер', enabled: true, price: 0 }, { id: 'pickup', carrier: 'pickup', name: 'Самовывоз', enabled: true, price: 0 }]);
+  await ok('/orders/settings', { method: 'PUT', body: { deliveryMethods: methods, yandexToken: '', yandexTest: '0' } });
+  try {
+    const cfg = await fetch(BASE + '/api/shop/config').then((r) => r.json());
+    assert.ok(cfg.deliveryMethods.some((m) => m.id === 'yandex_door' && m.api), 'способ виден покупателю');
+    const anyP = (await fetch(BASE + '/api/shop/products?limit=1').then((r) => r.json())).items[0];
+    assert.ok(anyP, 'в каталоге есть товар');
+    const q = await fetch(BASE + '/api/shop/delivery/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ methodId: 'yandex_door', to: { address: 'Москва, Тверская 7' }, items: [{ productId: anyP.id, quantity: 1 }] }) });
+    const body = await q.json();
+    assert.equal(q.status, 400); assert.match(body.error, /Яндекс Доставка/);
+    const ol = await ok('/orders');
+    const any = (Array.isArray(ol) ? ol : ol.items || [])[0];
+    if (any) assert.equal((await api(`/orders/${any.id}/yandex`, { method: 'POST', body: {} })).status, 400, 'заказ не на Яндекс Доставку');
+  } finally {
+    await ok('/orders/settings', { method: 'PUT', body: { deliveryMethods: before || '' } });
+  }
+});

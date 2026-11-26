@@ -85,7 +85,7 @@ r.post('/:id(\\d+)/status', ah(async (req, res) => {
 // ---------- Яндекс Доставка: передать заказ, обновить статус, отменить заявку ----------
 const delivery = require('../shop/delivery');
 const parseInfo = (o) => { try { return JSON.parse(o.deliveryInfo || '{}') || {}; } catch { return {}; } };
-const saveYandex = async (o, info, y) => prisma.order.update({ where: { id: o.id }, data: { deliveryInfo: JSON.stringify({ ...info, yandex: y }) } });
+const saveYandex = async (o, info, y) => prisma.order.update({ where: { id: o.id }, data: { deliveryInfo: JSON.stringify({ ...info, yandex: { ...y, statusText: delivery.yaStatusText(y.status) } }) } });
 const yandexBusy = new Set();
 r.post('/:id(\\d+)/yandex', ah(async (req, res) => {
   const id = Number(req.params.id);
@@ -167,6 +167,26 @@ r.post('/settings/test-tbank', requireAdmin, ah(async (req, res) => {
 }));
 
 // Проверка каналов уведомлений: отправляет тест и возвращает точную причину ошибки
+// Яндекс Доставка: пункты, куда магазин сдаёт посылки (склад отправки), и проверка подключения
+r.get('/settings/yandex/cities', requireAdmin, ah(async (req, res) => res.json(await require('../shop/delivery').yandexCities(await getShopSettings(), String(req.query.q || '')))));
+r.get('/settings/yandex/dropoff', requireAdmin, ah(async (req, res) => {
+  const list = await require('../shop/delivery').yandexPoints(await getShopSettings(), req.query.geoId);
+  res.json(list.filter((p) => p.dropoff));
+}));
+r.post('/settings/test-yandex', requireAdmin, ah(async (req, res) => {
+  const d = require('../shop/delivery');
+  const s = await getShopSettings();
+  const cities = await d.yandexCities(s, 'Москва');
+  if (!cities.length) throw new HttpError(400, 'Яндекс Доставка не отвечает');
+  let price = null;
+  if (s.yandexStationId) {
+    const m = { id: 't', carrier: 'yandex_door', enabled: true, price: 0 };
+    const q = await d.quote({ ...s, deliveryMethods: JSON.stringify([m]) }, 't', { address: 'Санкт-Петербург, Невский проспект, 28' }, { subtotal: 3000, weight: 500 });
+    price = q.base + ' ₽, ' + q.days;
+  }
+  res.json({ ok: true, message: price ? 'Подключение работает. Пример: курьер в Санкт-Петербург — ' + price : 'Токен работает. Выберите пункт сдачи посылок, чтобы считать цены.' });
+}));
+
 // Проверка настроек почты (SMTP): отправляет тестовое письмо
 r.post('/settings/smtp-test', requireAdmin, ah(async (req, res) => {
   const s = await getShopSettings();
