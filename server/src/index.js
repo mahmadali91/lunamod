@@ -71,6 +71,7 @@ app.get('/api/vk/oauth', async (req, res) => {
     await require('./vk').oauthCallback({ code: String(req.query.code || ''), state: String(req.query.state || ''), device_id: String(req.query.device_id || '') });
     res.redirect('/admin/vk?vkid=ok');
   } catch (e) {
+    console.error('VK ID callback:', e.message, JSON.stringify({ ...req.query, code: req.query.code ? '…' : undefined }).slice(0, 400));
     res.redirect('/admin/vk?vkid=' + encodeURIComponent(e.message.slice(0, 200)));
   }
 });

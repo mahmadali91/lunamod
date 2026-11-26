@@ -1001,6 +1001,8 @@ test('ВК: вход через VK ID — ссылка с PKCE, чужой state
   assert.equal(u.origin + u.pathname, 'https://id.vk.com/authorize');
   assert.equal(u.searchParams.get('client_id'), '1234567');
   assert.equal(u.searchParams.get('code_challenge_method'), 'S256');
+  assert.equal(u.searchParams.get('scope'), 'wall groups photos video market docs', 'права через пробел, без «+»');
+  assert.ok(!st.url.includes('scope=wall+'), 'пробелы в ссылке — %20');
   assert.ok(u.searchParams.get('code_challenge') && u.searchParams.get('state'));
   assert.ok(u.searchParams.get('redirect_uri').endsWith('/api/vk/oauth'));
   const bad = await fetch(BASE + '/api/vk/oauth?code=x&state=wrong&device_id=d', { redirect: 'manual' });
