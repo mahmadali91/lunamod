@@ -28,7 +28,8 @@ const getKey = async (key) => (await prisma.setting.findUnique({ where: { key } 
 
 // ---------- вход через VK ID (OAuth 2.1 + PKCE): ключ пользователя на 1 час, продлевается refresh-ключом до 180 дней ----------
 const VKID = 'https://id.vk.com';
-const SCOPE = 'wall groups photos video market docs';
+// только права, которые ВК выдал приложению (стена, сообщества, фото, видео) — лишнее право даёт 404 на странице входа
+const SCOPE = 'wall groups photos video';
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 async function redirectUri() {
   const s = await require('./shop/settings').getShopSettings();

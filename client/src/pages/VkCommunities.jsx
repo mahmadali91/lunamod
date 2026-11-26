@@ -240,9 +240,9 @@ export default function VkCommunities() {
               ))}
             </div>
           ) : <p className="mb-4 text-sm text-slate-500">Пока нет подключённых сообществ.</p>}
-          <form onSubmit={add} className="space-y-2">
-            <Field label="Ссылка на сообщество"><input className="input" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://vk.com/имя_сообщества" required /></Field>
-            <Field label="Ключ доступа сообщества"><PasswordInput className="input font-mono text-xs" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder="vk1.a.…" /></Field>
+          <form onSubmit={add} className="space-y-2" autoComplete="off">
+            <Field label="Ссылка на сообщество"><input className="input" name="vk-community-url" autoComplete="off" data-lpignore="true" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://vk.com/имя_сообщества" required /></Field>
+            <Field label="Ключ доступа сообщества"><PasswordInput className="input font-mono text-xs" name="vk-community-key" autoComplete="new-password" data-lpignore="true" value={token} onChange={(e) => setToken(e.target.value)} placeholder="vk1.a.…" /></Field>
             <p className="text-xs text-slate-500">В сообществе: <b>Управление → Работа с API → Ключи доступа → Создать ключ</b>, отметьте «Управление сообществом», «Фотографии», «Стена», «Товары». Можно подключить несколько сообществ.</p>
             <Button type="submit" icon={Plus} loading={adding}>Подключить</Button>
           </form>
@@ -256,18 +256,18 @@ export default function VkCommunities() {
               <p className="text-xs text-slate-600">Вход выполнен (пользователь ВК {d.keys.vkid.userId}). Права: {d.keys.vkid.scope || '—'}. Ключ продлевается сам{d.keys.vkid.refreshUntil ? ` до ${new Date(d.keys.vkid.refreshUntil).toLocaleDateString('ru-RU')}` : ''}.</p>
             ) : <p className="text-xs text-slate-600">Даёт сайту ключ пользователя: посты, видео файлом и выгрузка в «Товары» ВК. Войти нужно администратором сообщества.</p>}
             <div className="flex flex-wrap items-end gap-2">
-              <Field label="ID приложения ВК" className="w-40"><input className="input" inputMode="numeric" value={keys.appId} onChange={(e) => setKeys({ ...keys, appId: e.target.value })} placeholder={d.keys.appId || '54825818'} /></Field>
+              <Field label="ID приложения ВК" className="w-40"><input className="input" name="vk-app-id" autoComplete="off" data-lpignore="true" inputMode="numeric" value={keys.appId} onChange={(e) => setKeys({ ...keys, appId: e.target.value.replace(/\D/g, '') })} placeholder={d.keys.appId || '54825818'} /></Field>
               <Button icon={KeyRound} loading={vkBusy} onClick={vkLogin}>{d.keys.vkid ? 'Войти заново' : 'Войти через VK ID'}</Button>
               {d.keys.vkid && <Button variant="ghost" onClick={vkLogout}>Выйти</Button>}
             </div>
             <p className="text-xs text-slate-500">В настройках приложения ВК (id.vk.com → приложение → «Доверенный Redirect URL») должен быть адрес: <code className="break-all">{d.keys.redirectUri}</code></p>
           </div>
           <Field label={<>Сервисный ключ приложения {d.keys.service && <CheckCircle2 size={14} className="inline text-emerald-500" />}</>}>
-            <PasswordInput className="input font-mono text-xs" autoComplete="off" value={keys.service} onChange={(e) => setKeys({ ...keys, service: e.target.value })} placeholder={d.keys.service ? 'сохранён — вставьте новый, чтобы заменить' : 'если ключом сообщества посты не читаются'} />
+            <PasswordInput className="input font-mono text-xs" name="vk-service-key" autoComplete="new-password" data-lpignore="true" value={keys.service} onChange={(e) => setKeys({ ...keys, service: e.target.value })} placeholder={d.keys.service ? 'сохранён — вставьте новый, чтобы заменить' : 'если ключом сообщества посты не читаются'} />
           </Field>
           <p className="text-xs text-slate-500">id.vk.com → «Для бизнеса» → ваше приложение → <b>Сервисный ключ доступа</b>. Нужен, если ВК не даёт читать стену ключом сообщества.</p>
           <Field label={<>Ключ пользователя для «Товаров» {d.keys.user && <CheckCircle2 size={14} className="inline text-emerald-500" />}</>}>
-            <PasswordInput className="input font-mono text-xs" autoComplete="off" value={keys.user} onChange={(e) => setKeys({ ...keys, user: e.target.value })} placeholder={d.keys.user ? 'сохранён — вставьте новый, чтобы заменить' : 'права: товары, фото, видео'} />
+            <PasswordInput className="input font-mono text-xs" name="vk-user-key" autoComplete="new-password" data-lpignore="true" value={keys.user} onChange={(e) => setKeys({ ...keys, user: e.target.value })} placeholder={d.keys.user ? 'сохранён — вставьте новый, чтобы заменить' : 'права: товары, фото, видео'} />
           </Field>
           <p className="text-xs text-slate-500">Нужен для кнопки «Выгрузить в ВК» и чтобы забирать видео из постов файлом. Без него товары можно подключить к ВК по ссылке на каталог (вкладка «В ВК»).</p>
           <Button size="sm" variant="secondary" onClick={saveKeys} disabled={!keys.service && !keys.user}>Сохранить ключи</Button>
