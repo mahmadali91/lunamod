@@ -5,3 +5,5 @@ server/prisma/*.db-journal
 server/uploads/*
 !server/uploads/.gitkeep
 server/VERSION
+СДЭК/
+YAdostav.txt
