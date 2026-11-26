@@ -25,8 +25,21 @@ function trackerKey() {
     return k;
   } catch { return null; }
 }
+// Новая версия сайта: открытая вкладка не перезагружает код сама. При переходе по страницам
+// (не чаще раза в минуту) сверяем версию с сервером и, если вышла новая, загружаем страницу заново.
+let versionCheckedAt = Date.now();
+function useAutoUpdate(loc) {
+  useEffect(() => {
+    if (Date.now() - versionCheckedAt < 60e3) return;
+    versionCheckedAt = Date.now();
+    fetch('/api/health', { cache: 'no-store' }).then((r) => r.json()).then((h) => {
+      if (h?.app && h.app !== __APP_VERSION__) window.location.reload();
+    }).catch(() => {});
+  }, [loc.pathname]);
+}
 function ShopTracker() {
   const loc = useLocation();
+  useAutoUpdate(loc);
   const sid = useRef(0);
   const api = (path, body, keepalive) => fetch('/api/shop' + path, {
     method: 'POST', keepalive: Boolean(keepalive),
