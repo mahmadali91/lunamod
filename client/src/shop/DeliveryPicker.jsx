@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
-import { Store, Truck, Package, MapPin, Search, Loader2 } from 'lucide-react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Store, Truck, Package, MapPin, Search, Loader2, Map as MapIcon } from 'lucide-react';
 import { shopApi } from './api';
 import { useShop } from './store';
 
 const ICON = { pickup: Store, courier: Truck, custom: Truck, pek: Truck, cdek_door: Truck, yandex_door: Truck, yandex_express: Truck };
+// карта загружается только при открытии окна (Leaflet не утяжеляет витрину)
+const PointMap = lazy(() => import('./PointMap'));
 const inputCls = 'w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900';
 
 function CitySearch({ value, onPick, source = 'cdek' }) {
@@ -31,12 +33,26 @@ function CitySearch({ value, onPick, source = 'cdek' }) {
 function CdekPoints({ city, value, onPick, source = 'cdek' }) {
   const [points, setPoints] = useState(null);
   const [q, setQ] = useState('');
+  const [mapOpen, setMapOpen] = useState(false);
   useEffect(() => { setPoints(null); if (city) shopApi(source === 'yandex' ? '/delivery/yandex/points?geoId=' + city.code : '/delivery/cdek/points?cityCode=' + city.code).then(setPoints).catch(() => setPoints([])); }, [city]);
   if (!city) return null;
   if (!points) return <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> Загружаем пункты выдачи…</div>;
   if (!points.length) return <div className="text-sm text-rose-600">В этом городе нет пунктов выдачи {source === 'yandex' ? 'Яндекса' : 'СДЭК'}</div>;
   const list = points.filter((p) => !q || (p.address + p.name).toLowerCase().includes(q.toLowerCase()));
+  const canMap = points.some((p) => p.lat && p.lon);
   return (
+    <div className="space-y-2">
+      {canMap && (
+        <button type="button" onClick={() => setMapOpen(true)} className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-slate-900 py-3 font-semibold">
+          <MapIcon size={18} /> {value ? 'Изменить пункт на карте' : 'Выбрать пункт на карте'}
+        </button>
+      )}
+      {value && <div className="flex items-start gap-2 rounded-2xl bg-slate-50 p-3 text-sm"><MapPin size={16} className="mt-0.5 shrink-0" /><span><span className="font-medium">{value.address}</span>{value.workTime && <span className="block text-xs text-slate-500">{value.workTime}</span>}</span></div>}
+      {mapOpen && (
+        <Suspense fallback={<div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40"><Loader2 className="animate-spin text-white" size={32} /></div>}>
+          <PointMap points={points} value={value} title={`Пункты выдачи ${source === 'yandex' ? 'Яндекса' : 'СДЭК'} · ${city.name}`} onPick={(p) => { onPick(p); setMapOpen(false); }} onClose={() => setMapOpen(false)} />
+        </Suspense>
+      )}
     <div className="rounded-2xl border border-slate-200">
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Поиск по адресу (${points.length} пунктов)`} className="w-full rounded-t-2xl border-b border-slate-100 px-4 py-2.5 text-sm outline-none" />
       <div className="max-h-56 overflow-auto">
@@ -46,6 +62,7 @@ function CdekPoints({ city, value, onPick, source = 'cdek' }) {
           </button>
         ))}
       </div>
+    </div>
     </div>
   );
 }
