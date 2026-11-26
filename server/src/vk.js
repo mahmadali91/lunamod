@@ -42,15 +42,26 @@ async function oauthStart() {
   const verifier = b64url(crypto.randomBytes(48));
   const state = b64url(crypto.randomBytes(24));
   await setJson('vk_oauth_state', { state, verifier, at: Date.now() });
-  const q = new URLSearchParams({ response_type: 'code', client_id: id, scope: SCOPE, redirect_uri: await redirectUri(), state,
-    code_challenge: b64url(crypto.createHash('sha256').update(verifier).digest()), code_challenge_method: 'S256' });
+  const params = { response_type: 'code', client_id: id, scope: SCOPE, redirect_uri: await redirectUri(), state,
+    code_challenge: b64url(crypto.createHash('sha256').update(verifier).digest()), code_challenge_method: 'S256' };
+  // пробелы в scope — как %20: «+» ВК ID передаёт дальше буквально, и права не запрашиваются
+  const q = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
   return { url: `${VKID}/authorize?${q}`, redirectUri: await redirectUri() };
 }
 
 async function tokenRequest(form) {
-  const res = await fetch(`${VKID}/oauth2/auth`, { method: 'POST', body: new URLSearchParams(form), signal: AbortSignal.timeout(20000) });
-  const d = await res.json().catch(() => ({}));
-  if (!d.access_token) throw new HttpError(400, 'VK ID: ' + (d.error_description || d.error || 'не удалось получить ключ'));
+  const post = async (body) => {
+    const res = await fetch(`${VKID}/oauth2/auth`, { method: 'POST', body: new URLSearchParams(body), signal: AbortSignal.timeout(20000) });
+    return res.json().catch(() => ({}));
+  };
+  let d = await post(form);
+  // приложению с «Защищённым ключом» VK ID может требовать client_secret
+  const secret = await getKey('vk_app_secret');
+  if (!d.access_token && secret) d = await post({ ...form, client_secret: secret });
+  if (!d.access_token) {
+    console.error('VK ID token:', d.error, d.error_description);
+    throw new HttpError(400, 'VK ID: ' + (d.error_description || d.error || 'не удалось получить ключ'));
+  }
   return d;
 }
 const saveOauth = (d, deviceId, prev = {}) => setJson('vk_user_oauth', {
@@ -350,8 +361,9 @@ async function keysStatus() {
     vkid: o?.access ? { userId: o.userId, scope: o.scope, refreshUntil: o.refreshUntil || null, at: o.at } : null,
   };
 }
-async function setKeys({ service, user, appId: app }) {
+async function setKeys({ service, user, appId: app, appSecret }) {
   if (app !== undefined) { const v = String(app || '').replace(/\D/g, ''); if (v) await setJson('vk_app_id', v); }
+  if (appSecret && appSecret !== '••••••') await setJson('vk_app_secret', String(appSecret).trim());
   for (const [k, v] of [['vk_service', service], ['vk_user', user]]) {
     if (v === undefined || v === '••••••') continue;
     const val = String(v || '').trim();
