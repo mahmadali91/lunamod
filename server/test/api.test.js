@@ -1010,4 +1010,5 @@ test('ВК: вход через VK ID — ссылка с PKCE, чужой state
   assert.ok(!/vkid=ok/.test(bad.headers.get('location')), 'чужой state не принят');
   const k = await ok('/vk');
   assert.equal(k.keys.appId, '1234567'); assert.equal(k.keys.vkid, null);
+  assert.equal((await api('/vk/my-groups')).status, 400, 'без входа через VK ID списка сообществ нет');
 });
