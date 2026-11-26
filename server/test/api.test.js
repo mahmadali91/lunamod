@@ -993,3 +993,19 @@ test('ВК: товар из поста — карточка на каждый ц
   assert.ok(c3.variants.every((v) => v.barcodes?.length !== 0), 'у размеров есть штрихкоды');
   assert.equal((await api('/vk/market/export', { method: 'POST', body: { groupId: 1, cardIds: [r.cards[0]] } })).status, 400, 'без ключа пользователя выгрузка не идёт');
 });
+
+test('ВК: вход через VK ID — ссылка с PKCE, чужой state отклоняется', async () => {
+  await ok('/vk/keys', { method: 'PUT', body: { appId: '1234567' } });
+  const st = await ok('/vk/oauth/start', { method: 'POST' });
+  const u = new URL(st.url);
+  assert.equal(u.origin + u.pathname, 'https://id.vk.com/authorize');
+  assert.equal(u.searchParams.get('client_id'), '1234567');
+  assert.equal(u.searchParams.get('code_challenge_method'), 'S256');
+  assert.ok(u.searchParams.get('code_challenge') && u.searchParams.get('state'));
+  assert.ok(u.searchParams.get('redirect_uri').endsWith('/api/vk/oauth'));
+  const bad = await fetch(BASE + '/api/vk/oauth?code=x&state=wrong&device_id=d', { redirect: 'manual' });
+  assert.equal(bad.status, 302); assert.match(bad.headers.get('location'), /^\/admin\/vk\?vkid=/);
+  assert.ok(!/vkid=ok/.test(bad.headers.get('location')), 'чужой state не принят');
+  const k = await ok('/vk');
+  assert.equal(k.keys.appId, '1234567'); assert.equal(k.keys.vkid, null);
+});

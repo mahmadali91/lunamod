@@ -64,6 +64,16 @@ app.use('/api/shop', require('./routes/shop').router);
 // задача для капчи (вход в программу, код на email в магазине)
 app.get('/api/captcha', (req, res) => { res.set('Cache-Control', 'no-store'); res.json(require('./captcha').createChallenge()); });
 app.use('/api/auth', auth);
+// VK ID возвращает сюда после входа (без заголовка входа в программу — проверка по одноразовому state)
+app.get('/api/vk/oauth', async (req, res) => {
+  try {
+    if (req.query.error) throw new Error(String(req.query.error_description || req.query.error));
+    await require('./vk').oauthCallback({ code: String(req.query.code || ''), state: String(req.query.state || ''), device_id: String(req.query.device_id || '') });
+    res.redirect('/admin/vk?vkid=ok');
+  } catch (e) {
+    res.redirect('/admin/vk?vkid=' + encodeURIComponent(e.message.slice(0, 200)));
+  }
+});
 // скачивание резервной копии по одноразовой ссылке из «Настроек» (браузер качает файл сам, без заголовка входа)
 app.get('/api/backup/:kind(db|uploads)', async (req, res) => {
   let p;

@@ -180,13 +180,19 @@ export default function VkCommunities() {
   const [link, setLink] = useState('');
   const [token, setToken] = useState('');
   const [adding, setAdding] = useState(false);
-  const [keys, setKeys] = useState({ service: '', user: '' });
+  const [keys, setKeys] = useState({ service: '', user: '', appId: '' });
+  const [vkBusy, setVkBusy] = useState(false);
   const [active, setActive] = useState(null);
   const [tab, setTab] = useState('posts');
   const [posts, setPosts] = useState(null);
   const [loading, setLoading] = useState(false);
   const load = () => api('/vk').then((r) => { setD(r); setActive((a) => a || r.groups[0]?.id || null); }).catch((e) => toast(e.message, 'error'));
-  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    load();
+    // возврат со страницы VK ID
+    const q = new URLSearchParams(window.location.search).get('vkid');
+    if (q) { toast(q === 'ok' ? 'Вход через VK ID выполнен' : 'VK ID: ' + q, q === 'ok' ? undefined : 'error'); window.history.replaceState(null, '', window.location.pathname); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setPosts(null); }, [active]);
   const group = useMemo(() => d?.groups.find((g) => g.id === active), [d, active]);
 
@@ -195,7 +201,16 @@ export default function VkCommunities() {
     try { const g = await api('/vk/groups', { method: 'POST', body: { link, token } }); setLink(''); setToken(''); toast(`Подключено: ${g.name}`); setActive(g.id); load(); } catch (err) { toast(err.message, 'error'); } finally { setAdding(false); }
   };
   const remove = async (g) => { if (!confirm(`Отключить «${g.name}»? Добавленные товары останутся.`)) return; await api('/vk/groups/' + g.id, { method: 'DELETE' }); if (active === g.id) setActive(null); load(); };
-  const saveKeys = async () => { try { const k = await api('/vk/keys', { method: 'PUT', body: keys }); setD({ ...d, keys: k }); setKeys({ service: '', user: '' }); toast('Ключи сохранены'); } catch (e) { toast(e.message, 'error'); } };
+  const saveKeys = async () => { try { const k = await api('/vk/keys', { method: 'PUT', body: keys }); setD({ ...d, keys: k }); setKeys({ service: '', user: '', appId: '' }); toast('Сохранено'); } catch (e) { toast(e.message, 'error'); } };
+  const vkLogin = async () => {
+    setVkBusy(true);
+    try {
+      if (keys.appId) await api('/vk/keys', { method: 'PUT', body: { appId: keys.appId } });
+      const r = await api('/vk/oauth/start', { method: 'POST' });
+      window.location.href = r.url;
+    } catch (e) { toast(e.message, 'error'); setVkBusy(false); }
+  };
+  const vkLogout = async () => { if (!confirm('Выйти из VK ID на сайте?')) return; setD({ ...d, keys: await api('/vk/oauth/logout', { method: 'POST' }) }); };
   const loadPosts = async (more) => {
     setLoading(true);
     try {
@@ -234,7 +249,19 @@ export default function VkCommunities() {
         </div>
 
         <div className="card space-y-3 p-5">
-          <h2 className="flex items-center gap-2 font-semibold"><KeyRound size={18} /> Ключи ВК (по необходимости)</h2>
+          <h2 className="flex items-center gap-2 font-semibold"><KeyRound size={18} /> Ключи ВК</h2>
+          <div className="space-y-2 rounded-xl bg-slate-50 p-3">
+            <div className="text-sm font-medium">Вход через VK ID {d.keys.vkid && <CheckCircle2 size={14} className="inline text-emerald-500" />}</div>
+            {d.keys.vkid ? (
+              <p className="text-xs text-slate-600">Вход выполнен (пользователь ВК {d.keys.vkid.userId}). Права: {d.keys.vkid.scope || '—'}. Ключ продлевается сам{d.keys.vkid.refreshUntil ? ` до ${new Date(d.keys.vkid.refreshUntil).toLocaleDateString('ru-RU')}` : ''}.</p>
+            ) : <p className="text-xs text-slate-600">Даёт сайту ключ пользователя: посты, видео файлом и выгрузка в «Товары» ВК. Войти нужно администратором сообщества.</p>}
+            <div className="flex flex-wrap items-end gap-2">
+              <Field label="ID приложения ВК" className="w-40"><input className="input" inputMode="numeric" value={keys.appId} onChange={(e) => setKeys({ ...keys, appId: e.target.value })} placeholder={d.keys.appId || '54825818'} /></Field>
+              <Button icon={KeyRound} loading={vkBusy} onClick={vkLogin}>{d.keys.vkid ? 'Войти заново' : 'Войти через VK ID'}</Button>
+              {d.keys.vkid && <Button variant="ghost" onClick={vkLogout}>Выйти</Button>}
+            </div>
+            <p className="text-xs text-slate-500">В настройках приложения ВК (id.vk.com → приложение → «Доверенный Redirect URL») должен быть адрес: <code className="break-all">{d.keys.redirectUri}</code></p>
+          </div>
           <Field label={<>Сервисный ключ приложения {d.keys.service && <CheckCircle2 size={14} className="inline text-emerald-500" />}</>}>
             <PasswordInput className="input font-mono text-xs" autoComplete="off" value={keys.service} onChange={(e) => setKeys({ ...keys, service: e.target.value })} placeholder={d.keys.service ? 'сохранён — вставьте новый, чтобы заменить' : 'если ключом сообщества посты не читаются'} />
           </Field>

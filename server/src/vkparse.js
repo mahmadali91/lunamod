@@ -10,7 +10,7 @@ const COLORS = [
 ];
 const COLOR_RE = new RegExp(`(?:^|[^а-яё])(${[...COLORS].sort((a, b) => b.length - a.length).join('|')})(?![а-яё])`, 'gi');
 const LETTER_SIZES = ['xxs', 'xs', 's', 'm', 'l', 'xl', 'xxl', 'xxxl', '2xl', '3xl', '4xl', '5xl'];
-const PIECES = /\n|(?<=[.!])\s+/; // строки и предложения
+const PIECES = /\n|(?<=[.!])\s+(?=[А-ЯЁA-Z])/; // строки и предложения (новое предложение — с заглавной)
 
 const clean = (s) => String(s || '')
   .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, ' ')
@@ -60,6 +60,9 @@ function findSizes(text) {
     if (LETTER_SIZES.includes(k)) out.push(k.toUpperCase());
   }
   if (out.length) return [...new Set(out)];
+  // «42-44-46-48-50» — цепочка размеров через дефис: каждый отдельно
+  const chain = s.match(/\d{2}(?:\s*[-–—]\s*\d{2}){2,}/);
+  if (chain) return [...new Set(chain[0].split(/\s*[-–—]\s*/))];
   // числовые: «42-44, 46-48» — парные размеры; «42-48» (одна запись) — раскрываем с шагом 2
   const parts = s.match(/\d{2}(?:\s*[-–—/]\s*\d{2})?/g) || [];
   for (const p of parts) {
@@ -102,6 +105,8 @@ function findName(text) {
     if (l.length < 3) continue;
     if (/^(цена|стоимость|размер|р-р|цвет|расцвет|ткань|состав|опт|розниц|арт|артикул|в наличии|заказ|доставк)/i.test(l)) continue;
     if (/^[\d\s₽руб.,-]+$/i.test(l)) continue;
+    if (/(опт|упак|штучно|в наличии|наличие)/i.test(raw)) continue;
+    if (!/[a-zа-яё]{3,}/i.test(l)) continue; // «5шт=» и подобное — не название
     return cap(l.slice(0, 120));
   }
   return '';
