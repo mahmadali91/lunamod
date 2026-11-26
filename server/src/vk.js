@@ -26,6 +26,63 @@ async function setJson(key, value) {
 }
 const getKey = async (key) => (await prisma.setting.findUnique({ where: { key } }))?.value || '';
 
+// ---------- вход через VK ID (OAuth 2.1 + PKCE): ключ пользователя на 1 час, продлевается refresh-ключом до 180 дней ----------
+const VKID = 'https://id.vk.com';
+const SCOPE = 'wall groups photos video market docs';
+const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+async function redirectUri() {
+  const s = await require('./shop/settings').getShopSettings();
+  return String(s.siteUrl || process.env.SITE_URL || '').replace(/\/$/, '') + '/api/vk/oauth';
+}
+async function appId() { return (await getKey('vk_app_id')) || ''; }
+
+async function oauthStart() {
+  const id = await appId();
+  if (!id) throw new HttpError(400, 'Укажите ID приложения ВК');
+  const verifier = b64url(crypto.randomBytes(48));
+  const state = b64url(crypto.randomBytes(24));
+  await setJson('vk_oauth_state', { state, verifier, at: Date.now() });
+  const q = new URLSearchParams({ response_type: 'code', client_id: id, scope: SCOPE, redirect_uri: await redirectUri(), state,
+    code_challenge: b64url(crypto.createHash('sha256').update(verifier).digest()), code_challenge_method: 'S256' });
+  return { url: `${VKID}/authorize?${q}`, redirectUri: await redirectUri() };
+}
+
+async function tokenRequest(form) {
+  const res = await fetch(`${VKID}/oauth2/auth`, { method: 'POST', body: new URLSearchParams(form), signal: AbortSignal.timeout(20000) });
+  const d = await res.json().catch(() => ({}));
+  if (!d.access_token) throw new HttpError(400, 'VK ID: ' + (d.error_description || d.error || 'не удалось получить ключ'));
+  return d;
+}
+const saveOauth = (d, deviceId, prev = {}) => setJson('vk_user_oauth', {
+  access: d.access_token, refresh: d.refresh_token || prev.refresh, deviceId: deviceId || prev.deviceId, userId: d.user_id || prev.userId,
+  scope: d.scope || prev.scope || '', expiresAt: Date.now() + (Number(d.expires_in) || 3600) * 1000, refreshUntil: d.refresh_token ? Date.now() + 180 * 864e5 : prev.refreshUntil, at: Date.now(),
+});
+
+async function oauthCallback({ code, state, device_id: deviceId }) {
+  const st = await getJson('vk_oauth_state', null);
+  if (!st || st.state !== state || Date.now() - st.at > 15 * 60e3) throw new HttpError(400, 'Ссылка входа устарела — нажмите «Войти через VK ID» ещё раз');
+  await prisma.setting.deleteMany({ where: { key: 'vk_oauth_state' } });
+  const d = await tokenRequest({ grant_type: 'authorization_code', code, code_verifier: st.verifier, client_id: await appId(), device_id: deviceId, redirect_uri: await redirectUri(), state });
+  await saveOauth(d, deviceId);
+  return d;
+}
+
+/** Ключ пользователя: из входа через VK ID (с продлением) или вставленный вручную. */
+async function userToken() {
+  const o = await getJson('vk_user_oauth', null);
+  if (o?.access) {
+    if (o.expiresAt - Date.now() > 5 * 60e3) return o.access;
+    if (o.refresh) {
+      try {
+        const d = await tokenRequest({ grant_type: 'refresh_token', refresh_token: o.refresh, client_id: await appId(), device_id: o.deviceId, state: b64url(crypto.randomBytes(12)) });
+        await saveOauth(d, o.deviceId, o);
+        return d.access_token;
+      } catch (e) { console.error('VK ID refresh:', e.message); }
+    }
+  }
+  return getKey('vk_user');
+}
+
 const HINT = {
   5: 'ключ недействителен или отозван — создайте новый',
   15: 'нет доступа: у ключа не хватает прав',
@@ -114,14 +171,13 @@ async function loadPosts(groupId, { offset = 0, count = 20 } = {}) {
   const g = await findGroup(groupId);
   const imports = await getJson('vk_imports', {});
   const params = { owner_id: -g.id, offset: Math.max(0, Number(offset) || 0), count: Math.min(50, Math.max(1, Number(count) || 20)), filter: 'owner' };
-  let r;
-  try { r = await vk('wall.get', params, g.token || (await getKey('vk_service'))); }
-  catch (e) {
-    // ключом сообщества стену читать нельзя — пробуем сервисным ключом приложения
-    const service = await getKey('vk_service');
-    if (!service || !g.token || ![15, 27, 28].includes(e.vkCode)) throw e;
-    r = await vk('wall.get', params, service);
+  // стену читаем сервисным ключом приложения или ключом пользователя (ключом сообщества ВК не даёт — ошибка 27)
+  const tokens = [await getKey('vk_service'), await userToken(), g.token].filter(Boolean);
+  let r; let err;
+  for (const t of tokens) {
+    try { r = await vk('wall.get', params, t); break; } catch (e) { err = e; if (![5, 15, 27, 28].includes(e.vkCode)) throw e; }
   }
+  if (!r) throw err || new HttpError(400, 'Нет ключа для чтения постов — укажите сервисный ключ приложения или войдите через VK ID');
   const items = (r.items || []).map((p) => postBlock(g.id, p, imports));
   return { total: r.count || 0, offset: params.offset, items: items.filter((x) => x.photos.length || x.text) };
 }
@@ -142,7 +198,7 @@ async function download(url, prefix) {
 
 /** Ссылка на mp4 видео из поста (нужен ключ пользователя; не всегда ВК отдаёт файл). */
 async function videoFile(v) {
-  const user = await getKey('vk_user');
+  const user = await userToken();
   if (!user) return null;
   const r = await vk('video.get', { videos: `${v.ownerId}_${v.id}${v.accessKey ? '_' + v.accessKey : ''}` }, user).catch(() => null);
   const f = r?.items?.[0]?.files || {};
@@ -234,7 +290,7 @@ async function addColors(cardId, colors) {
 
 // ---------- выгрузка в «Товары» ВК ----------
 async function marketCategories() {
-  const user = await getKey('vk_user');
+  const user = await userToken();
   const r = await vk('market.getCategories', { count: 1000 }, user);
   const flat = [];
   const walk = (list, prefix) => (list || []).forEach((c) => { flat.push({ id: c.id, name: prefix + c.name }); walk(c.children, prefix + c.name + ' / '); });
@@ -255,7 +311,7 @@ async function uploadMarketPhoto(user, groupId, filePath, main) {
 
 /** Выгрузить карточки в раздел «Товары» сообщества. Возвращает [{ cardId, ok, itemId, error }] */
 async function exportToMarket(groupId, cardIds, categoryId) {
-  const user = await getKey('vk_user');
+  const user = await userToken();
   if (!user) throw new HttpError(400, 'Для выгрузки в «Товары» ВК нужен ключ пользователя с правами «Товары» и «Фото» — или подключите каталог по YML-ссылке (инструкция на странице)');
   const g = await findGroup(groupId);
   const s = await require('./shop/settings').getShopSettings();
@@ -288,10 +344,14 @@ async function exportToMarket(groupId, cardIds, categoryId) {
 }
 
 async function keysStatus() {
-  const [service, user] = await Promise.all([getKey('vk_service'), getKey('vk_user')]);
-  return { service: Boolean(service), user: Boolean(user) };
+  const [service, manual, o, app] = await Promise.all([getKey('vk_service'), getKey('vk_user'), getJson('vk_user_oauth', null), appId()]);
+  return {
+    service: Boolean(service), user: Boolean(manual || o?.access), appId: app, redirectUri: await redirectUri(),
+    vkid: o?.access ? { userId: o.userId, scope: o.scope, refreshUntil: o.refreshUntil || null, at: o.at } : null,
+  };
 }
-async function setKeys({ service, user }) {
+async function setKeys({ service, user, appId: app }) {
+  if (app !== undefined) { const v = String(app || '').replace(/\D/g, ''); if (v) await setJson('vk_app_id', v); }
   for (const [k, v] of [['vk_service', service], ['vk_user', user]]) {
     if (v === undefined || v === '••••••') continue;
     const val = String(v || '').trim();
@@ -301,4 +361,6 @@ async function setKeys({ service, user }) {
   return keysStatus();
 }
 
-module.exports = { vk, parseLink, listGroups, addGroup, removeGroup, loadPosts, importPost, addColors, marketCategories, exportToMarket, keysStatus, setKeys, getJson };
+async function logoutVkId() { await prisma.setting.deleteMany({ where: { key: { in: ['vk_user_oauth', 'vk_oauth_state'] } } }); }
+
+module.exports = { oauthStart, oauthCallback, userToken, logoutVkId, vk, parseLink, listGroups, addGroup, removeGroup, loadPosts, importPost, addColors, marketCategories, exportToMarket, keysStatus, setKeys, getJson };

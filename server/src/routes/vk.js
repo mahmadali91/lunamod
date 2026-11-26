@@ -13,6 +13,9 @@ r.get('/', ah(async (req, res) => {
 r.post('/groups', requireAdmin, ah(async (req, res) => res.status(201).json(await vk.addGroup(req.body || {}))));
 r.delete('/groups/:id(\\d+)', requireAdmin, ah(async (req, res) => { await vk.removeGroup(req.params.id); res.json({ ok: true }); }));
 r.put('/keys', requireAdmin, ah(async (req, res) => res.json(await vk.setKeys(req.body || {}))));
+// вход через VK ID: ссылка на страницу ВК (после входа ВК вернёт на /api/vk/oauth)
+r.post('/oauth/start', requireAdmin, ah(async (req, res) => res.json(await vk.oauthStart())));
+r.post('/oauth/logout', requireAdmin, ah(async (req, res) => { await vk.logoutVkId(); res.json(await vk.keysStatus()); }));
 
 // посты сообщества блоками (с разобранным черновиком товара)
 r.get('/groups/:id(\\d+)/posts', ah(async (req, res) => res.json(await vk.loadPosts(req.params.id, { offset: req.query.offset, count: req.query.count }))));
