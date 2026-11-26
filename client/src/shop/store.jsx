@@ -5,6 +5,7 @@ import { ecommerce } from './metrika';
 const Ctx = createContext(null);
 export const useShop = () => useContext(Ctx);
 const CART = 'shop_cart';
+const PAY_WAIT = 'shop_pay_wait'; // заказ, который ждёт онлайн-оплаты: после оплаты очищаем корзину
 const readCart = () => { try { return JSON.parse(localStorage.getItem(CART) || '[]'); } catch { return []; } };
 const FAV = 'shop_fav';
 const readFav = () => { try { const v = JSON.parse(localStorage.getItem(FAV) || '[]'); return Array.isArray(v) ? v.filter(Number.isInteger) : []; } catch { return []; } };
@@ -20,6 +21,16 @@ export function ShopProvider({ children }) {
   useEffect(() => { shopApi('/config').then((c) => { setConfig(c); document.title = c.title; }).catch(() => setConfig({ error: true })); }, []);
   useEffect(() => { if (shopToken.get()) shopApi('/me').then(setMe).catch(() => {}); }, []);
   useEffect(() => { try { localStorage.setItem(CART, JSON.stringify(cart)); } catch { /* ignore */ } }, [cart]);
+  // оплатил у банка, но на сайт не вернулся: при следующем заходе проверяем заказ и очищаем корзину
+  useEffect(() => {
+    if (!me) return;
+    let w = null; try { w = JSON.parse(localStorage.getItem(PAY_WAIT) || 'null'); } catch { /* ignore */ }
+    if (!w?.orderId) return;
+    shopApi('/orders/' + w.orderId).then((o) => {
+      if (o.paymentStatus === 'paid') { setCart([]); localStorage.removeItem(PAY_WAIT); }
+      else if (o.status === 'cancelled' || Date.now() - w.at > 7 * 864e5) localStorage.removeItem(PAY_WAIT);
+    }).catch(() => {});
+  }, [me?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // корзина вошедшего покупателя сохраняется на сервере — чтобы напомнить, если он не оформил заказ
   useEffect(() => {
     if (!me) return;
@@ -67,7 +78,15 @@ export function ShopProvider({ children }) {
     qty: (id) => cart.find((i) => i.id === id)?.quantity || 0,
     // сколько штук этой карточки (всех размеров) уже в корзине — для значка на кнопке «Купить»
     countOf: (cardId) => cart.filter((i) => (i.cardId ?? Number(String(i.url || '').match(/^\/product\/(\d+)/)?.[1] ?? i.id)) === cardId).reduce((a, i) => a + i.quantity, 0),
-    clear() { setCart([]); },
+    clear() { setCart([]); try { localStorage.removeItem(PAY_WAIT); } catch { /* ignore */ } },
+    // онлайн-оплата: корзину не очищаем, пока заказ не оплачен (покупатель может уйти со страницы банка)
+    waitPayment(orderId) { try { localStorage.setItem(PAY_WAIT, JSON.stringify({ orderId, at: Date.now() })); } catch { /* ignore */ } },
+    paymentDone(orderId, paid) {
+      let w = null; try { w = JSON.parse(localStorage.getItem(PAY_WAIT) || 'null'); } catch { /* ignore */ }
+      if (!w || String(w.orderId) !== String(orderId)) return;
+      if (paid) setCart([]);
+      try { localStorage.removeItem(PAY_WAIT); } catch { /* ignore */ }
+    },
     // сверка с сервером: убрать то, что больше не продаётся, обновить цены и доступное количество
     async check() {
       if (!cart.length) return;

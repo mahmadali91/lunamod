@@ -40,7 +40,9 @@ export default function Checkout() {
     try {
       const r = await shopApi('/orders', { method: 'POST', body: { ...f, items: lines, delivery: dl.methodId, deliveryTo: dl.to, agree } });
       ecommerce('purchase', cart.items.map((i) => ({ id: i.id, name: i.name, price: i.price, quantity: i.quantity })), { id: r.order.number || r.order.id, revenue: r.order.total });
-      cart.clear();
+      // онлайн-оплата: товары остаются в корзине, пока банк не подтвердит оплату
+      const online = ['tbank', 'sbp'].includes(r.order.paymentMethod) && r.order.paymentStatus !== 'paid';
+      if (online) cart.waitPayment(r.order.id); else cart.clear();
       if (r.paymentUrl) { window.location.href = r.paymentUrl; return; }
       if (r.paymentError) notify(r.paymentError, 'error');
       navigate(`/order/${r.order.id}?new=1`);

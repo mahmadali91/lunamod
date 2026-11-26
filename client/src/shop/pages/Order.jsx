@@ -15,11 +15,17 @@ export const PAY = { unpaid: 'не оплачен', pending: 'ожидает о�
 export default function Order() {
   const { id } = useParams();
   const [params, setParams] = useSearchParams();
-  const { auth, money, config, notify } = useShop();
+  const { auth, money, config, notify, cart } = useShop();
   const [o, setO] = useState(null);
   const [busy, setBusy] = useState(false);
   const load = () => shopApi('/orders/' + id).then(setO).catch(() => setO(false));
   useEffect(() => { if (auth.me) load(); }, [id, auth.me]); // eslint-disable-line react-hooks/exhaustive-deps
+  // оплачен — очищаем корзину; отменён — оставляем товары в корзине
+  useEffect(() => {
+    if (!o) return;
+    if (o.paymentStatus === 'paid') cart.paymentDone(o.id, true);
+    else if (o.status === 'cancelled') cart.paymentDone(o.id, false);
+  }, [o?.id, o?.paymentStatus, o?.status]); // eslint-disable-line react-hooks/exhaustive-deps
   // после возврата из банка уведомление может прийти чуть позже — обновим статус ещё пару раз
   useEffect(() => {
     if (!o || o.paymentStatus !== 'pending' || !params.get('paid')) return;
