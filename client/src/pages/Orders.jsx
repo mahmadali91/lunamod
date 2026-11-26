@@ -60,6 +60,42 @@ function PickList({ o, onClose }) {
   );
 }
 
+// Яндекс Доставка: передать заказ, статус заявки, отмена
+function YandexBlock({ o, busy, act }) {
+  let info = {};
+  try { info = JSON.parse(o.deliveryInfo || '{}') || {}; } catch { /* старый формат */ }
+  const carrier = info.carrier || (String(o.delivery).startsWith('yandex') ? o.delivery : '');
+  if (!carrier.startsWith('yandex')) return null;
+  const y = info.yandex;
+  const dead = !y || ['CANCELLED', 'cancelled', 'CANCELLED_BY_RECIPIENT', 'failed', 'estimating_failed', 'performer_not_found'].includes(y.status);
+  const send = () => {
+    const paid = o.paymentStatus === 'paid';
+    if (!paid && !confirm('Заказ не оплачен. Деньги получены другим способом и можно передавать в Яндекс?')) return;
+    if (paid && !confirm('Создать заявку в Яндекс Доставке? Посылку нужно будет сдать в пункт приёма.')) return;
+    act('yandex', { allowUnpaid: !paid }, 'Заявка в Яндекс Доставке создана');
+  };
+  return (
+    <div className="mb-4 rounded-lg border border-slate-200 p-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="font-medium">Яндекс Доставка{info.pointAddress ? <span className="font-normal text-slate-500"> · ПВЗ: {info.pointAddress}</span> : null}</div>
+        <div className="flex flex-wrap gap-2">
+          {dead && o.status !== 'cancelled' && <Button size="sm" icon={Truck} loading={busy} onClick={send}>{y ? 'Передать заново' : 'Передать в Яндекс'}</Button>}
+          {y && <Button size="sm" variant="secondary" loading={busy} onClick={() => act('yandex/refresh', {}, 'Статус обновлён')}>Обновить статус</Button>}
+          {y && !dead && <Button size="sm" variant="secondary" className="text-rose-600" loading={busy} onClick={() => confirm('Отменить заявку в Яндекс Доставке?') && act('yandex/cancel', {}, 'Заявка отменена')}>Отменить заявку</Button>}
+        </div>
+      </div>
+      {y && (
+        <div className="mt-2 grid gap-1 text-xs text-slate-600 sm:grid-cols-2">
+          <div>Статус: <b className="text-slate-900">{y.statusText || y.status}</b>{y.statusDescription ? ` — ${y.statusDescription}` : ''}</div>
+          <div>Заявка: <span className="font-mono">{y.requestId || y.claimId}</span></div>
+          {y.price ? <div>Стоимость у Яндекса: {y.price} ₽</div> : null}
+          {y.sharingUrl && <a href={y.sharingUrl} target="_blank" rel="noreferrer" className="text-indigo-600">Отслеживание для покупателя ↗</a>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OrderModal({ id, onClose, onChange }) {
   // возврат денег через Т-Банк — только администратор (сервер тоже проверяет)
   const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'admin';
@@ -119,6 +155,7 @@ function OrderModal({ id, onClose, onChange }) {
         <div><div className="label">Оплата</div>{PAY_METHOD[o.paymentMethod]}<div><Badge color={PAY_STATUS[o.paymentStatus][1]}>{PAY_STATUS[o.paymentStatus][0]}</Badge></div></div>
       </div>
       {o.comment && <div className="mb-4 rounded-lg bg-amber-50 p-3 text-sm"><b>Комментарий покупателя:</b> {o.comment}</div>}
+      <YandexBlock o={o} busy={busy} act={act} />
       <div className="mb-3 flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">Товары · {fmtNum(o.items.reduce((a, i) => a + i.quantity, 0))} шт</h3>
         <Button size="sm" variant="secondary" icon={ClipboardList} onClick={() => setPick(true)}>Лист подбора</Button>

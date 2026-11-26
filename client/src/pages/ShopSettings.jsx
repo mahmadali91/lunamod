@@ -16,6 +16,41 @@ function Section({ icon: Icon, title, children, hint, onSave, saving }) {
     </div>
   );
 }
+// Яндекс Доставка: выбор пункта, куда магазин сдаёт посылки (склад отправки)
+function YandexDropoff({ value, onPick }) {
+  const [q, setQ] = useState('Москва');
+  const [city, setCity] = useState(null);
+  const [points, setPoints] = useState(null);
+  const [filter, setFilter] = useState('');
+  const [err, setErr] = useState('');
+  const find = async () => {
+    setErr(''); setPoints(null);
+    try {
+      const c = (await api('/orders/settings/yandex/cities?q=' + encodeURIComponent(q)))[0];
+      if (!c) { setErr('Город не найден'); return; }
+      setCity(c); setPoints(await api('/orders/settings/yandex/dropoff?geoId=' + c.code));
+    } catch (e) { setErr(e.message); }
+  };
+  const list = (points || []).filter((p) => !filter || (p.address + p.name).toLowerCase().includes(filter.toLowerCase()));
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2"><input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Город" /><Button size="sm" variant="secondary" onClick={find}>Найти пункты</Button></div>
+      {err && <p className="text-xs text-rose-600">{err}</p>}
+      {points && (
+        <div className="rounded-xl border border-slate-200">
+          <input className="w-full rounded-t-xl border-b border-slate-100 bg-transparent px-3 py-2 text-sm outline-none" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={`Поиск по адресу (${points.length} пунктов приёма в ${city?.name})`} />
+          <div className="max-h-56 overflow-auto">
+            {list.slice(0, 100).map((p) => (
+              <button type="button" key={p.code} onClick={() => onPick(p)} className={`block w-full px-3 py-2 text-left text-sm ${value === p.code ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50'}`}>
+                <span className="font-medium">{p.address}</span> <span className="text-xs text-slate-500">· {p.name}{p.workTime ? ' · ' + p.workTime : ''}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 const Check = ({ v, set, label }) => <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={v === '1'} onChange={(e) => set(e.target.checked ? '1' : '0')} /> {label}</label>;
 
 export default function ShopSettings() {
@@ -94,7 +129,7 @@ export default function ShopSettings() {
         <p className="text-xs text-slate-500">Скрыть отдельный товар из магазина можно в его карточке — флажок «Показывать в интернет-магазине».</p>
       </Section>
 
-      <Section icon={Truck} title="Доставка" onSave={() => saveKeys(['deliveryMethods','defaultWeight','pochtaFromIndex','pochtaObject','cdekFromCityCode','cdekClientId','cdekClientSecret','cdekTest'], 'Доставка')} saving={savingSection === 'Доставка'} hint="Цена для покупателя = тариф (фиксированный или рассчитанный службой) + наценка в % + наценка в ₽. «Бесплатно от» — порог суммы заказа.">
+      <Section icon={Truck} title="Доставка" onSave={() => saveKeys(['deliveryMethods','defaultWeight','pochtaFromIndex','pochtaObject','cdekFromCityCode','cdekClientId','cdekClientSecret','cdekTest','yandexToken','yandexTest','yandexStationId','yandexStationAddress','yandexFromAddress','yandexFromPhone','yandexFromName'], 'Доставка')} saving={savingSection === 'Доставка'} hint="Цена для покупателя = тариф (фиксированный или рассчитанный службой) + наценка в % + наценка в ₽. «Бесплатно от» — порог суммы заказа.">
         <div className="space-y-3">
           {methods.map((m, i) => {
             const c = tpl.carriers[m.carrier];
@@ -140,6 +175,19 @@ export default function ShopSettings() {
           <Field label="СДЭК: Client Secret">{inp('cdekClientSecret', { type: 'password', autoComplete: 'new-password' })}</Field>
           <div className="sm:col-span-2"><Check v={s.cdekTest} set={f('cdekTest')} label="СДЭК: тестовая среда (без договора, цены условные) — выключите, когда введёте боевые ключи" /></div>
           <p className="text-xs text-slate-500 sm:col-span-2">Ключи СДЭК — в личном кабинете lk.cdek.ru → Интеграция. Коды городов: Москва 44, Санкт-Петербург 137, Казань 424, Екатеринбург 250, Новосибирск 270.</p>
+          <div className="sm:col-span-2 mt-2 border-t border-slate-200 pt-4 text-sm font-medium">Яндекс Доставка</div>
+          <Field label="Токен API (кабинет Яндекс Доставки → Профиль компании → Токен для API)" className="sm:col-span-2">{inp('yandexToken', { type: 'password', autoComplete: 'new-password' })}</Field>
+          <div className="sm:col-span-2 space-y-1">
+            <div className="text-sm">Пункт сдачи посылок (откуда Яндекс забирает заказы): {s.yandexStationId ? <b>{s.yandexStationAddress || s.yandexStationId}</b> : <span className="text-rose-600">не выбран</span>}</div>
+            <YandexDropoff value={s.yandexStationId} onPick={(p) => setS({ ...s, yandexStationId: p.code, yandexStationAddress: p.address })} />
+          </div>
+          <Field label="Экспресс: адрес, откуда курьер забирает заказ">{inp('yandexFromAddress', { placeholder: 'Москва, улица, дом' })}</Field>
+          <Field label="Экспресс: телефон отправителя">{inp('yandexFromPhone', { placeholder: '+7 900 000-00-00', inputMode: 'tel' })}</Field>
+          <div className="sm:col-span-2"><Check v={s.yandexTest} set={f('yandexTest')} label="Яндекс: тестовая среда (только Москва; токен — тестовый из документации Яндекса)" /></div>
+          <div className="sm:col-span-2 flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="secondary" onClick={async () => { try { await saveKeys(['yandexToken','yandexTest','yandexStationId','yandexStationAddress','yandexFromAddress','yandexFromPhone'], 'Яндекс Доставка'); const r = await api('/orders/settings/test-yandex', { method: 'POST' }); toast(r.message); } catch (e) { toast(e.message, 'error'); } }}>Сохранить и проверить подключение</Button>
+            <span className="text-xs text-slate-500">Экспресс-доставку Яндекс включает отдельно по договору — до этого способ «экспресс» не считает цену.</span>
+          </div>
         </div>
       </Section>
 

@@ -8,6 +8,9 @@ const CARRIERS = {
   pochta: { name: 'Почта России', needs: 'postcode', api: true },
   cdek_pvz: { name: 'СДЭК — пункт выдачи', needs: 'cdekPoint', api: true },
   cdek_door: { name: 'СДЭК — курьер до двери', needs: 'cdekAddress', api: true },
+  yandex_pvz: { name: 'Яндекс Доставка — пункт выдачи', needs: 'yandexPoint', api: true },
+  yandex_door: { name: 'Яндекс Доставка — курьер до двери', needs: 'address', api: true },
+  yandex_express: { name: 'Яндекс Доставка — экспресс сегодня', needs: 'address', api: true },
   pek: { name: 'ПЭК', needs: 'cityAddress', api: false },
   avito: { name: 'Авито Доставка', needs: 'pointText', api: false },
   ozon: { name: 'Ozon (пункт выдачи)', needs: 'pointText', api: false },
@@ -24,6 +27,9 @@ function defaultMethods(s = {}) {
     m('pochta', 'pochta'),
     m('cdek_pvz', 'cdek_pvz'),
     m('cdek_door', 'cdek_door'),
+    m('yandex_pvz', 'yandex_pvz', { days: '2–5 дней' }),
+    m('yandex_door', 'yandex_door', { days: '1–4 дня' }),
+    m('yandex_express', 'yandex_express', { days: 'сегодня, 1–3 часа', description: 'Только по Москве и области' }),
     m('pek', 'pek', { price: 600, days: '3–7 дней' }),
     m('avito', 'avito', { price: 250, days: '3–6 дней', description: 'Укажите адрес пункта выдачи Авито' }),
     m('ozon', 'ozon', { price: 200, days: '3–7 дней', description: 'Укажите адрес пункта выдачи Ozon' }),
@@ -116,6 +122,208 @@ async function cdekQuote(s, toCityCode, weight, door) {
   return { base: r.data.total_sum, days: a ? (a === b ? `${b} дн.` : `${a}–${b} дн.`) : '' };
 }
 
+// ---------- Яндекс Доставка (API для бизнеса) ----------
+// Доставка по России (ПВЗ и курьер в другой день): b2b-authproxy.taxi.yandex.net/api/b2b/platform/...
+// Экспресс сегодня: b2b.taxi.yandex.net/b2b/cargo/integration/v2/...
+// Тестовая среда (только адреса по Москве): токен — тестовый из документации Яндекс Доставки, вводится в настройках.
+const YA_TEST = {
+  host: 'https://b2b.taxi.tst.yandex.net',
+  station: 'fbed3aa1-2cc6-4370-ab4d-59c5cc9bb924',
+  from: 'Москва, Ленинградский проспект, 27',
+};
+function yaCfg(s) {
+  const test = s.yandexTest === '1';
+  return {
+    test,
+    platform: test ? YA_TEST.host : 'https://b2b-authproxy.taxi.yandex.net',
+    express: test ? YA_TEST.host : 'https://b2b.taxi.yandex.net',
+    token: String(s.yandexToken || '').trim(),
+    station: String(s.yandexStationId || '').trim() || (test ? YA_TEST.station : ''),
+    from: String(s.yandexFromAddress || '').trim() || (test ? YA_TEST.from : ''),
+  };
+}
+async function yaCall(s, kind, method, path, body) {
+  const c = yaCfg(s);
+  if (!c.token) throw fail('Яндекс Доставка: в настройках не указан токен API');
+  const r = await request(method, (kind === 'express' ? c.express : c.platform) + path, { body, headers: { Authorization: 'Bearer ' + c.token, 'Accept-Language': 'ru' } });
+  if (r.status >= 400 || typeof r.data !== 'object') {
+    const msg = (r.data && (r.data.message || r.data.code)) || String(r.data || '').slice(0, 200) || 'HTTP ' + r.status;
+    throw Object.assign(new Error('Яндекс Доставка: ' + msg), { status: r.status >= 500 ? 502 : 400, code: r.data?.code });
+  }
+  return r.data;
+}
+const rub = (v) => Number(String(v || '').replace(/[^\d.]/g, '')) || 0; // «200.08 RUB» → 200.08
+const kop = (v) => Math.round(Number(v || 0) * 100);
+const DIMS = { dx: 30, dy: 20, dz: 10 }; // коробка по умолчанию, см
+
+async function yandexCities(s, q) {
+  if (String(q || '').trim().length < 2) return [];
+  const d = await yaCall(s, 'platform', 'POST', '/api/b2b/platform/location/detect', { location: String(q).trim() });
+  const seen = new Set();
+  return (d.variants || []).filter((v) => v.geo_id && !seen.has(v.geo_id) && seen.add(v.geo_id)).slice(0, 15).map((v) => ({ code: v.geo_id, name: v.address }));
+}
+
+const DAY = ['', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const hm = (t) => `${String(t?.hours ?? 0).padStart(2, '0')}:${String(t?.minutes ?? 0).padStart(2, '0')}`;
+function workTime(schedule) {
+  const r = schedule?.restrictions || [];
+  if (!r.length) return '';
+  const all = r.every((x) => hm(x.time_from) === hm(r[0].time_from) && hm(x.time_to) === hm(r[0].time_to));
+  if (all && r.length === 7) return hm(r[0].time_from) === '00:00' && hm(r[0].time_to) === '23:59' ? 'круглосуточно' : `ежедневно ${hm(r[0].time_from)}–${hm(r[0].time_to)}`;
+  return r.map((x) => `${(x.days || []).map((d) => DAY[d]).join(',')} ${hm(x.time_from)}–${hm(x.time_to)}`).join('; ');
+}
+const pointsCache = new Map(); // geoId → { at, list }
+async function yandexPoints(s, geoId) {
+  const id = Number(geoId);
+  if (!id) throw fail('Не выбран город');
+  const key = yaCfg(s).platform + id;
+  const hit = pointsCache.get(key);
+  if (hit && Date.now() - hit.at < 3600e3) return hit.list;
+  const d = await yaCall(s, 'platform', 'POST', '/api/b2b/platform/pickup-points/list', { geo_id: id });
+  const list = (d.points || [])
+    .filter((p) => (p.payment_methods || []).includes('already_paid') && !p.deactivation_date)
+    .map((p) => ({ code: p.id, name: p.name || '', type: p.type === 'terminal' ? 'постамат' : p.is_post_office ? 'Почта России' : 'пункт выдачи',
+      address: p.address?.full_address || '', workTime: workTime(p.schedule), lat: p.position?.latitude, lon: p.position?.longitude, dropoff: Boolean(p.available_for_dropoff) }))
+    .sort((a, b) => a.address.localeCompare(b.address, 'ru'));
+  pointsCache.set(key, { at: Date.now(), list });
+  if (pointsCache.size > 200) pointsCache.delete(pointsCache.keys().next().value);
+  return list;
+}
+
+/** Цена доставки. kind: pvz | door | express. Возвращает { base, days } */
+async function yandexQuote(s, kind, to, weight, subtotal) {
+  const c = yaCfg(s);
+  const w = Math.max(100, Math.round(weight || 500));
+  if (kind === 'express') {
+    if (!c.from) throw fail('Яндекс Доставка: в настройках не указан адрес, откуда забирать заказ');
+    const d = await yaCall(s, 'express', 'POST', '/b2b/cargo/integration/v2/check-price', {
+      items: [{ quantity: 1, size: { length: DIMS.dx / 100, width: DIMS.dy / 100, height: DIMS.dz / 100 }, weight: w / 1000 }],
+      route_points: [{ fullname: c.from }, { fullname: String(to.address).trim() }],
+      requirements: { taxi_class: 'courier' },
+    });
+    if (!d.price) throw fail('Яндекс Доставка: экспресс по этому адресу недоступен');
+    return { base: Math.ceil(rub(d.price)), days: d.eta ? `сегодня, ~${Math.max(1, Math.round(d.eta / 60 + 1))} ч` : 'сегодня' };
+  }
+  if (!c.station) throw fail('Яндекс Доставка: в настройках не указан склад отправки (ID станции)');
+  const destination = kind === 'pvz' ? { platform_station_id: String(to.pointCode) } : { address: String(to.address).trim() };
+  const d = await yaCall(s, 'platform', 'POST', '/api/b2b/platform/pricing-calculator', {
+    source: { platform_station_id: c.station }, destination, tariff: kind === 'pvz' ? 'self_pickup' : 'time_interval',
+    total_weight: w, total_assessed_price: kop(subtotal), client_price: 0, payment_method: 'already_paid',
+    places: [{ physical_dims: { weight_gross: w, ...DIMS } }],
+  }).catch((e) => { if (e.code === 'no_delivery_options') throw fail('Яндекс Доставка: по этому адресу доставки нет'); throw e; });
+  const days = Number(d.delivery_days);
+  return { base: Math.ceil(rub(d.pricing_total)), days: days ? `${days} ${days === 1 ? 'день' : days < 5 ? 'дня' : 'дней'}` : '' };
+}
+
+const yaKind = (carrier) => ({ yandex_pvz: 'pvz', yandex_door: 'door', yandex_express: 'express' }[carrier]);
+const splitName = (n) => { const p = String(n || 'Покупатель').trim().split(/\s+/); return { first_name: p[0] || 'Покупатель', last_name: p.slice(1).join(' ') || '-' }; };
+const phone7 = (p) => '+' + String(p || '').replace(/\D/g, '');
+
+/**
+ * Передать заказ в Яндекс Доставку. order: заказ с items[{ name, price, quantity, productId, weight }], info — deliveryInfo.
+ * Возвращает объект для deliveryInfo.yandex: { kind, requestId | claimId, status, price, createdAt }
+ */
+async function yandexCreate(s, order, info) {
+  const kind = yaKind(info.carrier);
+  if (!kind) throw fail('Заказ оформлен не на Яндекс Доставку');
+  const c = yaCfg(s);
+  const weight = Math.max(100, Math.round(order.items.reduce((a, i) => a + (Number(i.weight) || Number(s.defaultWeight) || 500) * i.quantity, 0)));
+  const paid = order.paymentStatus === 'paid';
+  // наложенный платёж через Яндекс не подключаем: передаём только оплаченные заказы (или по явному подтверждению админа)
+  if (!paid && !info.allowUnpaid) throw fail('Заказ не оплачен. Передать в Яндекс можно оплаченный заказ — или подтвердите, что деньги получены другим способом.');
+  if (kind === 'express') {
+    if (!c.from) throw fail('Яндекс Доставка: в настройках не указан адрес, откуда забирать заказ');
+    const claim = await yaCall(s, 'express', 'POST', '/b2b/cargo/integration/v2/claims/create?request_id=' + encodeURIComponent(order.number + '-' + Date.now()), {
+      items: order.items.map((i) => ({ extra_id: order.number, pickup_point: 1, droppof_point: 2, title: String(i.name).slice(0, 255),
+        size: { length: DIMS.dx / 100, width: DIMS.dy / 100, height: DIMS.dz / 100 }, weight: (Number(i.weight) || Number(s.defaultWeight) || 500) / 1000,
+        cost_value: Number(i.price).toFixed(2), cost_currency: 'RUB', quantity: Math.max(1, Math.round(i.quantity)) })),
+      route_points: [
+        { point_id: 1, visit_order: 1, type: 'source', contact: { name: s.yandexFromName || s.title || 'Магазин', phone: phone7(s.yandexFromPhone || s.phone) }, address: { fullname: c.from } },
+        { point_id: 2, visit_order: 2, type: 'destination', contact: { name: order.name || 'Покупатель', phone: phone7(order.phone) }, address: { fullname: order.address }, external_order_id: order.number },
+      ],
+      client_requirements: { taxi_class: 'courier' },
+      comment: [`Заказ ${order.number}`, order.comment].filter(Boolean).join('. ').slice(0, 1000),
+    });
+    // Яндекс оценивает заявку несколько секунд, затем её нужно подтвердить
+    const r = await yandexExpressAccept(s, claim.id);
+    return { kind, claimId: claim.id, status: r.status, price: r.price, createdAt: new Date().toISOString() };
+  }
+  if (!c.station) throw fail('Яндекс Доставка: в настройках не указан склад отправки (ID станции)');
+  if (kind === 'pvz' && !info.pointCode) throw fail('В заказе нет пункта выдачи Яндекса');
+  const barcode = order.number + '-1';
+  const destination = kind === 'pvz'
+    ? { type: 'platform_station', platform_station: { platform_id: String(info.pointCode) } }
+    : { type: 'custom_location', custom_location: { details: { full_address: order.address } } };
+  const offers = await yaCall(s, 'platform', 'POST', '/api/b2b/platform/offers/create', {
+    info: { operator_request_id: order.number + (info.yandexTry ? '-' + info.yandexTry : ''), comment: String(order.comment || '').slice(0, 500) },
+    source: { platform_station: { platform_id: c.station } },
+    destination,
+    items: order.items.map((i, n) => ({ count: Math.max(1, Math.round(i.quantity)), name: String(i.name).slice(0, 255), article: String(i.article || i.productId || n + 1),
+      billing_details: { unit_price: kop(i.price), assessed_unit_price: kop(i.price) }, place_barcode: barcode })),
+    places: [{ physical_dims: { weight_gross: weight, ...DIMS }, barcode }],
+    billing_info: { payment_method: 'already_paid' },
+    recipient_info: { ...splitName(order.name), phone: phone7(order.phone) },
+    last_mile_policy: kind === 'pvz' ? 'self_pickup' : 'time_interval',
+  });
+  const offer = (offers.offers || [])[0];
+  if (!offer) throw fail('Яндекс Доставка: нет вариантов доставки для этого заказа');
+  const conf = await yaCall(s, 'platform', 'POST', '/api/b2b/platform/offers/confirm', { offer_id: offer.offer_id });
+  return { kind, requestId: conf.request_id, status: 'CREATED', price: rub(offer.offer_details?.pricing_total), deliveryFrom: offer.offer_details?.delivery_interval?.min || null, createdAt: new Date().toISOString() };
+}
+
+/** Экспресс: дождаться оценки и подтвердить заявку (до ~20 с). */
+async function yandexExpressAccept(s, claimId) {
+  let info = null;
+  for (let i = 0; i < 10; i++) {
+    info = await yaCall(s, 'express', 'POST', '/b2b/cargo/integration/v2/claims/info?claim_id=' + encodeURIComponent(claimId), {});
+    if (info.status !== 'new' && info.status !== 'estimating') break;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  if (info?.status === 'ready_for_approval') {
+    await yaCall(s, 'express', 'POST', '/b2b/cargo/integration/v2/claims/accept?claim_id=' + encodeURIComponent(claimId), { version: info.version });
+    info = await yaCall(s, 'express', 'POST', '/b2b/cargo/integration/v2/claims/info?claim_id=' + encodeURIComponent(claimId), {});
+  }
+  return { status: info?.status || 'new', price: rub(info?.pricing?.final_price || info?.pricing?.offer?.price), version: info?.version };
+}
+
+const YA_STATUS = {
+  // доставка по России
+  CREATED: 'заявка создана', DRAFT: 'черновик', VALIDATING: 'проверяется', CREATED_IN_PLATFORM: 'создана', DELIVERY_PROCESSING_STARTED: 'принята в обработку',
+  DELIVERY_TRACK_RECIEVED: 'присвоен трек', SORTING_CENTER_AT_START: 'на складе отправки', DELIVERY_LOADED: 'передана в доставку', DELIVERY_AT_START: 'в пути',
+  DELIVERY_TRANSPORTATION_RECIPIENT: 'везут получателю', DELIVERY_ARRIVED_PICKUP_POINT: 'ждёт в пункте выдачи', DELIVERY_DELIVERED: 'доставлен',
+  CANCELLED: 'отменена', CANCELLED_BY_RECIPIENT: 'отменена получателем', RETURN_PREPARING: 'готовится возврат', RETURN_RETURNED: 'возвращён',
+  // экспресс
+  new: 'новая', estimating: 'оценивается', ready_for_approval: 'ждёт подтверждения', accepted: 'подтверждена', performer_lookup: 'ищем курьера',
+  performer_draft: 'ищем курьера', performer_found: 'курьер найден', pickup_arrived: 'курьер у отправителя', ready_for_pickup_confirmation: 'курьер у отправителя',
+  pickuped: 'курьер забрал заказ', delivery_arrived: 'курьер у получателя', ready_for_delivery_confirmation: 'курьер у получателя', delivered: 'доставлен',
+  delivered_finish: 'доставлен', returning: 'возврат', returned_finish: 'возвращён', cancelled: 'отменена', cancelled_with_payment: 'отменена (платно)',
+  cancelled_by_taxi: 'отменена курьером', failed: 'ошибка', estimating_failed: 'не удалось оценить', performer_not_found: 'курьер не найден',
+};
+const yaStatusText = (st) => YA_STATUS[st] || st || '—';
+
+/** Обновить статус заявки. y — deliveryInfo.yandex. Возвращает обновлённый y. */
+async function yandexRefresh(s, y) {
+  if (y.kind === 'express') {
+    let info = await yaCall(s, 'express', 'POST', '/b2b/cargo/integration/v2/claims/info?claim_id=' + encodeURIComponent(y.claimId), {});
+    if (info.status === 'ready_for_approval') { const r = await yandexExpressAccept(s, y.claimId); info = { ...info, status: r.status }; }
+    return { ...y, status: info.status, price: rub(info.pricing?.final_price) || y.price, updatedAt: new Date().toISOString() };
+  }
+  const d = await yaCall(s, 'platform', 'GET', '/api/b2b/platform/request/info?request_id=' + encodeURIComponent(y.requestId));
+  return { ...y, status: d.state?.status || y.status, statusDescription: d.state?.description || '', sharingUrl: d.sharing_url || y.sharingUrl || null, updatedAt: new Date().toISOString() };
+}
+
+/** Отменить заявку. */
+async function yandexCancel(s, y) {
+  if (y.kind === 'express') {
+    const ci = await yaCall(s, 'express', 'POST', '/b2b/cargo/integration/v2/claims/cancel-info?claim_id=' + encodeURIComponent(y.claimId), {});
+    const info = await yaCall(s, 'express', 'POST', '/b2b/cargo/integration/v2/claims/info?claim_id=' + encodeURIComponent(y.claimId), {});
+    await yaCall(s, 'express', 'POST', '/b2b/cargo/integration/v2/claims/cancel?claim_id=' + encodeURIComponent(y.claimId), { version: info.version, cancel_state: ci.cancel_state || 'free' });
+    return { ...y, status: 'cancelled', updatedAt: new Date().toISOString() };
+  }
+  const d = await yaCall(s, 'platform', 'POST', '/api/b2b/platform/request/cancel', { request_id: y.requestId });
+  return { ...y, status: d.status === 'CREATED' ? 'CANCELLED' : d.status || 'CANCELLED', statusDescription: d.description || '', updatedAt: new Date().toISOString() };
+}
+
 /**
  * Расчёт стоимости доставки. to: { postcode, cityCode, pointCode, address, point }
  * Возвращает { price, base, days, name, info, address } — info сохраняется в заказе.
@@ -148,9 +356,19 @@ async function quote(s, methodId, to = {}, { subtotal, weight }) {
       const r = await cdekQuote(s, to.cityCode, w, true); base = r.base; days = r.days || days;
       address = `${to.city || ''}, ${String(to.address).trim()}`; info = { cityCode: to.cityCode, city: to.city }; break;
     }
+    case 'yandex_pvz': {
+      if (!to.pointCode) throw fail('Выберите пункт выдачи Яндекса');
+      const r = await yandexQuote(s, 'pvz', to, w, subtotal); base = r.base; days = r.days || days;
+      address = `Яндекс ПВЗ: ${to.pointAddress || to.pointCode}`; info = { carrier: m.carrier, cityCode: to.cityCode, city: to.city, pointCode: to.pointCode, pointAddress: to.pointAddress }; break;
+    }
+    case 'yandex_door': case 'yandex_express': {
+      if (!String(to.address || '').trim()) throw fail('Укажите адрес доставки');
+      const r = await yandexQuote(s, m.carrier === 'yandex_door' ? 'door' : 'express', to, w, subtotal); base = r.base; days = r.days || days;
+      address = String(to.address).trim(); info = { carrier: m.carrier }; break;
+    }
     default: throw fail('Способ доставки недоступен');
   }
   return { methodId: m.id, name: m.name, price: applyMarkup(m, base, subtotal), base, days, info: { ...info, days }, address };
 }
 
-module.exports = { CARRIERS, defaultMethods, getMethods, quote, cdekCities, cdekPoints, applyMarkup };
+module.exports = { CARRIERS, defaultMethods, getMethods, quote, cdekCities, cdekPoints, applyMarkup, yandexCities, yandexPoints, yandexCreate, yandexRefresh, yandexCancel, yaStatusText, yaKind };

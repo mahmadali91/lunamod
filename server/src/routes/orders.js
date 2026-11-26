@@ -7,7 +7,7 @@ const { getShopSettings, saveShopSettings, masked, tbankReady } = require('../sh
 const tbank = require('../shop/tbank');
 
 const r = express.Router();
-const include = { customer: true, items: { include: { product: { select: { id: true, sku: true, name: true, size: true, sizeRu: true, color: true, parentId: true, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, stocks: { include: { warehouse: { select: { id: true, name: true } } } },
+const include = { customer: true, items: { include: { product: { select: { id: true, sku: true, name: true, weight: true, size: true, sizeRu: true, color: true, parentId: true, images: { where: { kind: 'image' }, take: 1, orderBy: { sort: 'asc' }, select: { path: true } }, stocks: { include: { warehouse: { select: { id: true, name: true } } } },
   barcodes: { where: { isPrimary: true }, select: { code: true } }, parent: { select: { name: true, sku: true } } } } } } };
 // заказ для админки: фото размеров берём у карточки, артикул — числовой как на сайте
 const loadOrder = async (id) => {
@@ -82,6 +82,47 @@ r.post('/:id(\\d+)/status', ah(async (req, res) => {
 }));
 
 // Возврат денег покупателю (отдельное действие, как «Вернуть» в Т-Бизнесе). Заказ при этом не отменяется.
+// ---------- Яндекс Доставка: передать заказ, обновить статус, отменить заявку ----------
+const delivery = require('../shop/delivery');
+const parseInfo = (o) => { try { return JSON.parse(o.deliveryInfo || '{}') || {}; } catch { return {}; } };
+const saveYandex = async (o, info, y) => prisma.order.update({ where: { id: o.id }, data: { deliveryInfo: JSON.stringify({ ...info, yandex: { ...y, statusText: delivery.yaStatusText(y.status) } }) } });
+const yandexBusy = new Set();
+r.post('/:id(\\d+)/yandex', ah(async (req, res) => {
+  const id = Number(req.params.id);
+  if (yandexBusy.has(id)) throw new HttpError(409, 'Заявка по этому заказу уже создаётся');
+  yandexBusy.add(id);
+  try {
+    const o = await loadOrder(id);
+    if (!o) throw new HttpError(404, 'Заказ не найден');
+    const info = parseInfo(o);
+    const s = await getShopSettings();
+    const carrier = info.carrier || delivery.getMethods(s).find((m) => m.id === o.delivery)?.carrier;
+    if (!delivery.yaKind(carrier)) throw new HttpError(400, 'Заказ оформлен не на Яндекс Доставку');
+    if (o.status === 'cancelled') throw new HttpError(400, 'Заказ отменён');
+    if (info.yandex && !['CANCELLED', 'cancelled', 'CANCELLED_BY_RECIPIENT', 'failed', 'estimating_failed', 'performer_not_found'].includes(info.yandex.status)) throw new HttpError(400, 'Заявка уже создана — обновите статус или отмените её');
+    const items = o.items.map((i) => ({ name: i.name, price: i.price, quantity: i.quantity, productId: i.productId, article: i.product?.article, weight: i.product?.weight }));
+    const y = await delivery.yandexCreate(s, { ...o, items }, { ...info, carrier, allowUnpaid: req.body?.allowUnpaid === true, yandexTry: info.yandex ? Date.now() % 100000 : 0 });
+    await saveYandex(o, info, y);
+    res.json(await loadOrder(id));
+  } finally { yandexBusy.delete(id); }
+}));
+r.post('/:id(\\d+)/yandex/refresh', ah(async (req, res) => {
+  const o = await loadOrder(Number(req.params.id));
+  if (!o) throw new HttpError(404, 'Заказ не найден');
+  const info = parseInfo(o);
+  if (!info.yandex) throw new HttpError(400, 'Заявки в Яндекс Доставке нет');
+  await saveYandex(o, info, await delivery.yandexRefresh(await getShopSettings(), info.yandex));
+  res.json(await loadOrder(o.id));
+}));
+r.post('/:id(\\d+)/yandex/cancel', ah(async (req, res) => {
+  const o = await loadOrder(Number(req.params.id));
+  if (!o) throw new HttpError(404, 'Заказ не найден');
+  const info = parseInfo(o);
+  if (!info.yandex) throw new HttpError(400, 'Заявки в Яндекс Доставке нет');
+  await saveYandex(o, info, await delivery.yandexCancel(await getShopSettings(), info.yandex));
+  res.json(await loadOrder(o.id));
+}));
+
 const refunding = new Set(); // защита от двойного нажатия «Вернуть»: второй запрос в банк не уходит
 r.post('/:id(\\d+)/refund', requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
@@ -126,6 +167,26 @@ r.post('/settings/test-tbank', requireAdmin, ah(async (req, res) => {
 }));
 
 // Проверка каналов уведомлений: отправляет тест и возвращает точную причину ошибки
+// Яндекс Доставка: пункты, куда магазин сдаёт посылки (склад отправки), и проверка подключения
+r.get('/settings/yandex/cities', requireAdmin, ah(async (req, res) => res.json(await require('../shop/delivery').yandexCities(await getShopSettings(), String(req.query.q || '')))));
+r.get('/settings/yandex/dropoff', requireAdmin, ah(async (req, res) => {
+  const list = await require('../shop/delivery').yandexPoints(await getShopSettings(), req.query.geoId);
+  res.json(list.filter((p) => p.dropoff));
+}));
+r.post('/settings/test-yandex', requireAdmin, ah(async (req, res) => {
+  const d = require('../shop/delivery');
+  const s = await getShopSettings();
+  const cities = await d.yandexCities(s, 'Москва');
+  if (!cities.length) throw new HttpError(400, 'Яндекс Доставка не отвечает');
+  let price = null;
+  if (s.yandexStationId) {
+    const m = { id: 't', carrier: 'yandex_door', enabled: true, price: 0 };
+    const q = await d.quote({ ...s, deliveryMethods: JSON.stringify([m]) }, 't', { address: 'Санкт-Петербург, Невский проспект, 28' }, { subtotal: 3000, weight: 500 });
+    price = q.base + ' ₽, ' + q.days;
+  }
+  res.json({ ok: true, message: price ? 'Подключение работает. Пример: курьер в Санкт-Петербург — ' + price : 'Токен работает. Выберите пункт сдачи посылок, чтобы считать цены.' });
+}));
+
 // Проверка настроек почты (SMTP): отправляет тестовое письмо
 r.post('/settings/smtp-test', requireAdmin, ah(async (req, res) => {
   const s = await getShopSettings();

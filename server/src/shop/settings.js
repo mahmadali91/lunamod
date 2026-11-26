@@ -25,6 +25,8 @@ const DEFAULTS = {
   deliveryMethods: '', defaultWeight: '500',
   pochtaFromIndex: '', pochtaObject: '4030',
   cdekTest: '1', cdekClientId: '', cdekClientSecret: '', cdekFromCityCode: '', cdekFromCity: '',
+  // Яндекс Доставка: тестовая среда (публичный тестовый ключ) или боевой токен из кабинета; склад отправки (platform_station_id) и адрес забора для экспресса
+  yandexTest: '0', yandexToken: '', yandexStationId: '', yandexStationAddress: '', yandexFromAddress: '', yandexFromPhone: '', yandexFromName: '',
   // продавец и документы
   sellerName: '', sellerInn: '', sellerOgrn: '', sellerAddress: '', sellerEmail: '', sellerPhone: '', returnAddress: '', legalDate: '',
   legal_privacy: '', legal_consent: '', legal_offer: '', legal_returns: '', legal_terms: '',
@@ -39,7 +41,7 @@ const DEFAULTS = {
   // СБП (через эквайринг Т-Банка), напоминания покупателям, отзывы
   sbpEnabled: '0', cartReminders: '1', reviewsEnabled: '1',
 };
-const SECRET = ['tbankPassword', 'cdekClientSecret', 'tgBotToken', 'maxBotToken', 'smtpPass'];
+const SECRET = ['tbankPassword', 'cdekClientSecret', 'yandexToken', 'tgBotToken', 'maxBotToken', 'smtpPass'];
 
 async function getShopSettings() {
   const rows = await prisma.setting.findMany({ where: { key: { startsWith: 'shop_' } } });

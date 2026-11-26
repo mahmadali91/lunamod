@@ -251,6 +251,8 @@ r.get('/legal/:doc', ah(async (req, res) => {
 
 // ---------- доставка ----------
 r.get('/delivery/cdek/cities', ah(async (req, res) => res.json(await delivery.cdekCities(await getShopSettings(), String(req.query.q || '')))));
+r.get('/delivery/yandex/cities', ah(async (req, res) => res.json(await delivery.yandexCities(await getShopSettings(), String(req.query.q || '')))));
+r.get('/delivery/yandex/points', ah(async (req, res) => res.json(await delivery.yandexPoints(await getShopSettings(), req.query.geoId))));
 r.get('/delivery/cdek/points', ah(async (req, res) => res.json(await delivery.cdekPoints(await getShopSettings(), req.query.cityCode))));
 
 async function cartInfo(tx, s, lines) {
