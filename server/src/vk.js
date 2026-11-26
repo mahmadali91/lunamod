@@ -137,9 +137,9 @@ async function addGroup({ link, token }) {
   const ref = parseLink(link);
   if (!ref) throw new HttpError(400, 'Укажите ссылку на сообщество');
   const key = String(token || '').trim();
-  const service = await getKey('vk_service');
-  if (!key && !service) throw new HttpError(400, 'Укажите ключ доступа сообщества (Управление → Работа с API → Ключи доступа)');
-  const r = await vk('groups.getById', { group_id: ref, fields: 'market,screen_name' }, key || service);
+  const auth = key || (await userToken()) || (await getKey('vk_service'));
+  if (!auth) throw new HttpError(400, 'Войдите через VK ID или укажите ключ доступа сообщества');
+  const r = await vk('groups.getById', { group_id: ref, fields: 'market,screen_name' }, auth);
   const g = (r.groups || r)[0];
   if (!g) throw new HttpError(400, 'Сообщество не найдено');
   const list = await getJson('vk_groups', []);
@@ -148,6 +148,15 @@ async function addGroup({ link, token }) {
   if (i >= 0) list[i] = { ...list[i], ...item, token: key || list[i].token }; else list.push(item);
   await setJson('vk_groups', list);
   return { ...publicGroup(item), market: g.market || null };
+}
+
+/** Сообщества, где вошедший через VK ID — администратор или редактор (для выбора без ключа). */
+async function myGroups() {
+  const t = await userToken();
+  if (!t) throw new HttpError(400, 'Сначала войдите через VK ID');
+  const r = await vk('groups.get', { filter: 'admin,editor', extended: 1, fields: 'screen_name,members_count', count: 1000 }, t);
+  const connected = new Set((await getJson('vk_groups', [])).map((g) => g.id));
+  return (r.items || []).map((g) => ({ id: g.id, name: g.name, screenName: g.screen_name, photo: g.photo_100 || g.photo_50 || null, members: g.members_count || null, connected: connected.has(g.id) }));
 }
 
 async function removeGroup(id) {
@@ -376,4 +385,4 @@ async function setKeys({ service, user, appId: app, appSecret }) {
 
 async function logoutVkId() { await prisma.setting.deleteMany({ where: { key: { in: ['vk_user_oauth', 'vk_oauth_state'] } } }); }
 
-module.exports = { oauthStart, oauthCallback, userToken, logoutVkId, vk, parseLink, listGroups, addGroup, removeGroup, loadPosts, importPost, addColors, marketCategories, exportToMarket, keysStatus, setKeys, getJson };
+module.exports = { myGroups, oauthStart, oauthCallback, userToken, logoutVkId, vk, parseLink, listGroups, addGroup, removeGroup, loadPosts, importPost, addColors, marketCategories, exportToMarket, keysStatus, setKeys, getJson };

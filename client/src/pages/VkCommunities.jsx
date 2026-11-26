@@ -173,6 +173,40 @@ function ExportTab({ group, keys, feedUrl }) {
   );
 }
 
+// ---------- выбор своих сообществ (после входа через VK ID) ----------
+function MyGroups({ onConnected }) {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const [q, setQ] = useState('');
+  const [busy, setBusy] = useState(null);
+  useEffect(() => { api('/vk/my-groups').then(setList).catch((e) => { setList([]); toast(e.message, 'error'); }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!list) return <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> Загружаем ваши сообщества…</div>;
+  const shown = list.filter((g) => !q || `${g.name} ${g.screenName}`.toLowerCase().includes(q.toLowerCase()));
+  const connect = async (g) => {
+    setBusy(g.id);
+    try { await api('/vk/groups', { method: 'POST', body: { link: String(g.id).replace(/^/, 'club') } }); setList(list.map((x) => (x.id === g.id ? { ...x, connected: true } : x))); toast(`Подключено: ${g.name}`); onConnected(g.id); }
+    catch (e) { toast(e.message, 'error'); } finally { setBusy(null); }
+  };
+  return (
+    <div className="mb-4 rounded-xl border border-slate-200">
+      <div className="flex items-center gap-2 border-b border-slate-100 p-2">
+        <Search size={16} className="ml-1 shrink-0 text-slate-400" />
+        <input className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-none" name="vk-group-search" autoComplete="off" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Ваши сообщества (${list.length}) — поиск по названию`} />
+      </div>
+      <div className="max-h-72 overflow-auto">
+        {shown.map((g) => (
+          <div key={g.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+            {g.photo ? <img src={g.photo} alt="" className="h-8 w-8 shrink-0 rounded-full" referrerPolicy="no-referrer" /> : <div className="h-8 w-8 shrink-0 rounded-full bg-slate-200" />}
+            <span className="min-w-0 flex-1"><span className="block truncate">{g.name}</span>{g.members ? <span className="text-xs text-slate-500">{g.members.toLocaleString('ru-RU')} участников</span> : null}</span>
+            {g.connected ? <Badge color="green">подключено</Badge> : <Button size="sm" variant="secondary" icon={Plus} loading={busy === g.id} onClick={() => connect(g)}>Подключить</Button>}
+          </div>
+        ))}
+        {!shown.length && <p className="p-3 text-sm text-slate-500">Ничего не нашлось</p>}
+      </div>
+    </div>
+  );
+}
+
 // ---------- страница ----------
 export default function VkCommunities() {
   const toast = useToast();
@@ -240,12 +274,15 @@ export default function VkCommunities() {
               ))}
             </div>
           ) : <p className="mb-4 text-sm text-slate-500">Пока нет подключённых сообществ.</p>}
-          <form onSubmit={add} className="space-y-2" autoComplete="off">
+          {d.keys.vkid ? <MyGroups onConnected={(id) => { setActive(id); load(); }} /> : <p className="mb-4 rounded-lg bg-indigo-50 p-3 text-xs text-indigo-800">Войдите через VK ID (справа) — здесь появится список ваших сообществ, подключение одной кнопкой, без ключей.</p>}
+          <details className="text-sm"><summary className="cursor-pointer text-slate-500">Подключить по ссылке и ключу сообщества</summary>
+          <form onSubmit={add} className="mt-2 space-y-2" autoComplete="off">
             <Field label="Ссылка на сообщество"><input className="input" name="vk-community-url" autoComplete="off" data-lpignore="true" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://vk.com/имя_сообщества" required /></Field>
             <Field label="Ключ доступа сообщества"><PasswordInput className="input font-mono text-xs" name="vk-community-key" autoComplete="new-password" data-lpignore="true" value={token} onChange={(e) => setToken(e.target.value)} placeholder="vk1.a.…" /></Field>
             <p className="text-xs text-slate-500">В сообществе: <b>Управление → Работа с API → Ключи доступа → Создать ключ</b>, отметьте «Управление сообществом», «Фотографии», «Стена», «Товары». Можно подключить несколько сообществ.</p>
             <Button type="submit" icon={Plus} loading={adding}>Подключить</Button>
           </form>
+          </details>
         </div>
 
         <div className="card space-y-3 p-5">

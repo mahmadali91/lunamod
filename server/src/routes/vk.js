@@ -10,6 +10,7 @@ r.get('/', ah(async (req, res) => {
   const s = await require('../shop/settings').getShopSettings();
   res.json({ groups: await vk.listGroups(), keys: await vk.keysStatus(), feedUrl: String(s.siteUrl || '').replace(/\/$/, '') + '/feed.yml' });
 }));
+r.get('/my-groups', requireAdmin, ah(async (req, res) => res.json(await vk.myGroups())));
 r.post('/groups', requireAdmin, ah(async (req, res) => res.status(201).json(await vk.addGroup(req.body || {}))));
 r.delete('/groups/:id(\\d+)', requireAdmin, ah(async (req, res) => { await vk.removeGroup(req.params.id); res.json({ ok: true }); }));
 r.put('/keys', requireAdmin, ah(async (req, res) => res.json(await vk.setKeys(req.body || {}))));
