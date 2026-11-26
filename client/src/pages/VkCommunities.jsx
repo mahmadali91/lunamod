@@ -1,9 +1,9 @@
 // Раздел «Сообщества ВК»: подключение сообществ, посты → товары, товары → раздел «Товары» ВК
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Users, Plus, Trash2, Download, Upload, KeyRound, CheckCircle2, ExternalLink, Copy, Loader2, Image as ImageIcon, Video, ChevronDown, Search } from 'lucide-react';
+import { Users, Plus, Trash2, Download, KeyRound, CheckCircle2, ExternalLink, Loader2, Image as ImageIcon, Video, ChevronDown, Search } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Field, Modal, PageHeader, PasswordInput, RefSelect, Spinner, Thumb, useMoney, useToast } from '../ui';
+import { Badge, Button, Field, Modal, PageHeader, PasswordInput, RefSelect, Spinner, useToast } from '../ui';
 
 const splitList = (s) => String(s || '').split(/[,;\n]+/).map((x) => x.trim()).filter(Boolean);
 
@@ -93,86 +93,6 @@ function PostBlock({ groupId, post, onImported }) {
   );
 }
 
-// ---------- выгрузка в ВК ----------
-function ExportTab({ group, keys, feedUrl }) {
-  const toast = useToast();
-  const money = useMoney();
-  const [q, setQ] = useState('');
-  const [list, setList] = useState(null);
-  const [sel, setSel] = useState(new Set());
-  const [cats, setCats] = useState(null);
-  const [cat, setCat] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [exported, setExported] = useState({});
-  const [results, setResults] = useState(null);
-  useEffect(() => { api('/vk/market/exported').then(setExported).catch(() => {}); }, []);
-  useEffect(() => { if (keys.user) api('/vk/market/categories').then((c) => { setCats(c); const d = c.find((x) => /одежд/i.test(x.name)); if (d) setCat(String(d.id)); }).catch((e) => setCats({ error: e.message })); }, [keys.user]);
-  useEffect(() => { const t = setTimeout(() => api('/products?limit=100&q=' + encodeURIComponent(q)).then((r) => setList(r.items)).catch(() => setList([])), 300); return () => clearTimeout(t); }, [q]);
-  const copy = () => navigator.clipboard?.writeText(feedUrl).then(() => toast('Ссылка скопирована'));
-  const run = async () => {
-    setBusy(true); setResults(null);
-    try {
-      const r = await api('/vk/market/export', { method: 'POST', body: { groupId: group.id, cardIds: [...sel], categoryId: cat ? Number(cat) : null } });
-      setResults(r.results); setExported(await api('/vk/market/exported'));
-      const ok = r.results.filter((x) => x.ok).length;
-      toast(`Выгружено в ВК: ${ok} из ${r.results.length}`, ok === r.results.length ? undefined : 'error');
-    } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="card space-y-2 p-4 text-sm">
-        <h3 className="font-semibold">Как включить раздел «Товары» в сообществе</h3>
-        <ol className="list-decimal space-y-1 pl-5 text-slate-600">
-          <li>В сообществе: <b>Управление → Разделы → Товары</b> → «Включены», выберите регион и валюту, укажите контакт для связи. Сохраните.</li>
-          <li><b>Проще всего — каталог по ссылке:</b> Управление → Товары → <b>Загрузка из YML</b> (импорт каталога) и вставьте ссылку ниже. ВК сам будет обновлять цены и наличие, у каждого товара будет ссылка на сайт для оформления заказа.</li>
-          <li>Или выгружайте выбранные товары кнопкой ниже — для этого нужен ключ пользователя с правами «Товары» и «Фото» (блок «Ключи ВК» выше).</li>
-        </ol>
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <code className="rounded bg-slate-100 px-2 py-1 text-xs break-all">{feedUrl}</code>
-          <Button size="sm" variant="secondary" icon={Copy} onClick={copy}>Скопировать</Button>
-        </div>
-      </div>
-
-      <div className="card p-4">
-        <div className="mb-3 flex flex-wrap items-end gap-2">
-          <div className="relative min-w-0 flex-1"><Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" /><input className="input pl-9" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск товара" /></div>
-          {keys.user && cats && !cats.error && (
-            <select className="input w-auto max-w-xs" value={cat} onChange={(e) => setCat(e.target.value)}>
-              <option value="">Категория ВК…</option>
-              {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          )}
-          <Button icon={Upload} loading={busy} disabled={!sel.size || !keys.user} onClick={run}>Выгрузить в ВК ({sel.size})</Button>
-        </div>
-        {!keys.user && <p className="mb-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">Кнопка выгрузки заработает после того, как вы укажете ключ пользователя ВК (блок «Ключи ВК»). Пока можно подключить каталог по ссылке — см. инструкцию выше.</p>}
-        {cats?.error && <p className="mb-3 text-xs text-rose-600">{cats.error}</p>}
-        {results && (
-          <div className="mb-3 space-y-1 rounded-lg bg-slate-50 p-3 text-xs">
-            {results.map((x) => <div key={x.cardId}>#{x.cardId}: {x.ok ? <a href={x.url} target="_blank" rel="noreferrer" className="text-emerald-700 underline">выгружен</a> : <span className="text-rose-600">{x.error}</span>}</div>)}
-          </div>
-        )}
-        {!list ? <Spinner /> : (
-          <div className="divide-y divide-slate-100">
-            {list.map((p) => {
-              const on = sel.has(p.id);
-              const done = exported[`${group.id}:${p.id}`];
-              return (
-                <label key={p.id} className="flex cursor-pointer items-center gap-3 py-2 text-sm">
-                  <input type="checkbox" checked={on} onChange={() => { const n = new Set(sel); on ? n.delete(p.id) : n.add(p.id); setSel(n); }} />
-                  <Thumb src={p.images?.[0]?.path} size={40} />
-                  <span className="min-w-0 flex-1"><span className="block truncate">{p.name}</span><span className="text-xs text-slate-500">{p.color || ''} {money(p.price)}</span></span>
-                  {done && <Badge color="green">в ВК</Badge>}
-                </label>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ---------- выбор своих сообществ (после входа через VK ID) ----------
 function MyGroups({ onConnected }) {
   const toast = useToast();
@@ -217,7 +137,6 @@ export default function VkCommunities() {
   const [keys, setKeys] = useState({ service: '', user: '', appId: '' });
   const [vkBusy, setVkBusy] = useState(false);
   const [active, setActive] = useState(null);
-  const [tab, setTab] = useState('posts');
   const [posts, setPosts] = useState(null);
   const [loading, setLoading] = useState(false);
   const load = () => api('/vk').then((r) => { setD(r); setActive((a) => a || r.groups[0]?.id || null); }).catch((e) => toast(e.message, 'error'));
@@ -257,7 +176,7 @@ export default function VkCommunities() {
   if (!d) return <Spinner />;
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <PageHeader title="Сообщества ВК" subtitle="Посты из сообществ ВКонтакте → товары магазина (фото, цена, размеры, цвета) и товары магазина → раздел «Товары» ВК" />
+      <PageHeader title="Сообщества ВК" subtitle="Посты из сообществ ВКонтакте → товары магазина (фото, цена, размеры, цвета)" />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="card p-5">
@@ -291,7 +210,7 @@ export default function VkCommunities() {
             <div className="text-sm font-medium">Вход через VK ID {d.keys.vkid && <CheckCircle2 size={14} className="inline text-emerald-500" />}</div>
             {d.keys.vkid ? (
               <p className="text-xs text-slate-600">Вход выполнен (пользователь ВК {d.keys.vkid.userId}). Права: {d.keys.vkid.scope || '—'}. Ключ продлевается сам{d.keys.vkid.refreshUntil ? ` до ${new Date(d.keys.vkid.refreshUntil).toLocaleDateString('ru-RU')}` : ''}.</p>
-            ) : <p className="text-xs text-slate-600">Даёт сайту ключ пользователя: посты, видео файлом и выгрузка в «Товары» ВК. Войти нужно администратором сообщества.</p>}
+            ) : <p className="text-xs text-slate-600">Даёт сайту ключ пользователя: список ваших сообществ, посты и видео из постов. Войти нужно администратором сообщества.</p>}
             <div className="flex flex-wrap items-end gap-2">
               <Field label="ID приложения ВК" className="w-40"><input className="input" name="vk-app-id" autoComplete="off" data-lpignore="true" inputMode="numeric" value={keys.appId} onChange={(e) => setKeys({ ...keys, appId: e.target.value.replace(/\D/g, '') })} placeholder={d.keys.appId || '54825818'} /></Field>
               <Button icon={KeyRound} loading={vkBusy} onClick={vkLogin}>{d.keys.vkid ? 'Войти заново' : 'Войти через VK ID'}</Button>
@@ -303,10 +222,10 @@ export default function VkCommunities() {
             <PasswordInput className="input font-mono text-xs" name="vk-service-key" autoComplete="new-password" data-lpignore="true" value={keys.service} onChange={(e) => setKeys({ ...keys, service: e.target.value })} placeholder={d.keys.service ? 'сохранён — вставьте новый, чтобы заменить' : 'если ключом сообщества посты не читаются'} />
           </Field>
           <p className="text-xs text-slate-500">id.vk.com → «Для бизнеса» → ваше приложение → <b>Сервисный ключ доступа</b>. Нужен, если ВК не даёт читать стену ключом сообщества.</p>
-          <Field label={<>Ключ пользователя для «Товаров» {d.keys.user && <CheckCircle2 size={14} className="inline text-emerald-500" />}</>}>
-            <PasswordInput className="input font-mono text-xs" name="vk-user-key" autoComplete="new-password" data-lpignore="true" value={keys.user} onChange={(e) => setKeys({ ...keys, user: e.target.value })} placeholder={d.keys.user ? 'сохранён — вставьте новый, чтобы заменить' : 'права: товары, фото, видео'} />
+          <Field label={<>Ключ пользователя (вручную) {d.keys.user && <CheckCircle2 size={14} className="inline text-emerald-500" />}</>}>
+            <PasswordInput className="input font-mono text-xs" name="vk-user-key" autoComplete="new-password" data-lpignore="true" value={keys.user} onChange={(e) => setKeys({ ...keys, user: e.target.value })} placeholder={d.keys.user ? 'сохранён — вставьте новый, чтобы заменить' : 'права: стена, фото, видео'} />
           </Field>
-          <p className="text-xs text-slate-500">Нужен для кнопки «Выгрузить в ВК» и чтобы забирать видео из постов файлом. Без него товары можно подключить к ВК по ссылке на каталог (вкладка «В ВК»).</p>
+          <p className="text-xs text-slate-500">Не нужен, если вы вошли через VK ID.</p>
           <Button size="sm" variant="secondary" onClick={saveKeys} disabled={!keys.service && !keys.user}>Сохранить ключи</Button>
         </div>
       </div>
@@ -315,21 +234,15 @@ export default function VkCommunities() {
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="mr-2 text-lg font-semibold">{group.name}</h2>
-            <div className="flex rounded-lg bg-slate-100 p-1 text-sm">
-              <button type="button" onClick={() => setTab('posts')} className={`rounded-md px-3 py-1.5 ${tab === 'posts' ? 'bg-white font-medium shadow-sm' : 'text-slate-600'}`}>Посты → товары</button>
-              <button type="button" onClick={() => setTab('export')} className={`rounded-md px-3 py-1.5 ${tab === 'export' ? 'bg-white font-medium shadow-sm' : 'text-slate-600'}`}>Товары → в ВК</button>
-            </div>
-            {tab === 'posts' && <Button className="ml-auto" icon={loading ? Loader2 : Download} loading={loading && !posts} onClick={() => loadPosts(false)}>Загрузить посты из ВК</Button>}
+            <Button className="ml-auto" icon={loading ? Loader2 : Download} loading={loading && !posts} onClick={() => loadPosts(false)}>Загрузить посты из ВК</Button>
           </div>
-          {tab === 'posts' ? (
-            !posts ? <p className="text-sm text-slate-500">Нажмите «Загрузить посты из ВК» — посты появятся блоками. Цена, размеры и цвета подставятся из текста, проверьте их и нажмите «Добавить в товары».</p> : (
+          {!posts ? <p className="text-sm text-slate-500">Нажмите «Загрузить посты из ВК» — посты появятся блоками. Цена, размеры и цвета подставятся из текста, проверьте их и нажмите «Добавить в товары».</p> : (
               <div className="space-y-4">
                 <p className="text-sm text-slate-500">Показано {posts.items.length} из {posts.total} постов</p>
                 {posts.items.map((p) => <PostBlock key={p.key} groupId={group.id} post={p} onImported={imported} />)}
                 {posts.offset + 20 < posts.total && <div className="text-center"><Button variant="secondary" loading={loading} onClick={() => loadPosts(true)}>Загрузить ещё</Button></div>}
               </div>
-            )
-          ) : <ExportTab group={group} keys={d.keys} feedUrl={d.feedUrl} />}
+            )}
         </div>
       )}
     </div>
