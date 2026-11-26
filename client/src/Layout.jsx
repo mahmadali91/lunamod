@@ -27,6 +27,7 @@ const nav = [
     { to: '/reviews', icon: Star, label: 'Отзывы', badge: 'reviews' },
     { to: '/shop-settings', icon: Globe, label: 'Настройки магазина' },
     { to: '/wildberries', icon: Store, label: 'Wildberries' },
+    { to: '/vk', icon: Users, label: 'Сообщества ВК' },
   ] },
   { group: 'Товары', items: [
     { to: '/products', icon: Package, label: 'Товары' },

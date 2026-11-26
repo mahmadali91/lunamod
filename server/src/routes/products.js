@@ -642,3 +642,6 @@ r.delete('/:id/images/:imageId', ah(async (req, res) => {
 module.exports = r;
 module.exports.slugify = slugify;
 module.exports.variantName = variantName;
+module.exports.pickProduct = pickProduct;
+module.exports.saveVariants = saveVariants;
+module.exports.saveRelations = saveRelations;
