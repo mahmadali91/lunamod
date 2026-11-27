@@ -53,16 +53,34 @@ function GlobalSearch() {
   const [q, setQ] = useState('');
   const navigate = useNavigate();
   const toast = useToast();
+  // отсканированный (или введённый) штрихкод/артикул → сразу «Новая продажа» с этим товаром в корзине
   const find = async (code) => {
+    setQ('');
     try {
-      const p = await api('/products/lookup/' + encodeURIComponent(code));
-      navigate('/products/' + (p.parentId || p.id));
-      setQ('');
-    } catch {
+      const p = await api('/products/lookup/' + encodeURIComponent(code) + '?sellable=1');
+      navigate('/pos', { state: { scanProduct: p } });
+    } catch (e) {
+      if (e.status === 409 || /размер/i.test(e.message)) { navigate('/pos', { state: { scanQuery: code } }); return; }
       toast('Точного совпадения нет — показываю результаты поиска', 'error');
       navigate('/products?q=' + encodeURIComponent(code));
     }
   };
+  // сканер-пистолет «печатает» код и Enter: ловим, даже если курсор не в поле ввода
+  useEffect(() => {
+    let buf = ''; let last = 0;
+    const onKey = (e) => {
+      const t = e.target;
+      if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const now = Date.now();
+      if (now - last > 60) buf = '';
+      last = now;
+      if (e.key === 'Enter') { const code = buf; buf = ''; if (code.length >= 4) { e.preventDefault(); find(code); } return; }
+      if (e.key.length === 1) buf += e.key;
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const submit = (e) => { e.preventDefault(); if (q.trim()) find(q.trim()); };
   return (
     <form onSubmit={submit} className="relative w-full max-w-md">

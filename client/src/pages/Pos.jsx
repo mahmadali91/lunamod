@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Minus, Plus, Trash2, ShoppingCart, CheckCircle2, Banknote, CreditCard, Landmark, HandCoins, QrCode, Download } from 'lucide-react';
 import qrcode from 'qrcode-generator';
 import { receiptPdf } from '../pdf';
@@ -36,6 +36,9 @@ export default function Pos() {
   const [shop, setShop] = useState(null);
   const money = useMoney();
   const toast = useToast();
+  const loc = useLocation();
+  const navigate = useNavigate();
+  const [pickerQuery, setPickerQuery] = useState(null);
 
   useEffect(() => { localStorage.setItem(LS, JSON.stringify({ warehouseId, channelId })); }, [warehouseId, channelId]);
   useEffect(() => { api('/orders/settings').then(setShop).catch(() => {}); }, []);
@@ -62,6 +65,15 @@ export default function Pos() {
     return [...c, { productId: p.id, name: p.name, sku: p.sku, image: p.images?.[0]?.path, price: p.price, quantity: 1, stock: stockOf(p), unit: p.unit }];
   });
   const upd = (id, patch) => setCart((c) => c.map((i) => (i.productId === id ? { ...i, ...patch } : i)));
+
+  // отсканировали товар на любой странице → он уже здесь, в корзине
+  useEffect(() => {
+    const st = loc.state;
+    if (!st?.scanProduct && !st?.scanQuery) return;
+    if (st.scanProduct) { add(st.scanProduct); toast(`Добавлено: ${st.scanProduct.name}`); }
+    if (st.scanQuery) { setPickerQuery({ text: st.scanQuery, key: loc.key }); toast('У товара есть размеры — выберите нужный в списке', 'error'); }
+    navigate(loc.pathname + loc.search, { replace: true, state: null });
+  }, [loc.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const subtotal = cart.reduce((s, i) => s + Number(i.quantity || 0) * Number(i.price || 0), 0);
   const disc = Math.min(Number(discount || 0), subtotal);
@@ -90,7 +102,7 @@ export default function Pos() {
       <h1 className="mb-6 text-2xl font-bold tracking-tight">Новая продажа</h1>
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="card p-5 lg:col-span-2">
-          <ProductPicker onPick={add} autoFocus warehouseId={warehouseId} popular />
+          <ProductPicker onPick={add} autoFocus warehouseId={warehouseId} popular query={pickerQuery} />
           {cart.length === 0 ? (
             <div className="mt-4 flex flex-col items-center rounded-xl border-2 border-dashed border-slate-200 py-20 text-center text-slate-400">
               <ShoppingCart size={36} className="mb-3" />

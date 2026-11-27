@@ -1,10 +1,10 @@
-// Дневной / ночной режим. Пока посетитель сам не выбрал — как в системе телефона/компьютера.
+// Дневной / ночной режим. Пока посетитель сам не выбрал — дневной (светлый), независимо от настроек телефона/компьютера.
 // Выбор хранится в браузере; класс .dark ставится на <html>.
 // Тот же код (короткая версия) встроен в index.html, чтобы страница не «мигала» белым при загрузке.
 const KEY = 'theme';
 const mq = typeof window !== 'undefined' ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 
-export function getTheme() { try { return localStorage.getItem(KEY) || 'system'; } catch { return 'system'; } }
+export function getTheme() { try { return localStorage.getItem(KEY) || 'light'; } catch { return 'light'; } }
 export const isDark = (t = getTheme()) => t === 'dark' || (t === 'system' && !!mq?.matches);
 
 export function applyTheme(t = getTheme()) {
