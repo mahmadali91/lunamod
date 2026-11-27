@@ -164,9 +164,10 @@ export default function Catalog() {
     <div className="mx-auto max-w-7xl px-4 pt-4 sm:pt-6">
       {/* одна строка: заголовок с количеством · фильтры · сортировка (на телефоне фильтры — второй строкой с прокруткой) */}
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2.5 sm:mb-5">
-        <div className="flex min-w-0 flex-1 items-baseline gap-2 lg:flex-none">
-          <h1 className="truncate text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1>
-          {data && <span className="shrink-0 text-sm whitespace-nowrap text-slate-500">{data.total} {plural(data.total, 'товар', 'товара', 'товаров')}</span>}
+        {/* на телефоне количество под заголовком — длинное название категории не обрезается до «Катал…» */}
+        <div className="flex min-w-0 flex-1 flex-col sm:flex-row sm:items-baseline sm:gap-2 lg:flex-none">
+          <h1 className="line-clamp-2 text-xl leading-tight font-bold tracking-tight sm:truncate sm:text-3xl">{title}</h1>
+          {data && <span className="shrink-0 text-xs whitespace-nowrap text-slate-500 sm:text-sm">{data.total} {plural(data.total, 'товар', 'товара', 'товаров')}</span>}
         </div>
         <select value={sort} onChange={(e) => set('sort', e.target.value)} aria-label="Сортировка" className="max-w-[45%] shrink-0 rounded-full border border-slate-300 bg-white px-2.5 py-1.5 text-[13px] outline-none sm:text-sm lg:order-last lg:max-w-none sm:px-3.5 sm:py-2">
           {SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
