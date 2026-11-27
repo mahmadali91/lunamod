@@ -8,8 +8,10 @@ import { CameraButton } from './CameraScanner';
  * Поле поиска товара: ввод названия/артикула/штрихкода.
  * Сканер штрихкода печатает код и Enter → товар добавляется сразу.
  */
-export default function ProductPicker({ onPick, autoFocus, placeholder = 'Сканируйте штрихкод или введите название / артикул…', warehouseId, popular }) {
+export default function ProductPicker({ onPick, autoFocus, placeholder = 'Сканируйте штрихкод или введите название / артикул…', warehouseId, popular, query }) {
   const [q, setQ] = useState('');
+  // запрос снаружи (отсканирован артикул модели с размерами) — показываем её размеры
+  useEffect(() => { if (query?.text) setQ(query.text); }, [query?.key]); // eslint-disable-line react-hooks/exhaustive-deps
   const [list, setList] = useState([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
